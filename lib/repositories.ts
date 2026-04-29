@@ -153,15 +153,15 @@ export async function getUsuarioByEmail(email: string): Promise<Usuario | null> 
     return null
   }
 
-  if (getDatabaseType() === 'mysql') {
-    const rows = await mysqlSelect('SELECT * FROM usuarios WHERE LOWER(email) = LOWER(?) LIMIT 1', [normalizedEmail])
-    return rows[0] ? normalizeUsuario(rows[0]) : null
+  let usuario = await getUsuarioByEmailInternal(normalizedEmail)
+
+  if (usuario) {
+    return usuario
   }
 
-  const client = getSupabaseOrThrow()
-  const { data, error } = await client.from('usuarios').select('*').eq('email', normalizedEmail).maybeSingle()
-  throwIfSupabaseError(error)
-  return data ? normalizeUsuario(data as Row) : null
+  await ensureDefaultAdminUser()
+  usuario = await getUsuarioByEmailInternal(normalizedEmail)
+  return usuario
 }
 
 export async function ensureDefaultAdminUser() {
@@ -209,6 +209,18 @@ async function createUsuarioInternal(input: {
     .single()
   throwIfSupabaseError(error)
   return Number(data.id)
+}
+
+async function getUsuarioByEmailInternal(email: string): Promise<Usuario | null> {
+  if (getDatabaseType() === 'mysql') {
+    const rows = await mysqlSelect('SELECT * FROM usuarios WHERE LOWER(email) = LOWER(?) LIMIT 1', [email])
+    return rows[0] ? normalizeUsuario(rows[0]) : null
+  }
+
+  const client = getSupabaseOrThrow()
+  const { data, error } = await client.from('usuarios').select('*').eq('email', email).maybeSingle()
+  throwIfSupabaseError(error)
+  return data ? normalizeUsuario(data as Row) : null
 }
 
 export async function listClientes(filters: { includeArchived?: boolean; onlyArchived?: boolean } = {}): Promise<Cliente[]> {
@@ -1463,7 +1475,7 @@ async function setupMySQLDatabase() {
         id INT AUTO_INCREMENT PRIMARY KEY,
         cliente_id INT NOT NULL,
         proposta_id INT NOT NULL,
-        categoria ENUM('perfis', 'vidros', 'acessorios', 'outros') DEFAULT 'outros',
+        categoria ENUM('perfis', 'vidros', 'acessorios', 'perdas') DEFAULT 'perdas',
         fornecedor VARCHAR(255) NOT NULL,
         descricao TEXT NOT NULL,
         valor_total DECIMAL(15, 2) NULL,
@@ -1518,7 +1530,7 @@ async function setupMySQLDatabase() {
     await addColumnIfMissing(connection, 'propostas', 'custo_perdas', 'DECIMAL(15, 2) DEFAULT 0')
     await addColumnIfMissing(connection, 'propostas', 'arquivado', 'BOOLEAN DEFAULT FALSE')
     await addColumnIfMissing(connection, 'compras', 'cliente_id', 'INT NULL')
-    await addColumnIfMissing(connection, 'compras', 'categoria', "ENUM('perfis', 'vidros', 'acessorios', 'outros') DEFAULT 'outros'")
+    await addColumnIfMissing(connection, 'compras', 'categoria', "ENUM('perfis', 'vidros', 'acessorios', 'perdas') DEFAULT 'perdas'")
     await addColumnIfMissing(connection, 'compras', 'valor_total', 'DECIMAL(15, 2) NULL')
     await addColumnIfMissing(connection, 'compras', 'status_entrega', "ENUM('pendente', 'entregue') DEFAULT 'pendente'")
     await addColumnIfMissing(connection, 'compras', 'previsao_entrega', 'DATE NULL')
@@ -1561,6 +1573,12 @@ async function setupMySQLDatabase() {
     }
 
     await connection.execute(`
+      UPDATE compras
+      SET categoria = 'perdas'
+      WHERE categoria = 'outros' OR categoria IS NULL OR categoria = ''
+    `)
+
+    await connection.execute(`
       ALTER TABLE compras
       MODIFY COLUMN status VARCHAR(50) NULL
     `)
@@ -1580,7 +1598,7 @@ async function setupMySQLDatabase() {
       ALTER TABLE compras
       MODIFY COLUMN status ENUM('cotacao', 'em_analise', 'retificacao', 'pedido_autorizado') DEFAULT 'cotacao',
       MODIFY COLUMN status_entrega ENUM('pendente', 'entregue') DEFAULT 'pendente',
-      MODIFY COLUMN categoria ENUM('perfis', 'vidros', 'acessorios', 'outros') DEFAULT 'outros'
+      MODIFY COLUMN categoria ENUM('perfis', 'vidros', 'acessorios', 'perdas') DEFAULT 'perdas'
     `)
 
     if (await hasTable(connection, 'compras_historico')) {
@@ -1935,7 +1953,7 @@ function categoriaLabel(categoria: Compra['categoria']) {
 }
 
 function serializeCategoriaCompra(categoria: Compra['categoria']) {
-  return categoria === 'perdas' ? 'outros' : categoria
+  return categoria
 }
 
 function formatDateBr(value: string) {

@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS compras (
   id BIGSERIAL PRIMARY KEY,
   cliente_id BIGINT NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
   proposta_id BIGINT NOT NULL REFERENCES propostas(id) ON DELETE CASCADE,
-  categoria TEXT NOT NULL DEFAULT 'outros' CHECK (categoria IN ('perfis', 'vidros', 'acessorios', 'outros')),
+  categoria TEXT NOT NULL DEFAULT 'perdas' CHECK (categoria IN ('perfis', 'vidros', 'acessorios', 'perdas')),
   fornecedor VARCHAR(255) NOT NULL,
   descricao TEXT NOT NULL,
   valor_total NUMERIC(15, 2) NULL,
@@ -78,6 +78,15 @@ ALTER TABLE propostas ADD COLUMN IF NOT EXISTS arquivado BOOLEAN DEFAULT FALSE;
 ALTER TABLE compras ADD COLUMN IF NOT EXISTS arquivado BOOLEAN DEFAULT FALSE;
 ALTER TABLE anexos ADD COLUMN IF NOT EXISTS nome_arquivo VARCHAR(255);
 ALTER TABLE anexos ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+
+ALTER TABLE compras DROP CONSTRAINT IF EXISTS compras_categoria_check;
+UPDATE compras
+SET categoria = 'perdas'
+WHERE categoria = 'outros' OR categoria IS NULL OR categoria = '';
+ALTER TABLE compras ALTER COLUMN categoria SET DEFAULT 'perdas';
+ALTER TABLE compras
+ADD CONSTRAINT compras_categoria_check
+CHECK (categoria IN ('perfis', 'vidros', 'acessorios', 'perdas'));
 
 UPDATE anexos
 SET nome_arquivo = COALESCE(NULLIF(nome_arquivo, ''), regexp_replace(split_part(arquivo_url, '?', 1), '^.*/', ''), 'anexo')

@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS compras (
   id INT AUTO_INCREMENT PRIMARY KEY,
   cliente_id INT NOT NULL,
   proposta_id INT NOT NULL,
-  categoria ENUM('perfis', 'vidros', 'acessorios', 'outros') DEFAULT 'outros',
+  categoria ENUM('perfis', 'vidros', 'acessorios', 'perdas') DEFAULT 'perdas',
   fornecedor VARCHAR(255) NOT NULL,
   descricao TEXT NOT NULL,
   valor_total DECIMAL(15, 2) NULL,
@@ -91,3 +91,9 @@ WHERE nome_arquivo IS NULL OR nome_arquivo = '';
 UPDATE anexos
 SET created_at = CURRENT_TIMESTAMP
 WHERE created_at IS NULL;
+
+ALTER TABLE compras MODIFY COLUMN categoria ENUM('perfis', 'vidros', 'acessorios', 'outros', 'perdas') DEFAULT 'perdas';
+UPDATE compras
+SET categoria = 'perdas'
+WHERE categoria = 'outros' OR categoria IS NULL OR categoria = '';
+ALTER TABLE compras MODIFY COLUMN categoria ENUM('perfis', 'vidros', 'acessorios', 'perdas') DEFAULT 'perdas';

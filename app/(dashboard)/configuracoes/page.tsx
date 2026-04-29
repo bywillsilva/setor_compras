@@ -198,6 +198,12 @@ export default function ConfiguracoesPage() {
                   <code className="block bg-amber-100 p-2 rounded text-xs text-amber-900">
                     scripts/migrations/supabase/2026-04-29-upgrade-current-schema.sql
                   </code>
+                  <p className="mt-3 text-sm text-amber-800 mb-2">
+                    Se quiser resetar tudo e recriar a base do zero na estrutura atual:
+                  </p>
+                  <code className="block bg-amber-100 p-2 rounded text-xs text-amber-900">
+                    scripts/reset-database-supabase.sql
+                  </code>
                   <Button
                     variant="outline"
                     size="sm"

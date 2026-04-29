@@ -89,7 +89,6 @@ export function normalizeCategoriaCompra(value: unknown): CategoriaCompra {
     return "acessorios"
   }
 
-  // Mantem compatibilidade com registros antigos salvos como "outros".
   return "perdas"
 }
 
