@@ -9,6 +9,7 @@ import {
   CircleDollarSign,
   Eye,
   FileStack,
+  Loader2,
   Mail,
   Package,
   Phone,
@@ -50,6 +51,7 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
   const [compras, setCompras] = useState<Compra[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [togglingArchive, setTogglingArchive] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -61,8 +63,8 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
       try {
         const [clienteData, propostasData, comprasData] = await Promise.all([
           fetchJson<Cliente>(`/api/clientes/${id}`, "Nao foi possivel carregar o cliente."),
-          fetchJson<Proposta[]>(`/api/propostas?cliente_id=${id}`, "Nao foi possivel carregar as propostas."),
-          fetchJson<Compra[]>(`/api/compras?cliente_id=${id}`, "Nao foi possivel carregar as compras."),
+          fetchJson<Proposta[]>(`/api/propostas?cliente_id=${id}&arquivados=todos`, "Nao foi possivel carregar as propostas."),
+          fetchJson<Compra[]>(`/api/compras?cliente_id=${id}&arquivados=todos`, "Nao foi possivel carregar as compras."),
         ])
 
         if (!active) {
@@ -159,6 +161,42 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
     }
   }, [compras, propostas])
 
+  async function handleArchiveToggle() {
+    if (!cliente) {
+      return
+    }
+
+    const nextArchivedState = !cliente.arquivado
+    const confirmMessage = nextArchivedState
+      ? "Deseja arquivar este cliente?"
+      : "Deseja desarquivar este cliente e voltar com ele para a lista ativa?"
+
+    if (!confirm(confirmMessage)) {
+      return
+    }
+
+    setTogglingArchive(true)
+
+    try {
+      const response = await fetch(`/api/clientes/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ arquivado: nextArchivedState }),
+      })
+      const payload = await response.json()
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Erro ao atualizar arquivamento do cliente.")
+      }
+
+      setCliente((current) => (current ? { ...current, arquivado: nextArchivedState } : current))
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao atualizar arquivamento do cliente.")
+    } finally {
+      setTogglingArchive(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
@@ -197,17 +235,36 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
             </Button>
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-foreground">{cliente.nome}</h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-bold text-foreground">{cliente.nome}</h1>
+              {cliente.arquivado && <Badge variant="outline">Arquivado</Badge>}
+            </div>
             <p className="text-muted-foreground">Resumo de propostas, pedidos e gastos deste cliente</p>
           </div>
         </div>
 
-        <Link href={`/compras/novo?cliente_id=${cliente.id}`}>
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            Nova compra
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={handleArchiveToggle} disabled={togglingArchive}>
+            {togglingArchive ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Salvando...
+              </>
+            ) : cliente.arquivado ? (
+              "Desarquivar"
+            ) : (
+              "Arquivar"
+            )}
           </Button>
-        </Link>
+          {!cliente.arquivado && (
+            <Link href={`/compras/novo?cliente_id=${cliente.id}`}>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                Nova compra
+              </Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
@@ -423,7 +480,7 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
       <Card>
         <CardHeader>
           <CardTitle>Compras do cliente</CardTitle>
-          <CardDescription>{comprasOrdenadas.length} pedido(s) ativos vinculados a este cliente</CardDescription>
+          <CardDescription>{comprasOrdenadas.length} pedido(s) vinculados a este cliente</CardDescription>
         </CardHeader>
         <CardContent>
           {comprasOrdenadas.length === 0 ? (
@@ -458,7 +515,10 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
                       <Badge variant="outline">{CATEGORIA_LABELS[compra.categoria]}</Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
+                        {compra.arquivado && <Badge variant="outline">Arquivado</Badge>}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <DeliveryStatusBadge compra={compra} />

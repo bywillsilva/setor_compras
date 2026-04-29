@@ -173,7 +173,7 @@ export default function ConfiguracoesPage() {
 
               {dbStatus.missingTables && dbStatus.missingTables.length > 0 && (
                 <div>
-                  <p className="text-sm text-muted-foreground mb-2">Tabelas faltando:</p>
+                  <p className="text-sm text-muted-foreground mb-2">Estruturas pendentes na versao atual:</p>
                   <div className="flex flex-wrap gap-2">
                     {dbStatus.missingTables.map((table) => (
                       <Badge key={table} variant="secondary" className="bg-red-100 text-red-800">
@@ -187,10 +187,16 @@ export default function ConfiguracoesPage() {
               {dbStatus.dbType === 'supabase' && dbStatus.missingTables && dbStatus.missingTables.length > 0 && (
                 <div className="mt-4 p-3 bg-amber-50 rounded-lg border border-amber-200">
                   <p className="text-sm text-amber-800 mb-2">
-                    Execute o script SQL no SQL Editor do Supabase:
+                    Primeira instalacao no Supabase:
                   </p>
                   <code className="block bg-amber-100 p-2 rounded text-xs text-amber-900">
                     scripts/setup-database-supabase.sql
+                  </code>
+                  <p className="mt-3 text-sm text-amber-800 mb-2">
+                    Para alinhar uma base existente com a versao atual do sistema, use a migration consolidada:
+                  </p>
+                  <code className="block bg-amber-100 p-2 rounded text-xs text-amber-900">
+                    scripts/migrations/supabase/2026-04-29-upgrade-current-schema.sql
                   </code>
                   <Button
                     variant="outline"
@@ -222,12 +228,11 @@ export default function ConfiguracoesPage() {
                 <pre className="bg-muted p-2 rounded text-xs overflow-x-auto">
 {`NEXT_PUBLIC_SUPABASE_URL="https://seu-projeto.supabase.co"
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="sb_publishable_..."
-SUPABASE_SECRET_KEY="sb_secret_..."
-
-# Compatibilidade com chaves legadas:
-# NEXT_PUBLIC_SUPABASE_ANON_KEY="sua-anon-key"
-# SUPABASE_SERVICE_ROLE_KEY="sua-service-role-key"`}
+SUPABASE_SECRET_KEY="sb_secret_..."`}
                 </pre>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Em bases existentes, execute a migration consolidada da versao atual antes de usar o sistema.
+                </p>
               </div>
 
               {/* MySQL Option */}

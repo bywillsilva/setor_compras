@@ -13,6 +13,7 @@ export interface Cliente {
   documento: string | null
   contato: string | null
   email: string | null
+  arquivado: boolean
   created_at: string
   updated_at: string
 }
@@ -29,6 +30,7 @@ export interface Proposta {
   valor_previsto_acessorios: number
   valor_previsto_outros: number
   custo_perdas: number
+  arquivado: boolean
   created_at: string
   updated_at: string
   cliente_nome?: string

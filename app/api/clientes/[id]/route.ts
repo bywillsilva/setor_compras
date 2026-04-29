@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { deleteCliente, getClienteById, updateCliente } from '@/lib/repositories'
+import { deleteCliente, getClienteById, setClienteArchivedState, updateCliente } from '@/lib/repositories'
 
 export async function GET(
   _request: NextRequest,
@@ -29,6 +29,14 @@ export async function PUT(
   try {
     const { id } = await params
     const body = await request.json()
+
+    if (typeof body.arquivado === 'boolean') {
+      const result = await setClienteArchivedState(Number(id), body.arquivado)
+      return NextResponse.json({
+        message: result.archived ? 'Cliente arquivado com sucesso.' : 'Cliente desarquivado com sucesso.',
+        archived: result.archived,
+      })
+    }
 
     if (!String(body.nome ?? '').trim()) {
       return NextResponse.json({ error: 'Nome é obrigatório.' }, { status: 400 })

@@ -1,5 +1,9 @@
+import { rm } from 'fs/promises'
+import path from 'path'
 import { NextRequest, NextResponse } from 'next/server'
-import { deleteCompra, getCompraDetail, updateCompra } from '@/lib/repositories'
+import { getCompraDetail, permanentlyDeleteCompra, setCompraArchivedState, updateCompra } from '@/lib/repositories'
+
+export const runtime = 'nodejs'
 
 export async function GET(
   _request: NextRequest,
@@ -10,7 +14,7 @@ export async function GET(
     const compra = await getCompraDetail(Number(id))
 
     if (!compra) {
-      return NextResponse.json({ error: 'Compra não encontrada.' }, { status: 404 })
+      return NextResponse.json({ error: 'Compra nao encontrada.' }, { status: 404 })
     }
 
     return NextResponse.json(compra)
@@ -29,6 +33,14 @@ export async function PUT(
   try {
     const { id } = await params
     const body = await request.json()
+
+    if (typeof body.arquivado === 'boolean') {
+      const result = await setCompraArchivedState(Number(id), body.arquivado)
+      return NextResponse.json({
+        message: result.archived ? 'Pedido arquivado com sucesso.' : 'Pedido desarquivado com sucesso.',
+        archived: result.archived,
+      })
+    }
 
     await updateCompra(Number(id), {
       categoria: body.categoria,
@@ -58,12 +70,12 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params
-    const result = await deleteCompra(Number(id))
+    await permanentlyDeleteCompra(Number(id))
 
-    return NextResponse.json({
-      message: result.archived ? 'Pedido arquivado com sucesso.' : 'Pedido excluído com sucesso.',
-      archived: result.archived,
-    })
+    const uploadDirectory = path.join(process.cwd(), 'public', 'uploads', 'compras', id)
+    await rm(uploadDirectory, { recursive: true, force: true })
+
+    return NextResponse.json({ message: 'Pedido excluido com sucesso.' })
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erro ao excluir compra.' },

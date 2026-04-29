@@ -2,6 +2,7 @@
 
 import { use, useEffect, useMemo, useState, type ReactNode } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { format, parseISO } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import {
@@ -9,9 +10,11 @@ import {
   Calendar,
   DollarSign,
   Eye,
+  Loader2,
   Package,
   Plus,
   ShoppingCart,
+  Trash2,
   TrendingDown,
   TrendingUp,
   TriangleAlert,
@@ -33,16 +36,19 @@ import type { Compra, Proposta } from "@/lib/types"
 
 export default function PropostaDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
+  const router = useRouter()
   const [proposta, setProposta] = useState<Proposta | null>(null)
   const [compras, setCompras] = useState<Compra[]>([])
   const [loading, setLoading] = useState(true)
+  const [deleting, setDeleting] = useState(false)
+  const [togglingArchive, setTogglingArchive] = useState(false)
 
   useEffect(() => {
     async function fetchData() {
       try {
         const [propostaResponse, comprasResponse] = await Promise.all([
           fetch(`/api/propostas/${id}`),
-          fetch(`/api/compras?proposta_id=${id}`),
+          fetch(`/api/compras?proposta_id=${id}&arquivados=todos`),
         ])
 
         if (propostaResponse.ok) {
@@ -90,6 +96,70 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
     }
   }, [compras, proposta])
 
+  async function handleDelete() {
+    if (!proposta) {
+      return
+    }
+
+    if (!confirm("Deseja excluir esta proposta permanentemente?")) {
+      return
+    }
+
+    setDeleting(true)
+
+    try {
+      const response = await fetch(`/api/propostas/${id}`, { method: "DELETE" })
+      const payload = await response.json()
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Erro ao excluir proposta.")
+      }
+
+      router.push("/propostas")
+      router.refresh()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao excluir proposta.")
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  async function handleArchiveToggle() {
+    if (!proposta) {
+      return
+    }
+
+    const nextArchivedState = !proposta.arquivado
+    const confirmMessage = nextArchivedState
+      ? "Deseja arquivar esta proposta?"
+      : "Deseja desarquivar esta proposta e voltar com ela para a lista ativa?"
+
+    if (!confirm(confirmMessage)) {
+      return
+    }
+
+    setTogglingArchive(true)
+
+    try {
+      const response = await fetch(`/api/propostas/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ arquivado: nextArchivedState }),
+      })
+      const payload = await response.json()
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Erro ao atualizar arquivamento da proposta.")
+      }
+
+      setProposta((current) => (current ? { ...current, arquivado: nextArchivedState } : current))
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao atualizar arquivamento da proposta.")
+    } finally {
+      setTogglingArchive(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
@@ -120,17 +190,49 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
             </Button>
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-foreground">{proposta.nome}</h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-bold text-foreground">{proposta.nome}</h1>
+              {proposta.arquivado && <Badge variant="outline">Arquivada</Badge>}
+            </div>
             <p className="text-muted-foreground">{proposta.cliente_nome}</p>
           </div>
         </div>
 
-        <Link href={`/compras/novo?proposta_id=${proposta.id}&cliente_id=${proposta.cliente_id}`}>
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            Nova Compra
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={handleArchiveToggle} disabled={togglingArchive}>
+            {togglingArchive ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Salvando...
+              </>
+            ) : proposta.arquivado ? (
+              "Desarquivar"
+            ) : (
+              "Arquivar"
+            )}
           </Button>
-        </Link>
+          <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+            {deleting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Excluindo...
+              </>
+            ) : (
+              <>
+                <Trash2 className="mr-2 h-4 w-4" />
+                Excluir proposta
+              </>
+            )}
+          </Button>
+          {!proposta.arquivado && (
+            <Link href={`/compras/novo?proposta_id=${proposta.id}&cliente_id=${proposta.cliente_id}`}>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                Nova Compra
+              </Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-5">
@@ -284,9 +386,12 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
                     </TableCell>
                     <TableCell className="font-medium">{compra.fornecedor}</TableCell>
                     <TableCell>
-                      <Badge className={STATUS_BADGE_CLASSES[compra.status]}>
-                        {STATUS_LABELS[compra.status]}
-                      </Badge>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge className={STATUS_BADGE_CLASSES[compra.status]}>
+                          {STATUS_LABELS[compra.status]}
+                        </Badge>
+                        {compra.arquivado && <Badge variant="outline">Arquivado</Badge>}
+                      </div>
                     </TableCell>
                     <TableCell>{formatCurrency(compra.valor_total ?? 0)}</TableCell>
                     <TableCell className="text-right">

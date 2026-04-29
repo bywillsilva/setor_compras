@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { deleteProposta, getPropostaById, updateProposta } from '@/lib/repositories'
+import { deleteProposta, getPropostaById, setPropostaArchivedState, updateProposta } from '@/lib/repositories'
 
 export async function GET(
   _request: NextRequest,
@@ -29,6 +29,14 @@ export async function PUT(
   try {
     const { id } = await params
     const body = await request.json()
+
+    if (typeof body.arquivado === 'boolean') {
+      const result = await setPropostaArchivedState(Number(id), body.arquivado)
+      return NextResponse.json({
+        message: result.archived ? 'Proposta arquivada com sucesso.' : 'Proposta desarquivada com sucesso.',
+        archived: result.archived,
+      })
+    }
 
     if (!body.cliente_id || !String(body.nome ?? '').trim()) {
       return NextResponse.json({ error: 'Cliente e nome são obrigatórios.' }, { status: 400 })

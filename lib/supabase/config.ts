@@ -3,11 +3,11 @@ export function getSupabaseUrl() {
 }
 
 export function getSupabasePublishableKey() {
-  return process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? null
+  return process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? null
 }
 
 export function getSupabaseServerKey() {
-  return process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? null
+  return process.env.SUPABASE_SECRET_KEY ?? null
 }
 
 export function hasSupabaseClientConfig() {

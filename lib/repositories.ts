@@ -51,6 +51,46 @@ interface ReportFilters {
 }
 
 const REQUIRED_TABLES = ['clientes', 'usuarios', 'propostas', 'compras', 'historico_compras', 'anexos'] as const
+const REQUIRED_SCHEMA_COLUMNS: Record<(typeof REQUIRED_TABLES)[number], string[]> = {
+  clientes: ['id', 'nome', 'documento', 'contato', 'email', 'arquivado', 'created_at', 'updated_at'],
+  usuarios: ['id', 'nome', 'email', 'senha_hash', 'perfil', 'ativo', 'created_at', 'updated_at'],
+  propostas: [
+    'id',
+    'cliente_id',
+    'nome',
+    'data_inicio',
+    'data_fim',
+    'valor_previsto',
+    'valor_previsto_perfis',
+    'valor_previsto_vidros',
+    'valor_previsto_acessorios',
+    'valor_previsto_outros',
+    'custo_perdas',
+    'arquivado',
+    'created_at',
+    'updated_at',
+  ],
+  compras: [
+    'id',
+    'cliente_id',
+    'proposta_id',
+    'categoria',
+    'fornecedor',
+    'descricao',
+    'valor_total',
+    'numero_pedido',
+    'status',
+    'status_entrega',
+    'previsao_entrega',
+    'data_envio_fornecedor',
+    'data_entrega_real',
+    'data_criacao',
+    'updated_at',
+    'arquivado',
+  ],
+  historico_compras: ['id', 'compra_id', 'evento', 'data', 'usuario'],
+  anexos: ['id', 'compra_id', 'tipo', 'arquivo_url', 'nome_arquivo', 'created_at'],
+}
 
 export async function getSetupStatus(): Promise<SetupStatus> {
   const dbType = getDatabaseType()
@@ -88,8 +128,8 @@ export async function setupDatabase() {
       return {
         success: false,
         dbType,
-        error: 'Tabelas não encontradas',
-        details: 'Execute o script scripts/setup-database-supabase.sql no SQL Editor do Supabase.',
+        error: 'Estrutura do banco fora da versão atual',
+        details: `Execute ${status.setupScript ?? 'scripts/setup-database-supabase.sql'} no SQL Editor do Supabase.`,
       }
     }
 
@@ -102,7 +142,7 @@ export async function setupDatabase() {
     dbType: 'none' as const,
     error: 'Nenhum banco de dados configurado',
     details:
-      'Configure DATABASE_URL para MySQL ou NEXT_PUBLIC_SUPABASE_URL junto com SUPABASE_SECRET_KEY/SUPABASE_SERVICE_ROLE_KEY para Supabase.',
+      'Configure DATABASE_URL para MySQL ou NEXT_PUBLIC_SUPABASE_URL junto com NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY e SUPABASE_SECRET_KEY para Supabase.',
   }
 }
 
@@ -171,16 +211,28 @@ async function createUsuarioInternal(input: {
   return Number(data.id)
 }
 
-export async function listClientes(): Promise<Cliente[]> {
+export async function listClientes(filters: { includeArchived?: boolean; onlyArchived?: boolean } = {}): Promise<Cliente[]> {
   if (getDatabaseType() === 'mysql') {
-    const rows = await mysqlSelect('SELECT * FROM clientes ORDER BY nome ASC')
+    let sql = 'SELECT * FROM clientes WHERE 1 = 1'
+    const params: unknown[] = []
+
+    if (filters.onlyArchived) {
+      sql += ' AND arquivado = 1'
+    } else if (!filters.includeArchived) {
+      sql += ' AND arquivado = 0'
+    }
+
+    sql += ' ORDER BY nome ASC'
+    const rows = await mysqlSelect(sql, params)
     return rows.map(normalizeCliente)
   }
 
   const client = getSupabaseOrThrow()
   const { data, error } = await client.from('clientes').select('*').order('nome', { ascending: true })
   throwIfSupabaseError(error)
-  return (data ?? []).map((row: Row) => normalizeCliente(row))
+  return (data ?? [])
+    .map((row: Row) => normalizeCliente(row))
+    .filter((cliente: Cliente) => (filters.onlyArchived ? cliente.arquivado : filters.includeArchived || !cliente.arquivado))
 }
 
 export async function getClienteById(id: number): Promise<Cliente | null> {
@@ -261,8 +313,37 @@ export async function deleteCliente(id: number) {
   throwIfSupabaseError(error)
 }
 
-export async function listPropostas(filters: { clienteId?: number } = {}): Promise<Proposta[]> {
-  const [propostas, clientes] = await Promise.all([listPropostasRaw(filters), listClientes()])
+export async function setClienteArchivedState(id: number, arquivado: boolean) {
+  const cliente = await getClienteById(id)
+
+  if (!cliente) {
+    throw new Error('Cliente nÃ£o encontrado.')
+  }
+
+  if (cliente.arquivado === arquivado) {
+    return { archived: arquivado }
+  }
+
+  if (getDatabaseType() === 'mysql') {
+    await mysqlExecute('UPDATE clientes SET arquivado = ? WHERE id = ?', [arquivado ? 1 : 0, id])
+  } else {
+    const client = getSupabaseOrThrow()
+    const { error } = await client.from('clientes').update({ arquivado }).eq('id', id)
+    throwIfSupabaseError(error)
+  }
+
+  return { archived: arquivado }
+}
+
+export async function listPropostas(filters: {
+  clienteId?: number
+  includeArchived?: boolean
+  onlyArchived?: boolean
+} = {}): Promise<Proposta[]> {
+  const [propostas, clientes] = await Promise.all([
+    listPropostasRaw(filters),
+    listClientes({ includeArchived: true }),
+  ])
   const clientesById = new Map(clientes.map((cliente) => [cliente.id, cliente.nome]))
 
   return propostas.map((proposta) => ({
@@ -272,7 +353,7 @@ export async function listPropostas(filters: { clienteId?: number } = {}): Promi
 }
 
 export async function getPropostaById(id: number): Promise<Proposta | null> {
-  const [proposta] = await listPropostasRaw({ id })
+  const [proposta] = await listPropostasRaw({ id, includeArchived: true })
 
   if (!proposta) {
     return null
@@ -399,11 +480,33 @@ export async function deleteProposta(id: number) {
   throwIfSupabaseError(error)
 }
 
+export async function setPropostaArchivedState(id: number, arquivado: boolean) {
+  const proposta = await getPropostaById(id)
+
+  if (!proposta) {
+    throw new Error('Proposta nÃ£o encontrada.')
+  }
+
+  if (proposta.arquivado === arquivado) {
+    return { archived: arquivado }
+  }
+
+  if (getDatabaseType() === 'mysql') {
+    await mysqlExecute('UPDATE propostas SET arquivado = ? WHERE id = ?', [arquivado ? 1 : 0, id])
+  } else {
+    const client = getSupabaseOrThrow()
+    const { error } = await client.from('propostas').update({ arquivado }).eq('id', id)
+    throwIfSupabaseError(error)
+  }
+
+  return { archived: arquivado }
+}
+
 export async function listCompras(filters: PurchaseFilters = {}): Promise<Compra[]> {
   const [compras, clientes, propostas] = await Promise.all([
     listComprasRaw(filters),
-    listClientes(),
-    listPropostasRaw(),
+    listClientes({ includeArchived: true }),
+    listPropostasRaw({ includeArchived: true }),
   ])
 
   const clientesById = new Map(clientes.map((cliente) => [cliente.id, cliente.nome]))
@@ -675,6 +778,53 @@ export async function deleteCompra(id: number) {
   return { archived: false }
 }
 
+export async function permanentlyDeleteCompra(id: number) {
+  const compra = await getCompraById(id)
+
+  if (!compra) {
+    throw new Error('Compra nÃ£o encontrada.')
+  }
+
+  if (getDatabaseType() === 'mysql') {
+    await mysqlExecute('DELETE FROM anexos WHERE compra_id = ?', [id])
+    await mysqlExecute('DELETE FROM historico_compras WHERE compra_id = ?', [id])
+    await mysqlExecute('DELETE FROM compras WHERE id = ?', [id])
+  } else {
+    const client = getSupabaseOrThrow()
+    const { error: anexosError } = await client.from('anexos').delete().eq('compra_id', id)
+    throwIfSupabaseError(anexosError)
+    const { error: historicoError } = await client.from('historico_compras').delete().eq('compra_id', id)
+    throwIfSupabaseError(historicoError)
+    const { error: compraError } = await client.from('compras').delete().eq('id', id)
+    throwIfSupabaseError(compraError)
+  }
+
+  return { deleted: true }
+}
+
+export async function setCompraArchivedState(id: number, arquivado: boolean) {
+  const compra = await getCompraById(id)
+
+  if (!compra) {
+    throw new Error('Compra não encontrada.')
+  }
+
+  if (compra.arquivado === arquivado) {
+    return { archived: arquivado }
+  }
+
+  if (getDatabaseType() === 'mysql') {
+    await mysqlExecute('UPDATE compras SET arquivado = ? WHERE id = ?', [arquivado ? 1 : 0, id])
+  } else {
+    const client = getSupabaseOrThrow()
+    const { error } = await client.from('compras').update({ arquivado }).eq('id', id)
+    throwIfSupabaseError(error)
+  }
+
+  await addHistoricoEvento(id, arquivado ? 'Pedido arquivado manualmente' : 'Pedido desarquivado')
+  return { archived: arquivado }
+}
+
 export async function listHistoricoByCompraId(compraId: number): Promise<HistoricoCompra[]> {
   if (getDatabaseType() === 'mysql') {
     const rows = await mysqlSelect('SELECT * FROM historico_compras WHERE compra_id = ? ORDER BY data DESC', [compraId])
@@ -707,6 +857,18 @@ export async function listAnexosByCompraId(compraId: number): Promise<Anexo[]> {
   return (data ?? []).map((row: Row) => normalizeAnexo(row))
 }
 
+export async function getAnexoById(compraId: number, anexoId: number): Promise<Anexo | null> {
+  if (getDatabaseType() === 'mysql') {
+    const rows = await mysqlSelect('SELECT * FROM anexos WHERE id = ? AND compra_id = ? LIMIT 1', [anexoId, compraId])
+    return rows[0] ? normalizeAnexo(rows[0]) : null
+  }
+
+  const client = getSupabaseOrThrow()
+  const { data, error } = await client.from('anexos').select('*').eq('id', anexoId).eq('compra_id', compraId).maybeSingle()
+  throwIfSupabaseError(error)
+  return data ? normalizeAnexo(data as Row) : null
+}
+
 export async function createAnexo(input: { compra_id: number; tipo: TipoAnexo; arquivo_url: string; nome_arquivo: string }) {
   if (getDatabaseType() === 'mysql') {
     const result = await mysqlExecute(
@@ -724,6 +886,18 @@ export async function createAnexo(input: { compra_id: number; tipo: TipoAnexo; a
     .single()
   throwIfSupabaseError(error)
   return Number(data.id)
+}
+
+export async function deleteAnexo(compraId: number, anexoId: number) {
+  if (getDatabaseType() === 'mysql') {
+    await mysqlExecute('DELETE FROM anexos WHERE id = ? AND compra_id = ?', [anexoId, compraId])
+    return { deleted: true }
+  }
+
+  const client = getSupabaseOrThrow()
+  const { error } = await client.from('anexos').delete().eq('id', anexoId).eq('compra_id', compraId)
+  throwIfSupabaseError(error)
+  return { deleted: true }
 }
 
 export async function getDashboardData(): Promise<DashboardData> {
@@ -893,8 +1067,8 @@ export async function getHistoricoReport(filters: ReportFilters = {}): Promise<H
   const [historicos, compras, clientes, propostas] = await Promise.all([
     listHistoricosRaw(),
     listCompras({ includeArchived: true }),
-    listClientes(),
-    listPropostas(),
+    listClientes({ includeArchived: true }),
+    listPropostas({ includeArchived: true }),
   ])
 
   const comprasById = new Map(compras.map((compra) => [compra.id, compra]))
@@ -933,10 +1107,21 @@ export async function getHistoricoReport(filters: ReportFilters = {}): Promise<H
     })
 }
 
-async function listPropostasRaw(filters: { id?: number; clienteId?: number } = {}): Promise<Proposta[]> {
+async function listPropostasRaw(filters: {
+  id?: number
+  clienteId?: number
+  includeArchived?: boolean
+  onlyArchived?: boolean
+} = {}): Promise<Proposta[]> {
   if (getDatabaseType() === 'mysql') {
     let sql = 'SELECT * FROM propostas WHERE 1 = 1'
     const params: unknown[] = []
+
+    if (filters.onlyArchived) {
+      sql += ' AND arquivado = 1'
+    } else if (!filters.includeArchived) {
+      sql += ' AND arquivado = 0'
+    }
 
     if (filters.id) {
       sql += ' AND id = ?'
@@ -966,7 +1151,9 @@ async function listPropostasRaw(filters: { id?: number; clienteId?: number } = {
 
   const { data, error } = await query
   throwIfSupabaseError(error)
-  return (data ?? []).map((row: Row) => normalizeProposta(row))
+  return (data ?? [])
+    .map((row: Row) => normalizeProposta(row))
+    .filter((proposta: Proposta) => (filters.onlyArchived ? proposta.arquivado : filters.includeArchived || !proposta.arquivado))
 }
 
 async function listComprasRaw(filters: PurchaseFilters = {}): Promise<Compra[]> {
@@ -1103,13 +1290,18 @@ async function checkMySQLSetup(): Promise<SetupStatus> {
 
   const existingTables = rows.map((row) => String(row.TABLE_NAME))
   const missingTables = REQUIRED_TABLES.filter((table) => !existingTables.includes(table))
+  const missingColumns = missingTables.length === 0 ? await getMissingCurrentSchemaItemsMySQL() : []
+  const missingItems = [...missingTables, ...missingColumns]
 
   return {
-    configured: missingTables.length === 0,
+    configured: missingItems.length === 0,
     dbType: 'mysql',
     existingTables,
-    missingTables,
-    setupScript: 'scripts/setup-database.sql',
+    missingTables: missingItems,
+    setupScript:
+      missingTables.length > 0
+        ? 'scripts/setup-database.sql'
+        : 'scripts/migrations/mysql/2026-04-29-upgrade-current-schema.sql',
   }
 }
 
@@ -1135,13 +1327,73 @@ async function checkSupabaseSetup(): Promise<SetupStatus> {
     existingTables.push(table)
   }
 
+  const missingColumns = missingTables.length === 0 ? await getMissingCurrentSchemaItemsSupabase() : []
+  const missingItems = [...missingTables, ...missingColumns]
+
   return {
-    configured: missingTables.length === 0,
+    configured: missingItems.length === 0,
     dbType: 'supabase',
     existingTables,
-    missingTables,
-    setupScript: 'scripts/setup-database-supabase.sql',
+    missingTables: missingItems,
+    setupScript:
+      missingTables.length > 0
+        ? 'scripts/setup-database-supabase.sql'
+        : 'scripts/migrations/supabase/2026-04-29-upgrade-current-schema.sql',
   }
+}
+
+async function getMissingCurrentSchemaItemsMySQL() {
+  const pool = getMySQLPool()
+
+  if (!pool) {
+    return []
+  }
+
+  const connection = await pool.getConnection()
+
+  try {
+    const missingItems: string[] = []
+
+    for (const [table, columns] of Object.entries(REQUIRED_SCHEMA_COLUMNS) as Array<
+      [keyof typeof REQUIRED_SCHEMA_COLUMNS, string[]]
+    >) {
+      for (const column of columns) {
+        if (!(await hasColumn(connection, table, column))) {
+          missingItems.push(`${table}.${column}`)
+        }
+      }
+    }
+
+    return missingItems
+  } finally {
+    connection.release()
+  }
+}
+
+async function getMissingCurrentSchemaItemsSupabase() {
+  const client = getSupabaseOrThrow()
+  const missingItems: string[] = []
+
+  for (const [table, columns] of Object.entries(REQUIRED_SCHEMA_COLUMNS) as Array<
+    [keyof typeof REQUIRED_SCHEMA_COLUMNS, string[]]
+  >) {
+    for (const column of columns) {
+      const { error } = await client.from(table).select(column).limit(1)
+
+      if (error) {
+        const message = error.message.toLowerCase()
+
+        if (message.includes(column.toLowerCase()) && (message.includes('column') || message.includes('schema cache'))) {
+          missingItems.push(`${table}.${column}`)
+          continue
+        }
+
+        throw new Error(error.message)
+      }
+    }
+  }
+
+  return [...new Set(missingItems)]
 }
 
 async function setupMySQLDatabase() {
@@ -1167,6 +1419,7 @@ async function setupMySQLDatabase() {
         documento VARCHAR(20) NULL,
         contato VARCHAR(100) NULL,
         email VARCHAR(255) NULL,
+        arquivado BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       )
@@ -1198,6 +1451,7 @@ async function setupMySQLDatabase() {
         valor_previsto_acessorios DECIMAL(15, 2) DEFAULT 0,
         valor_previsto_outros DECIMAL(15, 2) DEFAULT 0,
         custo_perdas DECIMAL(15, 2) DEFAULT 0,
+        arquivado BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         CONSTRAINT fk_propostas_cliente FOREIGN KEY (cliente_id) REFERENCES clientes(id) ON DELETE CASCADE
@@ -1252,6 +1506,7 @@ async function setupMySQLDatabase() {
 
     await addColumnIfMissing(connection, 'clientes', 'documento', 'VARCHAR(20) NULL')
     await addColumnIfMissing(connection, 'clientes', 'contato', 'VARCHAR(100) NULL')
+    await addColumnIfMissing(connection, 'clientes', 'arquivado', 'BOOLEAN DEFAULT FALSE')
     await addColumnIfMissing(connection, 'usuarios', 'senha_hash', 'VARCHAR(255) NOT NULL')
     await addColumnIfMissing(connection, 'usuarios', 'perfil', "ENUM('admin', 'comprador') DEFAULT 'comprador'")
     await addColumnIfMissing(connection, 'usuarios', 'ativo', 'BOOLEAN DEFAULT TRUE')
@@ -1261,6 +1516,7 @@ async function setupMySQLDatabase() {
     await addColumnIfMissing(connection, 'propostas', 'valor_previsto_acessorios', 'DECIMAL(15, 2) DEFAULT 0')
     await addColumnIfMissing(connection, 'propostas', 'valor_previsto_outros', 'DECIMAL(15, 2) DEFAULT 0')
     await addColumnIfMissing(connection, 'propostas', 'custo_perdas', 'DECIMAL(15, 2) DEFAULT 0')
+    await addColumnIfMissing(connection, 'propostas', 'arquivado', 'BOOLEAN DEFAULT FALSE')
     await addColumnIfMissing(connection, 'compras', 'cliente_id', 'INT NULL')
     await addColumnIfMissing(connection, 'compras', 'categoria', "ENUM('perfis', 'vidros', 'acessorios', 'outros') DEFAULT 'outros'")
     await addColumnIfMissing(connection, 'compras', 'valor_total', 'DECIMAL(15, 2) NULL')
@@ -1270,6 +1526,8 @@ async function setupMySQLDatabase() {
     await addColumnIfMissing(connection, 'compras', 'data_entrega_real', 'DATE NULL')
     await addColumnIfMissing(connection, 'compras', 'data_criacao', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
     await addColumnIfMissing(connection, 'compras', 'arquivado', 'BOOLEAN DEFAULT FALSE')
+    await addColumnIfMissing(connection, 'anexos', 'nome_arquivo', 'VARCHAR(255) NULL')
+    await addColumnIfMissing(connection, 'anexos', 'created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
 
     if (await hasColumn(connection, 'clientes', 'cnpj')) {
       await connection.execute('UPDATE clientes SET documento = COALESCE(documento, cnpj) WHERE documento IS NULL')
@@ -1349,6 +1607,12 @@ async function setupMySQLDatabase() {
       `)
     }
 
+    await connection.execute(`
+      UPDATE anexos
+      SET nome_arquivo = COALESCE(NULLIF(nome_arquivo, ''), SUBSTRING_INDEX(arquivo_url, '/', -1), 'anexo')
+      WHERE nome_arquivo IS NULL OR nome_arquivo = ''
+    `)
+
     await connection.commit()
   } catch (error) {
     await connection.rollback()
@@ -1426,6 +1690,7 @@ function normalizeCliente(row: Row): Cliente {
     documento: nullableString(row.documento),
     contato: nullableString(row.contato),
     email: nullableString(row.email),
+    arquivado: normalizeBoolean(row.arquivado),
     created_at: toDateTimeString(row.created_at),
     updated_at: toDateTimeString(row.updated_at),
   }
@@ -1457,6 +1722,7 @@ function normalizeProposta(row: Row): Proposta {
     valor_previsto_acessorios: toNumber(row.valor_previsto_acessorios),
     valor_previsto_outros: toNumber(row.valor_previsto_outros),
     custo_perdas: toNumber(row.custo_perdas),
+    arquivado: normalizeBoolean(row.arquivado),
     created_at: toDateTimeString(row.created_at),
     updated_at: toDateTimeString(row.updated_at),
   }

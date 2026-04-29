@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createCliente, listClientes } from '@/lib/repositories'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const clientes = await listClientes()
+    const { searchParams } = new URL(request.url)
+    const arquivados = searchParams.get('arquivados')
+
+    const clientes = await listClientes({
+      includeArchived: arquivados === 'todos',
+      onlyArchived: arquivados === 'arquivados',
+    })
     return NextResponse.json(clientes)
   } catch (error) {
     return NextResponse.json(

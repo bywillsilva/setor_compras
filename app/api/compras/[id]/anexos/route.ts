@@ -1,7 +1,7 @@
-import { mkdir, writeFile } from 'fs/promises'
+import { mkdir, rm, writeFile } from 'fs/promises'
 import path from 'path'
 import { NextRequest, NextResponse } from 'next/server'
-import { createAnexo, listAnexosByCompraId } from '@/lib/repositories'
+import { createAnexo, deleteAnexo, listAnexosByCompraId } from '@/lib/repositories'
 
 export const runtime = 'nodejs'
 
@@ -40,29 +40,39 @@ export async function POST(
     await mkdir(uploadDirectory, { recursive: true })
 
     const anexosCriados = []
+    const arquivosCriados: string[] = []
+    const anexoIdsCriados: number[] = []
 
-    for (const [index, file] of files.entries()) {
-      const sanitizedName = sanitizeFileName(file.name)
-      const finalFileName = `${Date.now()}-${index}-${sanitizedName}`
-      const buffer = Buffer.from(await file.arrayBuffer())
-      const filePath = path.join(uploadDirectory, finalFileName)
-      const publicPath = `/uploads/compras/${compraId}/${finalFileName}`
+    try {
+      for (const [index, file] of files.entries()) {
+        const sanitizedName = sanitizeFileName(file.name)
+        const finalFileName = `${Date.now()}-${index}-${sanitizedName}`
+        const buffer = Buffer.from(await file.arrayBuffer())
+        const filePath = path.join(uploadDirectory, finalFileName)
+        const publicPath = `/uploads/compras/${compraId}/${finalFileName}`
 
-      await writeFile(filePath, buffer)
+        await writeFile(filePath, buffer)
+        arquivosCriados.push(filePath)
 
-      const anexoId = await createAnexo({
-        compra_id: compraId,
-        tipo,
-        arquivo_url: publicPath,
-        nome_arquivo: file.name,
-      })
+        const anexoId = await createAnexo({
+          compra_id: compraId,
+          tipo,
+          arquivo_url: publicPath,
+          nome_arquivo: file.name,
+        })
 
-      anexosCriados.push({
-        id: anexoId,
-        arquivo_url: publicPath,
-        nome_arquivo: file.name,
-        tipo,
-      })
+        anexoIdsCriados.push(anexoId)
+        anexosCriados.push({
+          id: anexoId,
+          arquivo_url: publicPath,
+          nome_arquivo: file.name,
+          tipo,
+        })
+      }
+    } catch (error) {
+      await Promise.all(anexoIdsCriados.map((anexoId) => deleteAnexo(compraId, anexoId).catch(() => undefined)))
+      await Promise.all(arquivosCriados.map((filePath) => rm(filePath, { force: true }).catch(() => undefined)))
+      throw error
     }
 
     return NextResponse.json({

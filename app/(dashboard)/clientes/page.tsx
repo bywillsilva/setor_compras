@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
+import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -23,13 +24,27 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Edit2, Eye, Loader2, Plus, Search, Trash2, Users } from "lucide-react"
 import type { Cliente } from "@/lib/types"
+
+const ARCHIVE_FILTER_LABELS = {
+  ativos: "Ativos",
+  arquivados: "Arquivados",
+  todos: "Todos",
+} as const
 
 export default function ClientesPage() {
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
+  const [archiveFilter, setArchiveFilter] = useState<keyof typeof ARCHIVE_FILTER_LABELS>("ativos")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingCliente, setEditingCliente] = useState<Cliente | null>(null)
   const [saving, setSaving] = useState(false)
@@ -42,11 +57,13 @@ export default function ClientesPage() {
 
   useEffect(() => {
     fetchClientes()
-  }, [])
+  }, [archiveFilter])
 
   async function fetchClientes() {
     try {
-      const response = await fetch("/api/clientes")
+      setLoading(true)
+      const query = archiveFilter === "ativos" ? "" : `?arquivados=${archiveFilter}`
+      const response = await fetch(`/api/clientes${query}`)
       if (response.ok) {
         setClientes(await response.json())
       }
@@ -232,14 +249,26 @@ export default function ClientesPage() {
 
       <Card>
         <CardContent className="pt-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Buscar por nome, documento ou e-mail..."
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="pl-10"
-            />
+          <div className="flex flex-col gap-4 md:flex-row">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por nome, documento ou e-mail..."
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <Select value={archiveFilter} onValueChange={(value) => setArchiveFilter(value as keyof typeof ARCHIVE_FILTER_LABELS)}>
+              <SelectTrigger className="w-full md:w-[180px]">
+                <SelectValue placeholder="Arquivamento" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ativos">Ativos</SelectItem>
+                <SelectItem value="arquivados">Arquivados</SelectItem>
+                <SelectItem value="todos">Todos</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>
@@ -247,16 +276,20 @@ export default function ClientesPage() {
       <Card>
         <CardHeader>
           <CardTitle>Lista de Clientes</CardTitle>
-          <CardDescription>{filteredClientes.length} cliente(s) cadastrado(s)</CardDescription>
+          <CardDescription>
+            {filteredClientes.length} cliente(s) cadastrado(s) • mostrando {ARCHIVE_FILTER_LABELS[archiveFilter].toLowerCase()}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {filteredClientes.length === 0 ? (
             <div className="py-12 text-center text-muted-foreground">
               <Users className="mx-auto mb-2 h-12 w-12 opacity-50" />
-              <p>Nenhum cliente cadastrado</p>
-              <Button variant="link" onClick={() => openDialog()}>
-                Cadastrar primeiro cliente
-              </Button>
+              <p>{archiveFilter === "arquivados" ? "Nenhum cliente arquivado." : "Nenhum cliente cadastrado"}</p>
+              {archiveFilter !== "arquivados" && (
+                <Button variant="link" onClick={() => openDialog()}>
+                  Cadastrar primeiro cliente
+                </Button>
+              )}
             </div>
           ) : (
             <Table>
@@ -272,7 +305,12 @@ export default function ClientesPage() {
               <TableBody>
                 {filteredClientes.map((cliente) => (
                   <TableRow key={cliente.id}>
-                    <TableCell className="font-medium">{cliente.nome}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap items-center gap-2 font-medium">
+                        <span>{cliente.nome}</span>
+                        {cliente.arquivado && <Badge variant="outline">Arquivado</Badge>}
+                      </div>
+                    </TableCell>
                     <TableCell>{cliente.documento || "-"}</TableCell>
                     <TableCell>{cliente.contato || "-"}</TableCell>
                     <TableCell>{cliente.email || "-"}</TableCell>
@@ -281,7 +319,7 @@ export default function ClientesPage() {
                         <Link href={`/clientes/${cliente.id}`}>
                           <Button variant="outline" size="sm">
                             <Eye className="mr-2 h-4 w-4" />
-                            Abrir resumo
+                            Abrir
                           </Button>
                         </Link>
                         <Button variant="ghost" size="sm" onClick={() => openDialog(cliente)}>

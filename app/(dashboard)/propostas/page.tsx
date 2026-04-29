@@ -5,6 +5,7 @@ import Link from "next/link"
 import { format, parseISO } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import { Edit2, Eye, FileText, Loader2, Plus, Search, Trash2 } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -35,6 +36,12 @@ import {
 } from "@/components/ui/table"
 import type { Cliente, Proposta } from "@/lib/types"
 
+const ARCHIVE_FILTER_LABELS = {
+  ativos: "Ativos",
+  arquivados: "Arquivados",
+  todos: "Todos",
+} as const
+
 export default function PropostasPage() {
   const [propostas, setPropostas] = useState<Proposta[]>([])
   const [clientes, setClientes] = useState<Cliente[]>([])
@@ -42,6 +49,7 @@ export default function PropostasPage() {
   const [saving, setSaving] = useState(false)
   const [search, setSearch] = useState("")
   const [clienteFilter, setClienteFilter] = useState<string>("todos")
+  const [archiveFilter, setArchiveFilter] = useState<keyof typeof ARCHIVE_FILTER_LABELS>("ativos")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingProposta, setEditingProposta] = useState<Proposta | null>(null)
 
@@ -60,13 +68,15 @@ export default function PropostasPage() {
 
   useEffect(() => {
     fetchData()
-  }, [])
+  }, [archiveFilter])
 
   async function fetchData() {
     try {
+      setLoading(true)
+      const propostasQuery = archiveFilter === "ativos" ? "" : `?arquivados=${archiveFilter}`
       const [propostasResponse, clientesResponse] = await Promise.all([
-        fetch("/api/propostas"),
-        fetch("/api/clientes"),
+        fetch(`/api/propostas${propostasQuery}`),
+        fetch("/api/clientes?arquivados=todos"),
       ])
 
       if (propostasResponse.ok) {
@@ -114,6 +124,11 @@ export default function PropostasPage() {
 
     setDialogOpen(true)
   }
+
+  const clientesDisponiveis =
+    editingProposta
+      ? clientes.filter((cliente) => !cliente.arquivado || cliente.id === editingProposta.cliente_id)
+      : clientes.filter((cliente) => !cliente.arquivado)
 
   async function handleSave() {
     if (!formData.cliente_id || !formData.nome.trim()) {
@@ -238,7 +253,7 @@ export default function PropostasPage() {
                     <SelectValue placeholder="Selecione o cliente" />
                   </SelectTrigger>
                   <SelectContent>
-                    {clientes.map((cliente) => (
+                    {clientesDisponiveis.map((cliente) => (
                       <SelectItem key={cliente.id} value={cliente.id.toString()}>
                         {cliente.nome}
                       </SelectItem>
@@ -402,6 +417,16 @@ export default function PropostasPage() {
                 ))}
               </SelectContent>
             </Select>
+            <Select value={archiveFilter} onValueChange={(value) => setArchiveFilter(value as keyof typeof ARCHIVE_FILTER_LABELS)}>
+              <SelectTrigger className="w-full md:w-[180px]">
+                <SelectValue placeholder="Arquivamento" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ativos">Ativos</SelectItem>
+                <SelectItem value="arquivados">Arquivados</SelectItem>
+                <SelectItem value="todos">Todos</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>
@@ -409,16 +434,20 @@ export default function PropostasPage() {
       <Card>
         <CardHeader>
           <CardTitle>Lista de propostas</CardTitle>
-          <CardDescription>{filteredPropostas.length} proposta(s) cadastrada(s)</CardDescription>
+          <CardDescription>
+            {filteredPropostas.length} proposta(s) cadastrada(s) • mostrando {ARCHIVE_FILTER_LABELS[archiveFilter].toLowerCase()}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {filteredPropostas.length === 0 ? (
             <div className="py-12 text-center text-muted-foreground">
               <FileText className="mx-auto mb-2 h-12 w-12 opacity-50" />
-              <p>Nenhuma proposta cadastrada.</p>
-              <Button variant="link" onClick={() => openDialog()}>
-                Cadastrar primeira proposta
-              </Button>
+              <p>{archiveFilter === "arquivados" ? "Nenhuma proposta arquivada." : "Nenhuma proposta cadastrada."}</p>
+              {archiveFilter !== "arquivados" && (
+                <Button variant="link" onClick={() => openDialog()}>
+                  Cadastrar primeira proposta
+                </Button>
+              )}
             </div>
           ) : (
             <Table>
@@ -435,7 +464,12 @@ export default function PropostasPage() {
               <TableBody>
                 {filteredPropostas.map((proposta) => (
                   <TableRow key={proposta.id}>
-                    <TableCell className="font-medium">{proposta.nome}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap items-center gap-2 font-medium">
+                        <span>{proposta.nome}</span>
+                        {proposta.arquivado && <Badge variant="outline">Arquivada</Badge>}
+                      </div>
+                    </TableCell>
                     <TableCell>{proposta.cliente_nome}</TableCell>
                     <TableCell>
                       {proposta.data_inicio && proposta.data_fim ? (

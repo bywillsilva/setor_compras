@@ -19,6 +19,7 @@ import {
   Paperclip,
   Save,
   Truck,
+  Trash2,
   Upload,
 } from "lucide-react"
 import { DeliveryStatusBadge } from "@/components/compras/delivery-status-badge"
@@ -61,10 +62,13 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
   const [compra, setCompra] = useState<CompraDetalhe | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [togglingArchive, setTogglingArchive] = useState(false)
   const [editing, setEditing] = useState(false)
   const [attachmentType, setAttachmentType] = useState<TipoAnexo>("outro")
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([])
   const [uploadingAttachments, setUploadingAttachments] = useState(false)
+  const [deletingAttachmentId, setDeletingAttachmentId] = useState<number | null>(null)
   const [formData, setFormData] = useState({
     categoria: "perdas",
     fornecedor: "",
@@ -128,22 +132,68 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
     }
   }
 
-  async function handleArchive() {
-    if (!confirm("Deseja arquivar este pedido?")) {
+  async function handleArchiveToggle() {
+    if (!compra) {
       return
     }
+
+    const nextArchivedState = !compra.arquivado
+    const confirmMessage = nextArchivedState
+      ? "Deseja arquivar este pedido?"
+      : "Deseja desarquivar este pedido e voltar com ele para a lista ativa?"
+
+    if (!confirm(confirmMessage)) {
+      return
+    }
+
+    setTogglingArchive(true)
+
+    try {
+      const response = await fetch(`/api/compras/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ arquivado: nextArchivedState }),
+      })
+      const payload = await response.json()
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Erro ao atualizar arquivamento do pedido.")
+      }
+
+      await fetchCompra()
+      router.refresh()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao atualizar arquivamento do pedido.")
+    } finally {
+      setTogglingArchive(false)
+    }
+  }
+
+  async function handleDelete() {
+    if (!compra) {
+      return
+    }
+
+    if (!confirm("Deseja excluir este pedido permanentemente? O historico e os anexos vinculados tambem serao removidos.")) {
+      return
+    }
+
+    setDeleting(true)
 
     try {
       const response = await fetch(`/api/compras/${id}`, { method: "DELETE" })
       const payload = await response.json()
 
       if (!response.ok) {
-        throw new Error(payload.error || "Erro ao arquivar pedido.")
+        throw new Error(payload.error || "Erro ao excluir pedido.")
       }
 
       router.push("/compras")
+      router.refresh()
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Erro ao arquivar pedido.")
+      alert(error instanceof Error ? error.message : "Erro ao excluir pedido.")
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -179,6 +229,31 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
       alert(error instanceof Error ? error.message : "Erro ao enviar anexos.")
     } finally {
       setUploadingAttachments(false)
+    }
+  }
+
+  async function handleDeleteAttachment(anexo: Anexo) {
+    if (!confirm(`Deseja excluir o anexo "${anexo.nome_arquivo}"?`)) {
+      return
+    }
+
+    setDeletingAttachmentId(anexo.id)
+
+    try {
+      const response = await fetch(`/api/compras/${id}/anexos/${anexo.id}`, {
+        method: "DELETE",
+      })
+      const payload = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "Erro ao excluir anexo.")
+      }
+
+      await fetchCompra()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao excluir anexo.")
+    } finally {
+      setDeletingAttachmentId(null)
     }
   }
 
@@ -234,6 +309,7 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-bold text-foreground">Pedido #{compra.id}</h1>
               <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
+              {compra.arquivado && <Badge variant="outline">Arquivado</Badge>}
               {compra.status === "pedido_autorizado" && <DeliveryStatusBadge compra={compra} />}
             </div>
             <p className="text-muted-foreground">
@@ -268,8 +344,30 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
           )}
           {!editing ? (
             <>
-              <Button variant="outline" onClick={handleArchive}>
-                Arquivar
+              <Button variant="outline" onClick={handleArchiveToggle} disabled={togglingArchive}>
+                {togglingArchive ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Salvando...
+                  </>
+                ) : compra.arquivado ? (
+                  "Desarquivar"
+                ) : (
+                  "Arquivar"
+                )}
+              </Button>
+              <Button variant="destructive" onClick={handleDelete} disabled={deleting || togglingArchive}>
+                {deleting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Excluindo...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Excluir
+                  </>
+                )}
               </Button>
               <Button onClick={() => setEditing(true)}>Editar</Button>
             </>
@@ -511,24 +609,43 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
               ) : (
                 <div className="grid gap-3 md:grid-cols-2">
                   {compra.anexos.map((anexo) => (
-                    <a
-                      key={anexo.id}
-                      href={anexo.arquivo_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="rounded-xl border p-4 transition-colors hover:bg-muted/40"
-                    >
+                    <div key={anexo.id} className="rounded-xl border p-4 transition-colors hover:bg-muted/30">
                       <div className="mb-3 flex items-start justify-between gap-3">
-                        <div className="space-y-1">
-                          <p className="text-sm font-medium">{anexo.nome_arquivo}</p>
+                        <div className="min-w-0 space-y-1">
+                          <p className="truncate text-sm font-medium">{anexo.nome_arquivo}</p>
                           <Badge variant="outline">{TIPO_ANEXO_LABELS[anexo.tipo]}</Badge>
                         </div>
                         <Paperclip className="h-4 w-4 text-muted-foreground" />
                       </div>
-                      <p className="text-xs text-muted-foreground">
-                        Enviado em {format(new Date(anexo.created_at), "dd/MM/yyyy", { locale: ptBR })}
-                      </p>
-                    </a>
+                      <p className="text-xs text-muted-foreground">{formatAttachmentDate(anexo.created_at)}</p>
+                      <div className="mt-4 flex items-center justify-between gap-2">
+                        <Button asChild variant="outline" size="sm">
+                          <a href={anexo.arquivo_url} target="_blank" rel="noreferrer">
+                            Abrir anexo
+                          </a>
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => handleDeleteAttachment(anexo)}
+                          disabled={deletingAttachmentId === anexo.id}
+                        >
+                          {deletingAttachmentId === anexo.id ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Excluindo...
+                            </>
+                          ) : (
+                            <>
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Excluir
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}
@@ -616,6 +733,20 @@ function SummaryCard({
       </CardContent>
     </Card>
   )
+}
+
+function formatAttachmentDate(value: string) {
+  if (!value) {
+    return "Data de envio indisponivel"
+  }
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return "Data de envio indisponivel"
+  }
+
+  return `Enviado em ${format(date, "dd/MM/yyyy", { locale: ptBR })}`
 }
 
 function AlertCard({
