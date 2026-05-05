@@ -23,8 +23,8 @@ function LoginContent() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [formData, setFormData] = useState({
-    email: "admin@compras.local",
-    senha: "admin123456",
+    email: "",
+    senha: "",
   })
 
   async function handleSubmit(event: FormEvent) {
@@ -108,6 +108,7 @@ function LoginContent() {
                   <Input
                     id="email"
                     type="email"
+                    autoComplete="username"
                     value={formData.email}
                     onChange={(event) => setFormData((current) => ({ ...current, email: event.target.value }))}
                     placeholder="voce@empresa.com"
@@ -119,6 +120,7 @@ function LoginContent() {
                   <Input
                     id="senha"
                     type="password"
+                    autoComplete="current-password"
                     value={formData.senha}
                     onChange={(event) => setFormData((current) => ({ ...current, senha: event.target.value }))}
                     placeholder="Sua senha"

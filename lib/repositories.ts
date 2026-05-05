@@ -30,6 +30,7 @@ import type {
   StatusPedido,
   TipoAnexo,
   Usuario,
+  UsuarioFormData,
 } from '@/lib/types'
 
 type Row = Record<string, unknown>
@@ -164,6 +165,18 @@ export async function getUsuarioByEmail(email: string): Promise<Usuario | null> 
   return usuario
 }
 
+export async function getUsuarioById(id: number): Promise<Usuario | null> {
+  if (getDatabaseType() === 'mysql') {
+    const rows = await mysqlSelect('SELECT * FROM usuarios WHERE id = ? LIMIT 1', [id])
+    return rows[0] ? normalizeUsuario(rows[0]) : null
+  }
+
+  const client = getSupabaseOrThrow()
+  const { data, error } = await client.from('usuarios').select('*').eq('id', id).maybeSingle()
+  throwIfSupabaseError(error)
+  return data ? normalizeUsuario(data as Row) : null
+}
+
 export async function ensureDefaultAdminUser() {
   const totalUsuarios = await countRows('usuarios', {})
 
@@ -209,6 +222,88 @@ async function createUsuarioInternal(input: {
     .single()
   throwIfSupabaseError(error)
   return Number(data.id)
+}
+
+export async function listUsuarios(): Promise<Usuario[]> {
+  if (getDatabaseType() === 'mysql') {
+    const rows = await mysqlSelect('SELECT * FROM usuarios ORDER BY nome ASC')
+    return rows.map(normalizeUsuario)
+  }
+
+  const client = getSupabaseOrThrow()
+  const { data, error } = await client.from('usuarios').select('*').order('nome', { ascending: true })
+  throwIfSupabaseError(error)
+  return (data ?? []).map((row: Row) => normalizeUsuario(row))
+}
+
+export async function createUsuario(input: UsuarioFormData) {
+  const email = sanitizeEmail(input.email)
+
+  if (!email || !nullableString(input.senha)) {
+    throw new Error('Nome, email e senha sao obrigatorios.')
+  }
+
+  const existingUser = await getUsuarioByEmail(email)
+
+  if (existingUser) {
+    throw new Error('Ja existe um usuario com este email.')
+  }
+
+  return createUsuarioInternal({
+    nome: input.nome.trim(),
+    email,
+    senha_hash: hashPassword(String(input.senha)),
+    perfil: input.perfil,
+    ativo: input.ativo,
+  })
+}
+
+export async function updateUsuario(id: number, input: UsuarioFormData) {
+  const email = sanitizeEmail(input.email)
+  const usuarioAtual = await getUsuarioById(id)
+
+  if (!usuarioAtual) {
+    throw new Error('Usuario nao encontrado.')
+  }
+
+  const existingUser = await getUsuarioByEmail(email)
+
+  if (existingUser && existingUser.id !== id) {
+    throw new Error('Ja existe um usuario com este email.')
+  }
+
+  if (getDatabaseType() === 'mysql') {
+    if (nullableString(input.senha)) {
+      await mysqlExecute(
+        'UPDATE usuarios SET nome = ?, email = ?, senha_hash = ?, perfil = ?, ativo = ? WHERE id = ?',
+        [input.nome.trim(), email, hashPassword(String(input.senha)), input.perfil, input.ativo ? 1 : 0, id],
+      )
+    } else {
+      await mysqlExecute('UPDATE usuarios SET nome = ?, email = ?, perfil = ?, ativo = ? WHERE id = ?', [
+        input.nome.trim(),
+        email,
+        input.perfil,
+        input.ativo ? 1 : 0,
+        id,
+      ])
+    }
+    return
+  }
+
+  const client = getSupabaseOrThrow()
+  const updatePayload: Record<string, unknown> = {
+    nome: input.nome.trim(),
+    email,
+    perfil: input.perfil,
+    ativo: input.ativo,
+  }
+
+  if (nullableString(input.senha)) {
+    updatePayload.senha_hash = hashPassword(String(input.senha))
+  }
+
+  const { error } = await client.from('usuarios').update(updatePayload).eq('id', id)
+  throwIfSupabaseError(error)
 }
 
 async function getUsuarioByEmailInternal(email: string): Promise<Usuario | null> {
@@ -619,7 +714,14 @@ export async function createCompra(input: CompraFormData) {
   return compraId
 }
 
-export async function updateCompra(id: number, input: Partial<CompraFormData> & { data_entrega_real?: string | null }) {
+export async function updateCompra(
+  id: number,
+  input: Partial<CompraFormData> & {
+    data_entrega_real?: string | null
+    usuario?: string | null
+    motivo_revisao?: string | null
+  },
+) {
   const atual = await getCompraById(id)
 
   if (!atual) {
@@ -674,6 +776,7 @@ export async function updateCompra(id: number, input: Partial<CompraFormData> & 
     data_envio_fornecedor: proximaDataEnvio,
     data_entrega_real: dataEntregaReal,
   }
+  const auditUser = nullableString(input.usuario) ?? 'Sistema'
 
   if (getDatabaseType() === 'mysql') {
     await mysqlExecute(
@@ -756,7 +859,11 @@ export async function updateCompra(id: number, input: Partial<CompraFormData> & 
     eventos.push('Data real de entrega removida')
   }
 
-  await Promise.all(eventos.map((evento) => addHistoricoEvento(id, evento)))
+  if (nullableString(input.motivo_revisao)) {
+    eventos.push(`Motivo da revisao: ${String(input.motivo_revisao).trim()}`)
+  }
+
+  await Promise.all(eventos.map((evento) => addHistoricoEvento(id, evento, auditUser)))
 }
 
 export async function deleteCompra(id: number) {
@@ -837,6 +944,21 @@ export async function setCompraArchivedState(id: number, arquivado: boolean) {
   return { archived: arquivado }
 }
 
+export async function requestCompraAuthorization(id: number, usuario: string) {
+  const compra = await getCompraById(id)
+
+  if (!compra) {
+    throw new Error('Compra nao encontrada.')
+  }
+
+  if (compra.status === 'pedido_autorizado') {
+    throw new Error('Este pedido ja foi autorizado.')
+  }
+
+  await addHistoricoEvento(id, 'Solicitacao de autorizacao enviada ao administrador', usuario)
+  return { requested: true }
+}
+
 export async function listHistoricoByCompraId(compraId: number): Promise<HistoricoCompra[]> {
   if (getDatabaseType() === 'mysql') {
     const rows = await mysqlSelect('SELECT * FROM historico_compras WHERE compra_id = ? ORDER BY data DESC', [compraId])
@@ -913,18 +1035,19 @@ export async function deleteAnexo(compraId: number, anexoId: number) {
 }
 
 export async function getDashboardData(): Promise<DashboardData> {
-  const [compras, propostas] = await Promise.all([listCompras(), listPropostas()])
+  const [compras, propostas, historicos] = await Promise.all([listCompras(), listPropostas(), listHistoricosRaw()])
   const hoje = new Date()
   const mesAtual = format(hoje, 'yyyy-MM')
   const meses = Array.from({ length: 6 }, (_, index) => format(subMonths(hoje, 5 - index), 'yyyy-MM'))
+  const autorizacoesByCompraId = getAuthorizationMonthsByCompraId(historicos)
 
   const comparativo = meses.map((mes) => {
     const previsto = propostas
-      .filter((proposta) => formatMonthKey(proposta.data_inicio ?? proposta.created_at) === mes)
+      .filter((proposta) => formatMonthKey(proposta.created_at) === mes)
       .reduce((sum, proposta) => sum + Number(proposta.valor_previsto), 0)
 
     const realizado = compras
-      .filter((compra) => formatMonthKey(compra.data_criacao) === mes)
+      .filter((compra) => getCompraDashboardMonth(compra, autorizacoesByCompraId) === mes)
       .reduce((sum, compra) => sum + Number(compra.valor_total ?? 0), 0)
 
     return { mes, previsto, realizado }
@@ -951,7 +1074,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     autorizados: compras.filter((compra) => compra.status === 'pedido_autorizado' && compra.status_entrega === 'pendente').length,
     entregues: compras.filter((compra) => compra.status_entrega === 'entregue').length,
     valor_total_mes: compras
-      .filter((compra) => formatMonthKey(compra.data_criacao) === mesAtual)
+      .filter((compra) => getCompraDashboardMonth(compra, autorizacoesByCompraId) === mesAtual)
       .reduce((sum, compra) => sum + Number(compra.valor_total ?? 0), 0),
     pedidos_atrasados: compras.filter((compra) => getDeliverySituation(compra) === 'atrasado').length,
     pedidos_proximos: compras.filter((compra) => getDeliverySituation(compra) === 'proximo').length,
@@ -1443,7 +1566,7 @@ async function setupMySQLDatabase() {
         nome VARCHAR(255) NOT NULL,
         email VARCHAR(255) NOT NULL UNIQUE,
         senha_hash VARCHAR(255) NOT NULL,
-        perfil ENUM('admin', 'comprador') DEFAULT 'comprador',
+        perfil ENUM('admin', 'comprador', 'orcamentista') DEFAULT 'comprador',
         ativo BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -1520,7 +1643,7 @@ async function setupMySQLDatabase() {
     await addColumnIfMissing(connection, 'clientes', 'contato', 'VARCHAR(100) NULL')
     await addColumnIfMissing(connection, 'clientes', 'arquivado', 'BOOLEAN DEFAULT FALSE')
     await addColumnIfMissing(connection, 'usuarios', 'senha_hash', 'VARCHAR(255) NOT NULL')
-    await addColumnIfMissing(connection, 'usuarios', 'perfil', "ENUM('admin', 'comprador') DEFAULT 'comprador'")
+    await addColumnIfMissing(connection, 'usuarios', 'perfil', "ENUM('admin', 'comprador', 'orcamentista') DEFAULT 'comprador'")
     await addColumnIfMissing(connection, 'usuarios', 'ativo', 'BOOLEAN DEFAULT TRUE')
     await addColumnIfMissing(connection, 'propostas', 'data_fim', 'DATE NULL')
     await addColumnIfMissing(connection, 'propostas', 'valor_previsto_perfis', 'DECIMAL(15, 2) DEFAULT 0')
@@ -1807,7 +1930,17 @@ function normalizeTipoAnexo(value: unknown): TipoAnexo {
 }
 
 function normalizePerfilUsuario(value: unknown): PerfilUsuario {
-  return String(value ?? '').toLowerCase() === 'admin' ? 'admin' : 'comprador'
+  const perfil = String(value ?? '').toLowerCase()
+
+  if (perfil === 'admin') {
+    return 'admin'
+  }
+
+  if (perfil === 'orcamentista') {
+    return 'orcamentista'
+  }
+
+  return 'comprador'
 }
 
 function nullableString(value: unknown) {
@@ -1880,7 +2013,14 @@ function sanitizeEmail(value: string) {
 }
 
 function formatMonthKey(value: string) {
-  return format(parseISO(normalizeDateForParse(value)), 'yyyy-MM')
+  const normalized = normalizeDateForParse(value)
+  const matchedMonth = normalized.match(/^(\d{4}-\d{2})/)
+
+  if (matchedMonth) {
+    return matchedMonth[1]
+  }
+
+  return format(parseISO(normalized), 'yyyy-MM')
 }
 
 function matchDateRange(value: string, dataInicio?: string | null, dataFim?: string | null) {
@@ -1937,6 +2077,31 @@ function asDashboardPedido(compra: Compra) {
     cliente_nome: compra.cliente_nome ?? 'Cliente não identificado',
     proposta_nome: compra.proposta_nome ?? 'Proposta não identificada',
   }
+}
+
+function getAuthorizationMonthsByCompraId(historicos: HistoricoCompra[]) {
+  const monthsByCompraId = new Map<number, string>()
+
+  ;[...historicos]
+    .sort((left, right) => compareAsc(left.data, right.data))
+    .forEach((historico) => {
+      if (
+        !monthsByCompraId.has(historico.compra_id) &&
+        historico.evento.toLowerCase().includes('status alterado para pedido autorizado')
+      ) {
+        monthsByCompraId.set(historico.compra_id, formatMonthKey(historico.data))
+      }
+    })
+
+  return monthsByCompraId
+}
+
+function getCompraDashboardMonth(compra: Compra, autorizacoesByCompraId: Map<number, string>) {
+  if (compra.status === 'pedido_autorizado') {
+    return autorizacoesByCompraId.get(compra.id) ?? formatMonthKey(compra.updated_at)
+  }
+
+  return formatMonthKey(compra.data_criacao)
 }
 
 function categoriaLabel(categoria: Compra['categoria']) {

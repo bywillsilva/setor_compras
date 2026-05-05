@@ -5,10 +5,13 @@ import Link from "next/link"
 import { format, parseISO } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import { Eye, Search, Truck } from "lucide-react"
+import { DateRangeFilter } from "@/components/shared/date-range-filter"
+import { RowActionsMenu } from "@/components/shared/row-actions-menu"
 import { DeliveryStatusBadge } from "@/components/compras/delivery-status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -25,6 +28,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { matchesDateRange } from "@/lib/date-range"
 import { getDeliverySituation } from "@/lib/domain"
 import type { Cliente, Compra, SituacaoEntrega } from "@/lib/types"
 
@@ -35,6 +39,8 @@ export default function EntregasPage() {
   const [search, setSearch] = useState("")
   const [situationFilter, setSituationFilter] = useState<string>("todos")
   const [clienteFilter, setClienteFilter] = useState<string>("todos")
+  const [dateFrom, setDateFrom] = useState("")
+  const [dateTo, setDateTo] = useState("")
 
   useEffect(() => {
     async function fetchData() {
@@ -82,7 +88,7 @@ export default function EntregasPage() {
     const matchCliente = clienteFilter === "todos" || compra.cliente_id.toString() === clienteFilter
 
     return matchSearch && matchSituation && matchCliente
-  })
+  }).filter((compra) => matchesDateRange(compra.previsao_entrega ?? compra.data_criacao, dateFrom, dateTo))
 
   if (loading) {
     return (
@@ -115,42 +121,57 @@ export default function EntregasPage() {
 
       <Card>
         <CardContent className="pt-6">
-          <div className="flex flex-col gap-4 md:flex-row">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Buscar por fornecedor, cliente, proposta ou pedido..."
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                className="pl-10"
-              />
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-4 md:flex-row">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar por fornecedor, cliente, proposta ou pedido..."
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <Select value={situationFilter} onValueChange={setSituationFilter}>
+                <SelectTrigger className="w-full md:w-[220px]">
+                  <SelectValue placeholder="Situacao da entrega" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todas as situacoes</SelectItem>
+                  <SelectItem value="pendente">Pendente</SelectItem>
+                  <SelectItem value="proximo">Proximo do vencimento</SelectItem>
+                  <SelectItem value="atrasado">Atrasado</SelectItem>
+                  <SelectItem value="no_prazo">Dentro do prazo</SelectItem>
+                  <SelectItem value="entregue">Entregue</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={clienteFilter} onValueChange={setClienteFilter}>
+                <SelectTrigger className="w-full md:w-[220px]">
+                  <SelectValue placeholder="Cliente" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos os clientes</SelectItem>
+                  {clientes.map((cliente) => (
+                    <SelectItem key={cliente.id} value={cliente.id.toString()}>
+                      {cliente.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <Select value={situationFilter} onValueChange={setSituationFilter}>
-              <SelectTrigger className="w-full md:w-[220px]">
-                <SelectValue placeholder="Situacao da entrega" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todas as situacoes</SelectItem>
-                <SelectItem value="pendente">Pendente</SelectItem>
-                <SelectItem value="proximo">Proximo do vencimento</SelectItem>
-                <SelectItem value="atrasado">Atrasado</SelectItem>
-                <SelectItem value="no_prazo">Dentro do prazo</SelectItem>
-                <SelectItem value="entregue">Entregue</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={clienteFilter} onValueChange={setClienteFilter}>
-              <SelectTrigger className="w-full md:w-[220px]">
-                <SelectValue placeholder="Cliente" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos os clientes</SelectItem>
-                {clientes.map((cliente) => (
-                  <SelectItem key={cliente.id} value={cliente.id.toString()}>
-                    {cliente.nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+
+            <DateRangeFilter
+              startDate={dateFrom}
+              endDate={dateTo}
+              onStartDateChange={setDateFrom}
+              onEndDateChange={setDateTo}
+              onClear={() => {
+                setDateFrom("")
+                setDateTo("")
+              }}
+              startLabel="Previsao de"
+              endLabel="Previsao ate"
+            />
           </div>
         </CardContent>
       </Card>
@@ -205,20 +226,21 @@ export default function EntregasPage() {
                           : "-"}
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex justify-end gap-1">
-                          <Link href={`/compras/${compra.id}`}>
-                            <Button variant="ghost" size="sm">
-                              <Eye className="mr-2 h-4 w-4" />
+                        <RowActionsMenu label={`Acoes de entrega do pedido ${compra.id}`}>
+                          <DropdownMenuItem asChild>
+                            <Link href={`/compras/${compra.id}`}>
+                              <Eye className="h-4 w-4" />
                               Ver pedido
-                            </Button>
-                          </Link>
-                          <Link href={`/entregas/${compra.id}`}>
-                            <Button size="sm">
-                              <Truck className="mr-2 h-4 w-4" />
+                            </Link>
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem asChild>
+                            <Link href={`/entregas/${compra.id}`}>
+                              <Truck className="h-4 w-4" />
                               {compra.status_entrega === "entregue" ? "Revisar entrega" : "Informar entrega"}
-                            </Button>
-                          </Link>
-                        </div>
+                            </Link>
+                          </DropdownMenuItem>
+                        </RowActionsMenu>
                       </TableCell>
                     </TableRow>
                   ))}

@@ -11,8 +11,10 @@ import {
   DollarSign,
   Eye,
   Loader2,
+  MoreHorizontal,
   Package,
   Plus,
+  Save,
   ShoppingCart,
   Trash2,
   TrendingDown,
@@ -22,7 +24,23 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   Table,
   TableBody,
@@ -32,39 +50,63 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { CATEGORIA_LABELS, STATUS_BADGE_CLASSES, STATUS_LABELS } from "@/lib/domain"
-import type { Compra, Proposta } from "@/lib/types"
+import type { Cliente, Compra, Proposta } from "@/lib/types"
+
+type PropostaFormState = {
+  cliente_id: string
+  nome: string
+  data_inicio: string
+  data_fim: string
+  valor_previsto_perfis: string
+  valor_previsto_vidros: string
+  valor_previsto_acessorios: string
+  valor_previsto_outros: string
+  custo_perdas: string
+}
 
 export default function PropostaDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
   const [proposta, setProposta] = useState<Proposta | null>(null)
+  const [clientes, setClientes] = useState<Cliente[]>([])
   const [compras, setCompras] = useState<Compra[]>([])
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState(false)
   const [togglingArchive, setTogglingArchive] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [formData, setFormData] = useState<PropostaFormState>(emptyForm())
 
   useEffect(() => {
-    async function fetchData() {
-      try {
-        const [propostaResponse, comprasResponse] = await Promise.all([
-          fetch(`/api/propostas/${id}`),
-          fetch(`/api/compras?proposta_id=${id}&arquivados=todos`),
-        ])
-
-        if (propostaResponse.ok) {
-          setProposta(await propostaResponse.json())
-        }
-
-        if (comprasResponse.ok) {
-          setCompras(await comprasResponse.json())
-        }
-      } finally {
-        setLoading(false)
-      }
-    }
-
     fetchData()
   }, [id])
+
+  async function fetchData() {
+    try {
+      setLoading(true)
+      const [propostaResponse, comprasResponse, clientesResponse] = await Promise.all([
+        fetch(`/api/propostas/${id}`),
+        fetch(`/api/compras?proposta_id=${id}&arquivados=todos`),
+        fetch("/api/clientes?arquivados=todos"),
+      ])
+
+      if (propostaResponse.ok) {
+        const propostaPayload = await propostaResponse.json()
+        setProposta(propostaPayload)
+        setFormData(toFormState(propostaPayload))
+      }
+
+      if (comprasResponse.ok) {
+        setCompras(await comprasResponse.json())
+      }
+
+      if (clientesResponse.ok) {
+        setClientes(await clientesResponse.json())
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const resumo = useMemo(() => {
     const realizadoPorCategoria = {
@@ -95,6 +137,63 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
       percentualUtilizado: valorPrevisto > 0 ? (valorConsumido / valorPrevisto) * 100 : 0,
     }
   }, [compras, proposta])
+
+  const totalCategorias = useMemo(
+    () =>
+      toNumber(formData.valor_previsto_perfis) +
+      toNumber(formData.valor_previsto_vidros) +
+      toNumber(formData.valor_previsto_acessorios) +
+      toNumber(formData.valor_previsto_outros),
+    [
+      formData.valor_previsto_acessorios,
+      formData.valor_previsto_outros,
+      formData.valor_previsto_perfis,
+      formData.valor_previsto_vidros,
+    ],
+  )
+
+  async function handleSave() {
+    if (!proposta) {
+      return
+    }
+
+    if (!formData.cliente_id || !formData.nome.trim()) {
+      alert("Cliente e nome sao obrigatorios.")
+      return
+    }
+
+    setSaving(true)
+
+    try {
+      const response = await fetch(`/api/propostas/${proposta.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cliente_id: Number(formData.cliente_id),
+          nome: formData.nome.trim(),
+          data_inicio: formData.data_inicio || null,
+          data_fim: formData.data_fim || null,
+          valor_previsto_perfis: toNumber(formData.valor_previsto_perfis),
+          valor_previsto_vidros: toNumber(formData.valor_previsto_vidros),
+          valor_previsto_acessorios: toNumber(formData.valor_previsto_acessorios),
+          valor_previsto_outros: toNumber(formData.valor_previsto_outros),
+          custo_perdas: toNumber(formData.custo_perdas),
+        }),
+      })
+      const payload = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "Erro ao salvar proposta.")
+      }
+
+      setEditing(false)
+      await fetchData()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao salvar proposta.")
+    } finally {
+      setSaving(false)
+    }
+  }
 
   async function handleDelete() {
     if (!proposta) {
@@ -160,6 +259,24 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
     }
   }
 
+  function startEditing() {
+    if (!proposta) {
+      return
+    }
+
+    setFormData(toFormState(proposta))
+    setEditing(true)
+  }
+
+  function cancelEditing() {
+    if (!proposta) {
+      return
+    }
+
+    setFormData(toFormState(proposta))
+    setEditing(false)
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
@@ -173,7 +290,7 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
       <div className="p-6">
         <Card className="border-destructive">
           <CardHeader>
-            <CardTitle className="text-destructive">Proposta não encontrada</CardTitle>
+            <CardTitle className="text-destructive">Proposta nao encontrada</CardTitle>
           </CardHeader>
         </Card>
       </div>
@@ -182,7 +299,7 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
 
   return (
     <div className="space-y-6 p-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex items-center gap-4">
           <Link href="/propostas">
             <Button variant="ghost" size="icon">
@@ -199,31 +316,6 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={handleArchiveToggle} disabled={togglingArchive}>
-            {togglingArchive ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Salvando...
-              </>
-            ) : proposta.arquivado ? (
-              "Desarquivar"
-            ) : (
-              "Arquivar"
-            )}
-          </Button>
-          <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
-            {deleting ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Excluindo...
-              </>
-            ) : (
-              <>
-                <Trash2 className="mr-2 h-4 w-4" />
-                Excluir proposta
-              </>
-            )}
-          </Button>
           {!proposta.arquivado && (
             <Link href={`/compras/novo?proposta_id=${proposta.id}&cliente_id=${proposta.cliente_id}`}>
               <Button>
@@ -232,23 +324,185 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
               </Button>
             </Link>
           )}
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline">
+                <MoreHorizontal className="mr-2 h-4 w-4" />
+                Mais acoes
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={startEditing}>Editar proposta</DropdownMenuItem>
+              <DropdownMenuItem onClick={handleArchiveToggle} disabled={togglingArchive}>
+                {proposta.arquivado ? "Desarquivar proposta" : "Arquivar proposta"}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={handleDelete} disabled={deleting}>
+                Excluir proposta
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
+
+      {editing && (
+        <Card className="border-primary/20">
+          <CardHeader>
+            <CardTitle>Edicao da proposta</CardTitle>
+            <CardDescription>Edite a proposta com mais seguranca a partir do detalhe, evitando acoes acidentais na lista.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="space-y-2">
+              <Label>Cliente *</Label>
+              <Select
+                value={formData.cliente_id}
+                onValueChange={(value) => setFormData((current) => ({ ...current, cliente_id: value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o cliente" />
+                </SelectTrigger>
+                <SelectContent>
+                  {clientes.filter((cliente) => !cliente.arquivado || cliente.id === proposta.cliente_id).map((cliente) => (
+                    <SelectItem key={cliente.id} value={cliente.id.toString()}>
+                      {cliente.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Nome da proposta *</Label>
+              <Input
+                value={formData.nome}
+                onChange={(event) => setFormData((current) => ({ ...current, nome: event.target.value }))}
+              />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Data de inicio">
+                <Input
+                  type="date"
+                  value={formData.data_inicio}
+                  onChange={(event) => setFormData((current) => ({ ...current, data_inicio: event.target.value }))}
+                />
+              </Field>
+              <Field label="Data prevista">
+                <Input
+                  type="date"
+                  value={formData.data_fim}
+                  onChange={(event) => setFormData((current) => ({ ...current, data_fim: event.target.value }))}
+                />
+              </Field>
+            </div>
+
+            <div className="space-y-3 rounded-lg border p-4">
+              <div>
+                <h3 className="font-medium">Materiais previstos</h3>
+                <p className="text-sm text-muted-foreground">Ajuste os valores planejados por categoria.</p>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label="Perfis">
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={formData.valor_previsto_perfis}
+                    onChange={(event) =>
+                      setFormData((current) => ({ ...current, valor_previsto_perfis: event.target.value }))
+                    }
+                  />
+                </Field>
+                <Field label="Vidros">
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={formData.valor_previsto_vidros}
+                    onChange={(event) =>
+                      setFormData((current) => ({ ...current, valor_previsto_vidros: event.target.value }))
+                    }
+                  />
+                </Field>
+                <Field label="Acessorios">
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={formData.valor_previsto_acessorios}
+                    onChange={(event) =>
+                      setFormData((current) => ({ ...current, valor_previsto_acessorios: event.target.value }))
+                    }
+                  />
+                </Field>
+                <Field label="Perdas">
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={formData.valor_previsto_outros}
+                    onChange={(event) =>
+                      setFormData((current) => ({ ...current, valor_previsto_outros: event.target.value }))
+                    }
+                  />
+                </Field>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <StaticValue
+                label="Valor previsto total"
+                value={formatCurrency(totalCategorias)}
+                hint="Calculado automaticamente pela soma das categorias."
+              />
+              <Field label="Custo de perdas/reposicao">
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={formData.custo_perdas}
+                  onChange={(event) => setFormData((current) => ({ ...current, custo_perdas: event.target.value }))}
+                />
+              </Field>
+            </div>
+
+            <div className="rounded-lg bg-muted p-3 text-sm">
+              <strong>Total previsto calculado:</strong> {formatCurrency(totalCategorias)}
+            </div>
+
+            <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
+              <Button variant="outline" onClick={cancelEditing}>
+                Cancelar
+              </Button>
+              <Button onClick={handleSave} disabled={saving}>
+                {saving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Salvando...
+                  </>
+                ) : (
+                  <>
+                    <Save className="mr-2 h-4 w-4" />
+                    Salvar proposta
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-5">
         <SummaryCard title="Previsto" value={resumo.valorPrevisto} icon={<DollarSign className="h-4 w-4 text-muted-foreground" />} />
         <SummaryCard title="Real comprado" value={resumo.valorRealizado} icon={<ShoppingCart className="h-4 w-4 text-blue-600" />} />
-        <SummaryCard title="Perdas/reposição" value={resumo.custoPerdas} icon={<TriangleAlert className="h-4 w-4 text-amber-600" />} />
+        <SummaryCard title="Perdas/reposicao" value={resumo.custoPerdas} icon={<TriangleAlert className="h-4 w-4 text-amber-600" />} />
         <SummaryCard
-          title="Diferença"
+          title="Diferenca"
           value={Math.abs(resumo.diferenca)}
           icon={resumo.dentroOrcamento ? <TrendingDown className="h-4 w-4 text-emerald-600" /> : <TrendingUp className="h-4 w-4 text-red-600" />}
           className={resumo.dentroOrcamento ? "text-emerald-600" : "text-red-600"}
-          description={resumo.dentroOrcamento ? "Dentro do orçamento" : "Acima do previsto"}
+          description={resumo.dentroOrcamento ? "Dentro do orcamento" : "Acima do previsto"}
         />
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Utilização</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Utilizacao</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="text-2xl font-bold">{resumo.percentualUtilizado.toFixed(1)}%</div>
@@ -266,20 +520,16 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
             <>
               <TrendingDown className="h-6 w-6 text-emerald-600" />
               <div>
-                <p className="font-medium text-emerald-700">Obra dentro do orçamento</p>
-                <p className="text-sm text-emerald-700">
-                  Saldo disponível: {formatCurrency(resumo.diferenca)}
-                </p>
+                <p className="font-medium text-emerald-700">Obra dentro do orcamento</p>
+                <p className="text-sm text-emerald-700">Saldo disponivel: {formatCurrency(resumo.diferenca)}</p>
               </div>
             </>
           ) : (
             <>
               <TrendingUp className="h-6 w-6 text-red-600" />
               <div>
-                <p className="font-medium text-red-700">Obra acima do orçamento</p>
-                <p className="text-sm text-red-700">
-                  Excedente atual: {formatCurrency(Math.abs(resumo.diferenca))}
-                </p>
+                <p className="font-medium text-red-700">Obra acima do orcamento</p>
+                <p className="text-sm text-red-700">Excedente atual: {formatCurrency(Math.abs(resumo.diferenca))}</p>
               </div>
             </>
           )}
@@ -297,26 +547,10 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
           </CardHeader>
           <CardContent>
             <div className="grid gap-4 md:grid-cols-2">
-              <CategoryCard
-                title="Perfis"
-                previsto={proposta.valor_previsto_perfis}
-                realizado={resumo.realizadoPorCategoria.perfis}
-              />
-              <CategoryCard
-                title="Vidros"
-                previsto={proposta.valor_previsto_vidros}
-                realizado={resumo.realizadoPorCategoria.vidros}
-              />
-              <CategoryCard
-                title="Acessórios"
-                previsto={proposta.valor_previsto_acessorios}
-                realizado={resumo.realizadoPorCategoria.acessorios}
-              />
-              <CategoryCard
-                title="Perdas"
-                previsto={proposta.valor_previsto_outros}
-                realizado={resumo.realizadoPorCategoria.perdas}
-              />
+              <CategoryCard title="Perfis" previsto={proposta.valor_previsto_perfis} realizado={resumo.realizadoPorCategoria.perfis} />
+              <CategoryCard title="Vidros" previsto={proposta.valor_previsto_vidros} realizado={resumo.realizadoPorCategoria.vidros} />
+              <CategoryCard title="Acessorios" previsto={proposta.valor_previsto_acessorios} realizado={resumo.realizadoPorCategoria.acessorios} />
+              <CategoryCard title="Perdas" previsto={proposta.valor_previsto_outros} realizado={resumo.realizadoPorCategoria.perdas} />
             </div>
           </CardContent>
         </Card>
@@ -326,11 +560,11 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Calendar className="h-5 w-5" />
-                Período
+                Periodo
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <PeriodRow label="Início" value={proposta.data_inicio} />
+              <PeriodRow label="Inicio" value={proposta.data_inicio} />
               <PeriodRow label="Prevista" value={proposta.data_fim} />
             </CardContent>
           </Card>
@@ -361,9 +595,11 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
             <div className="py-12 text-center text-muted-foreground">
               <ShoppingCart className="mx-auto mb-2 h-12 w-12 opacity-50" />
               <p>Nenhuma compra vinculada.</p>
-              <Link href={`/compras/novo?proposta_id=${proposta.id}&cliente_id=${proposta.cliente_id}`}>
-                <Button variant="link">Criar primeira compra</Button>
-              </Link>
+              {!proposta.arquivado && (
+                <Link href={`/compras/novo?proposta_id=${proposta.id}&cliente_id=${proposta.cliente_id}`}>
+                  <Button variant="link">Criar primeira compra</Button>
+                </Link>
+              )}
             </div>
           ) : (
             <Table>
@@ -374,7 +610,7 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
                   <TableHead>Fornecedor</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Valor</TableHead>
-                  <TableHead className="text-right">Ações</TableHead>
+                  <TableHead className="text-right">Acoes</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -387,9 +623,7 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
                     <TableCell className="font-medium">{compra.fornecedor}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap items-center gap-2">
-                        <Badge className={STATUS_BADGE_CLASSES[compra.status]}>
-                          {STATUS_LABELS[compra.status]}
-                        </Badge>
+                        <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
                         {compra.arquivado && <Badge variant="outline">Arquivado</Badge>}
                       </div>
                     </TableCell>
@@ -397,7 +631,8 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
                     <TableCell className="text-right">
                       <Link href={`/compras/${compra.id}`}>
                         <Button variant="ghost" size="sm">
-                          <Eye className="h-4 w-4" />
+                          <Eye className="mr-2 h-4 w-4" />
+                          Ver pedido
                         </Button>
                       </Link>
                     </TableCell>
@@ -475,9 +710,7 @@ function PeriodRow({ label, value }: { label: string; value: string | null }) {
   return (
     <div className="flex justify-between">
       <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium">
-        {value ? format(parseISO(value), "dd/MM/yyyy", { locale: ptBR }) : "Não definida"}
-      </span>
+      <span className="font-medium">{value ? format(parseISO(value), "dd/MM/yyyy", { locale: ptBR }) : "Nao definida"}</span>
     </div>
   )
 }
@@ -495,6 +728,68 @@ function SummaryLine({
       <span className="font-medium">{value}</span>
     </div>
   )
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      {children}
+    </div>
+  )
+}
+
+function StaticValue({
+  label,
+  value,
+  hint,
+}: {
+  label: string
+  value: string
+  hint: string
+}) {
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      <div className="rounded-md border bg-background px-3 py-2.5">
+        <div className="font-medium text-foreground">{value}</div>
+        <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
+      </div>
+    </div>
+  )
+}
+
+function emptyForm(): PropostaFormState {
+  return {
+    cliente_id: "",
+    nome: "",
+    data_inicio: "",
+    data_fim: "",
+    valor_previsto_perfis: "",
+    valor_previsto_vidros: "",
+    valor_previsto_acessorios: "",
+    valor_previsto_outros: "",
+    custo_perdas: "",
+  }
+}
+
+function toFormState(proposta: Proposta): PropostaFormState {
+  return {
+    cliente_id: proposta.cliente_id.toString(),
+    nome: proposta.nome,
+    data_inicio: proposta.data_inicio ?? "",
+    data_fim: proposta.data_fim ?? "",
+    valor_previsto_perfis: proposta.valor_previsto_perfis?.toString() ?? "",
+    valor_previsto_vidros: proposta.valor_previsto_vidros?.toString() ?? "",
+    valor_previsto_acessorios: proposta.valor_previsto_acessorios?.toString() ?? "",
+    valor_previsto_outros: proposta.valor_previsto_outros?.toString() ?? "",
+    custo_perdas: proposta.custo_perdas?.toString() ?? "",
+  }
+}
+
+function toNumber(value: string) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : 0
 }
 
 function formatCurrency(value: number) {

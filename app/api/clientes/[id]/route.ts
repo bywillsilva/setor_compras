@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireFeature } from '@/lib/auth/api'
 import { deleteCliente, getClienteById, setClienteArchivedState, updateCliente } from '@/lib/repositories'
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const guard = await requireFeature(request, 'clientes')
+    if ('response' in guard) {
+      return guard.response
+    }
+
     const { id } = await params
     const cliente = await getClienteById(Number(id))
 
@@ -27,6 +33,11 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const guard = await requireFeature(request, 'clientes')
+    if ('response' in guard) {
+      return guard.response
+    }
+
     const { id } = await params
     const body = await request.json()
 
@@ -59,10 +70,15 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const guard = await requireFeature(request, 'clientes')
+    if ('response' in guard) {
+      return guard.response
+    }
+
     const { id } = await params
     await deleteCliente(Number(id))
     return NextResponse.json({ message: 'Cliente excluído com sucesso.' })

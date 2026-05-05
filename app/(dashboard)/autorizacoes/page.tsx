@@ -5,9 +5,12 @@ import Link from "next/link"
 import { format, parseISO } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import { AlertTriangle, CheckCircle2, Eye, Search } from "lucide-react"
+import { DateRangeFilter } from "@/components/shared/date-range-filter"
+import { RowActionsMenu } from "@/components/shared/row-actions-menu"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -24,6 +27,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { matchesDateRange } from "@/lib/date-range"
 import { STATUS_BADGE_CLASSES, STATUS_LABELS } from "@/lib/domain"
 import type { Cliente, Compra } from "@/lib/types"
 
@@ -34,6 +38,8 @@ export default function AutorizacoesPage() {
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("todos")
   const [clienteFilter, setClienteFilter] = useState<string>("todos")
+  const [dateFrom, setDateFrom] = useState("")
+  const [dateTo, setDateTo] = useState("")
 
   useEffect(() => {
     async function fetchData() {
@@ -73,7 +79,7 @@ export default function AutorizacoesPage() {
     const matchCliente = clienteFilter === "todos" || compra.cliente_id.toString() === clienteFilter
 
     return matchSearch && matchStatus && matchCliente
-  })
+  }).filter((compra) => matchesDateRange(compra.data_criacao, dateFrom, dateTo))
 
   const semDadosCompletos = comprasPendentes.filter(
     (compra) => !compra.numero_pedido || !compra.valor_total || !compra.previsao_entrega,
@@ -118,40 +124,55 @@ export default function AutorizacoesPage() {
 
       <Card>
         <CardContent className="pt-6">
-          <div className="flex flex-col gap-4 md:flex-row">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Buscar por fornecedor, cliente, proposta ou pedido..."
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                className="pl-10"
-              />
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-4 md:flex-row">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar por fornecedor, cliente, proposta ou pedido..."
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-full md:w-[200px]">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos os status</SelectItem>
+                  <SelectItem value="cotacao">Cotacao</SelectItem>
+                  <SelectItem value="em_analise">Em analise</SelectItem>
+                  <SelectItem value="retificacao">Retificacao</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={clienteFilter} onValueChange={setClienteFilter}>
+                <SelectTrigger className="w-full md:w-[220px]">
+                  <SelectValue placeholder="Cliente" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos os clientes</SelectItem>
+                  {clientes.map((cliente) => (
+                    <SelectItem key={cliente.id} value={cliente.id.toString()}>
+                      {cliente.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full md:w-[200px]">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos os status</SelectItem>
-                <SelectItem value="cotacao">Cotacao</SelectItem>
-                <SelectItem value="em_analise">Em analise</SelectItem>
-                <SelectItem value="retificacao">Retificacao</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={clienteFilter} onValueChange={setClienteFilter}>
-              <SelectTrigger className="w-full md:w-[220px]">
-                <SelectValue placeholder="Cliente" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos os clientes</SelectItem>
-                {clientes.map((cliente) => (
-                  <SelectItem key={cliente.id} value={cliente.id.toString()}>
-                    {cliente.nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+
+            <DateRangeFilter
+              startDate={dateFrom}
+              endDate={dateTo}
+              onStartDateChange={setDateFrom}
+              onEndDateChange={setDateTo}
+              onClear={() => {
+                setDateFrom("")
+                setDateTo("")
+              }}
+              startLabel="Criado de"
+              endLabel="Criado ate"
+            />
           </div>
         </CardContent>
       </Card>
@@ -218,20 +239,21 @@ export default function AutorizacoesPage() {
                             : "-"}
                         </TableCell>
                         <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Link href={`/compras/${compra.id}`}>
-                              <Button variant="ghost" size="sm">
-                                <Eye className="mr-2 h-4 w-4" />
+                          <RowActionsMenu label={`Acoes de autorizacao do pedido ${compra.id}`}>
+                            <DropdownMenuItem asChild>
+                              <Link href={`/compras/${compra.id}`}>
+                                <Eye className="h-4 w-4" />
                                 Ver pedido
-                              </Button>
-                            </Link>
-                            <Link href={`/autorizacoes/${compra.id}`}>
-                              <Button size="sm">
-                                <CheckCircle2 className="mr-2 h-4 w-4" />
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem asChild>
+                              <Link href={`/autorizacoes/${compra.id}`}>
+                                <CheckCircle2 className="h-4 w-4" />
                                 Autorizar pedido
-                              </Button>
-                            </Link>
-                          </div>
+                              </Link>
+                            </DropdownMenuItem>
+                          </RowActionsMenu>
                         </TableCell>
                       </TableRow>
                     )

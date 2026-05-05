@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react"
 import Link from "next/link"
 import { format, parseISO } from "date-fns"
 import { ptBR } from "date-fns/locale"
-import { Edit2, Eye, FileText, Loader2, Plus, Search, Trash2 } from "lucide-react"
+import { Eye, FileText, Loader2, Plus, Search } from "lucide-react"
+import { DateRangeFilter } from "@/components/shared/date-range-filter"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -34,6 +35,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { matchesDateRange } from "@/lib/date-range"
 import type { Cliente, Proposta } from "@/lib/types"
 
 const ARCHIVE_FILTER_LABELS = {
@@ -41,6 +43,18 @@ const ARCHIVE_FILTER_LABELS = {
   arquivados: "Arquivados",
   todos: "Todos",
 } as const
+
+const EMPTY_FORM = {
+  cliente_id: "",
+  nome: "",
+  data_inicio: "",
+  data_fim: "",
+  valor_previsto_perfis: "",
+  valor_previsto_vidros: "",
+  valor_previsto_acessorios: "",
+  valor_previsto_outros: "",
+  custo_perdas: "",
+}
 
 export default function PropostasPage() {
   const [propostas, setPropostas] = useState<Proposta[]>([])
@@ -50,21 +64,10 @@ export default function PropostasPage() {
   const [search, setSearch] = useState("")
   const [clienteFilter, setClienteFilter] = useState<string>("todos")
   const [archiveFilter, setArchiveFilter] = useState<keyof typeof ARCHIVE_FILTER_LABELS>("ativos")
+  const [dateFrom, setDateFrom] = useState("")
+  const [dateTo, setDateTo] = useState("")
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [editingProposta, setEditingProposta] = useState<Proposta | null>(null)
-
-  const [formData, setFormData] = useState({
-    cliente_id: "",
-    nome: "",
-    data_inicio: "",
-    data_fim: "",
-    valor_previsto: "",
-    valor_previsto_perfis: "",
-    valor_previsto_vidros: "",
-    valor_previsto_acessorios: "",
-    valor_previsto_outros: "",
-    custo_perdas: "",
-  })
+  const [formData, setFormData] = useState(EMPTY_FORM)
 
   useEffect(() => {
     fetchData()
@@ -91,63 +94,28 @@ export default function PropostasPage() {
     }
   }
 
-  function openDialog(proposta?: Proposta) {
-    if (proposta) {
-      setEditingProposta(proposta)
-      setFormData({
-        cliente_id: proposta.cliente_id.toString(),
-        nome: proposta.nome,
-        data_inicio: proposta.data_inicio ?? "",
-        data_fim: proposta.data_fim ?? "",
-        valor_previsto: proposta.valor_previsto?.toString() ?? "",
-        valor_previsto_perfis: proposta.valor_previsto_perfis?.toString() ?? "",
-        valor_previsto_vidros: proposta.valor_previsto_vidros?.toString() ?? "",
-        valor_previsto_acessorios: proposta.valor_previsto_acessorios?.toString() ?? "",
-        valor_previsto_outros: proposta.valor_previsto_outros?.toString() ?? "",
-        custo_perdas: proposta.custo_perdas?.toString() ?? "",
-      })
-    } else {
-      setEditingProposta(null)
-      setFormData({
-        cliente_id: "",
-        nome: "",
-        data_inicio: "",
-        data_fim: "",
-        valor_previsto: "",
-        valor_previsto_perfis: "",
-        valor_previsto_vidros: "",
-        valor_previsto_acessorios: "",
-        valor_previsto_outros: "",
-        custo_perdas: "",
-      })
-    }
-
+  function openDialog() {
+    setFormData(EMPTY_FORM)
     setDialogOpen(true)
   }
 
-  const clientesDisponiveis =
-    editingProposta
-      ? clientes.filter((cliente) => !cliente.arquivado || cliente.id === editingProposta.cliente_id)
-      : clientes.filter((cliente) => !cliente.arquivado)
-
   async function handleSave() {
     if (!formData.cliente_id || !formData.nome.trim()) {
-      alert("Cliente e nome são obrigatórios.")
+      alert("Cliente e nome sao obrigatorios.")
       return
     }
 
     setSaving(true)
 
     try {
-      const response = await fetch(editingProposta ? `/api/propostas/${editingProposta.id}` : "/api/propostas", {
-        method: editingProposta ? "PUT" : "POST",
+      const response = await fetch("/api/propostas", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cliente_id: Number(formData.cliente_id),
           nome: formData.nome.trim(),
           data_inicio: formData.data_inicio || null,
           data_fim: formData.data_fim || null,
-          valor_previsto: toNumber(formData.valor_previsto),
           valor_previsto_perfis: toNumber(formData.valor_previsto_perfis),
           valor_previsto_vidros: toNumber(formData.valor_previsto_vidros),
           valor_previsto_acessorios: toNumber(formData.valor_previsto_acessorios),
@@ -157,35 +125,17 @@ export default function PropostasPage() {
       })
 
       if (!response.ok) {
-        const payload = await response.json()
-        throw new Error(payload.error || "Erro ao salvar proposta.")
+        const payload = await response.json().catch(() => null)
+        throw new Error(payload?.error || "Erro ao salvar proposta.")
       }
 
       setDialogOpen(false)
+      setFormData(EMPTY_FORM)
       await fetchData()
     } catch (error) {
       alert(error instanceof Error ? error.message : "Erro ao salvar proposta.")
     } finally {
       setSaving(false)
-    }
-  }
-
-  async function handleDelete(id: number) {
-    if (!confirm("Deseja realmente excluir esta proposta?")) {
-      return
-    }
-
-    try {
-      const response = await fetch(`/api/propostas/${id}`, { method: "DELETE" })
-      const payload = await response.json()
-
-      if (!response.ok) {
-        throw new Error(payload.error || "Erro ao excluir proposta.")
-      }
-
-      await fetchData()
-    } catch (error) {
-      alert(error instanceof Error ? error.message : "Erro ao excluir proposta.")
     }
   }
 
@@ -210,7 +160,7 @@ export default function PropostasPage() {
 
     const matchCliente = clienteFilter === "todos" || proposta.cliente_id.toString() === clienteFilter
     return matchSearch && matchCliente
-  })
+  }).filter((proposta) => matchesDateRange(proposta.created_at, dateFrom, dateTo))
 
   if (loading) {
     return (
@@ -225,12 +175,12 @@ export default function PropostasPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Propostas</h1>
-          <p className="text-muted-foreground">Controle de obras, orçamento por categoria e perdas</p>
+          <p className="text-muted-foreground">Controle de obras, orcamento por categoria e perdas</p>
         </div>
 
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button onClick={() => openDialog()}>
+            <Button onClick={openDialog}>
               <Plus className="mr-2 h-4 w-4" />
               Nova Proposta
             </Button>
@@ -238,8 +188,8 @@ export default function PropostasPage() {
 
           <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
             <DialogHeader>
-              <DialogTitle>{editingProposta ? "Editar proposta" : "Nova proposta"}</DialogTitle>
-              <DialogDescription>Configure cliente, período e orçamento da obra.</DialogDescription>
+              <DialogTitle>Nova proposta</DialogTitle>
+              <DialogDescription>Configure cliente, periodo e orcamento da obra.</DialogDescription>
             </DialogHeader>
 
             <div className="space-y-5 py-4">
@@ -253,7 +203,7 @@ export default function PropostasPage() {
                     <SelectValue placeholder="Selecione o cliente" />
                   </SelectTrigger>
                   <SelectContent>
-                    {clientesDisponiveis.map((cliente) => (
+                    {clientes.filter((cliente) => !cliente.arquivado).map((cliente) => (
                       <SelectItem key={cliente.id} value={cliente.id.toString()}>
                         {cliente.nome}
                       </SelectItem>
@@ -272,7 +222,7 @@ export default function PropostasPage() {
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
-                <Field label="Data de início">
+                <Field label="Data de inicio">
                   <Input
                     type="date"
                     value={formData.data_inicio}
@@ -292,7 +242,7 @@ export default function PropostasPage() {
               <div className="space-y-3 rounded-lg border p-4">
                 <div>
                   <h3 className="font-medium">Materiais previstos</h3>
-                  <p className="text-sm text-muted-foreground">Preencha por categoria para acompanhar o orçamento da obra.</p>
+                  <p className="text-sm text-muted-foreground">Preencha por categoria para acompanhar o orcamento da obra.</p>
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
@@ -318,7 +268,7 @@ export default function PropostasPage() {
                     />
                   </Field>
 
-                  <Field label="Acessórios">
+                  <Field label="Acessorios">
                     <Input
                       type="number"
                       step="0.01"
@@ -329,7 +279,7 @@ export default function PropostasPage() {
                     />
                   </Field>
 
-                  <Field label="Outros">
+                  <Field label="Perdas">
                     <Input
                       type="number"
                       step="0.01"
@@ -343,17 +293,12 @@ export default function PropostasPage() {
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
-                <Field label="Valor previsto total">
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={formData.valor_previsto}
-                    onChange={(event) => setFormData((current) => ({ ...current, valor_previsto: event.target.value }))}
-                    placeholder={totalCategorias > 0 ? totalCategorias.toFixed(2) : "0,00"}
-                  />
-                </Field>
-
-                <Field label="Custo de perdas/reposição">
+                <StaticValue
+                  label="Valor previsto total"
+                  value={formatCurrency(totalCategorias)}
+                  hint="Calculado automaticamente pela soma das categorias."
+                />
+                <Field label="Custo de perdas/reposicao">
                   <Input
                     type="number"
                     step="0.01"
@@ -364,11 +309,7 @@ export default function PropostasPage() {
               </div>
 
               <div className="rounded-lg bg-muted p-3 text-sm">
-                <strong>Total por categorias:</strong>{" "}
-                {new Intl.NumberFormat("pt-BR", {
-                  style: "currency",
-                  currency: "BRL",
-                }).format(totalCategorias)}
+                <strong>Total previsto calculado:</strong> {formatCurrency(totalCategorias)}
               </div>
             </div>
 
@@ -393,40 +334,56 @@ export default function PropostasPage() {
 
       <Card>
         <CardContent className="pt-6">
-          <div className="flex flex-col gap-4 md:flex-row">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Buscar por nome ou cliente..."
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                className="pl-10"
-              />
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-4 md:flex-row">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar por nome ou cliente..."
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  className="pl-10"
+                />
+              </div>
+
+              <Select value={clienteFilter} onValueChange={setClienteFilter}>
+                <SelectTrigger className="w-full md:w-[220px]">
+                  <SelectValue placeholder="Cliente" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos os clientes</SelectItem>
+                  {clientes.map((cliente) => (
+                    <SelectItem key={cliente.id} value={cliente.id.toString()}>
+                      {cliente.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={archiveFilter} onValueChange={(value) => setArchiveFilter(value as keyof typeof ARCHIVE_FILTER_LABELS)}>
+                <SelectTrigger className="w-full md:w-[180px]">
+                  <SelectValue placeholder="Arquivamento" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ativos">Ativos</SelectItem>
+                  <SelectItem value="arquivados">Arquivados</SelectItem>
+                  <SelectItem value="todos">Todos</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
-            <Select value={clienteFilter} onValueChange={setClienteFilter}>
-              <SelectTrigger className="w-full md:w-[220px]">
-                <SelectValue placeholder="Cliente" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos os clientes</SelectItem>
-                {clientes.map((cliente) => (
-                  <SelectItem key={cliente.id} value={cliente.id.toString()}>
-                    {cliente.nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={archiveFilter} onValueChange={(value) => setArchiveFilter(value as keyof typeof ARCHIVE_FILTER_LABELS)}>
-              <SelectTrigger className="w-full md:w-[180px]">
-                <SelectValue placeholder="Arquivamento" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ativos">Ativos</SelectItem>
-                <SelectItem value="arquivados">Arquivados</SelectItem>
-                <SelectItem value="todos">Todos</SelectItem>
-              </SelectContent>
-            </Select>
+            <DateRangeFilter
+              startDate={dateFrom}
+              endDate={dateTo}
+              onStartDateChange={setDateFrom}
+              onEndDateChange={setDateTo}
+              onClear={() => {
+                setDateFrom("")
+                setDateTo("")
+              }}
+              startLabel="Cadastro de"
+              endLabel="Cadastro ate"
+            />
           </div>
         </CardContent>
       </Card>
@@ -444,7 +401,7 @@ export default function PropostasPage() {
               <FileText className="mx-auto mb-2 h-12 w-12 opacity-50" />
               <p>{archiveFilter === "arquivados" ? "Nenhuma proposta arquivada." : "Nenhuma proposta cadastrada."}</p>
               {archiveFilter !== "arquivados" && (
-                <Button variant="link" onClick={() => openDialog()}>
+                <Button variant="link" onClick={openDialog}>
                   Cadastrar primeira proposta
                 </Button>
               )}
@@ -455,10 +412,10 @@ export default function PropostasPage() {
                 <TableRow>
                   <TableHead>Proposta</TableHead>
                   <TableHead>Cliente</TableHead>
-                  <TableHead>Período</TableHead>
+                  <TableHead>Periodo</TableHead>
                   <TableHead>Previsto</TableHead>
                   <TableHead>Perdas</TableHead>
-                  <TableHead className="text-right">Ações</TableHead>
+                  <TableHead className="text-right">Acoes</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -478,34 +435,20 @@ export default function PropostasPage() {
                           {format(parseISO(proposta.data_fim), "dd/MM/yy", { locale: ptBR })}
                         </>
                       ) : proposta.data_inicio ? (
-                        <>Início: {format(parseISO(proposta.data_inicio), "dd/MM/yy", { locale: ptBR })}</>
+                        <>Inicio: {format(parseISO(proposta.data_inicio), "dd/MM/yy", { locale: ptBR })}</>
                       ) : (
                         "-"
                       )}
                     </TableCell>
-                    <TableCell>
-                      {formatCurrency(proposta.valor_previsto)}
-                    </TableCell>
+                    <TableCell>{formatCurrency(proposta.valor_previsto)}</TableCell>
                     <TableCell>{formatCurrency(proposta.custo_perdas)}</TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Link href={`/propostas/${proposta.id}`}>
-                          <Button variant="ghost" size="sm">
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </Link>
-                        <Button variant="ghost" size="sm" onClick={() => openDialog(proposta)}>
-                          <Edit2 className="h-4 w-4" />
+                      <Link href={`/propostas/${proposta.id}`}>
+                        <Button variant="ghost" size="sm">
+                          <Eye className="mr-2 h-4 w-4" />
+                          Ver detalhes
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => handleDelete(proposta.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
+                      </Link>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -527,9 +470,29 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
+function StaticValue({
+  label,
+  value,
+  hint,
+}: {
+  label: string
+  value: string
+  hint: string
+}) {
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      <div className="rounded-md border bg-muted/30 px-3 py-2.5">
+        <div className="font-medium text-foreground">{value}</div>
+        <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
+      </div>
+    </div>
+  )
+}
+
 function toNumber(value: string) {
-  const current = Number(value)
-  return Number.isFinite(current) ? current : 0
+  const number = Number(value)
+  return Number.isFinite(number) ? number : 0
 }
 
 function formatCurrency(value: number) {

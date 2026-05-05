@@ -2,6 +2,7 @@
 
 import { use, useEffect, useMemo, useState, type ReactNode } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { format, parseISO } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import {
@@ -20,10 +21,14 @@ import {
   TriangleAlert,
   UserRound,
 } from "lucide-react"
+import { RowActionsMenu } from "@/components/shared/row-actions-menu"
 import { DeliveryStatusBadge } from "@/components/compras/delivery-status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import {
   Table,
@@ -46,12 +51,22 @@ type PropostaResumo = {
 
 export default function ClienteDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
+  const router = useRouter()
   const [cliente, setCliente] = useState<Cliente | null>(null)
   const [propostas, setPropostas] = useState<Proposta[]>([])
   const [compras, setCompras] = useState<Compra[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [togglingArchive, setTogglingArchive] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [formData, setFormData] = useState({
+    nome: "",
+    documento: "",
+    contato: "",
+    email: "",
+  })
 
   useEffect(() => {
     let active = true
@@ -72,6 +87,12 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
         }
 
         setCliente(clienteData)
+        setFormData({
+          nome: clienteData.nome,
+          documento: clienteData.documento ?? "",
+          contato: clienteData.contato ?? "",
+          email: clienteData.email ?? "",
+        })
         setPropostas(propostasData)
         setCompras(comprasData)
       } catch (requestError) {
@@ -197,6 +218,102 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
     }
   }
 
+  async function handleSave() {
+    if (!formData.nome.trim()) {
+      alert("Nome e obrigatorio.")
+      return
+    }
+
+    setSaving(true)
+
+    try {
+      const response = await fetch(`/api/clientes/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nome: formData.nome.trim(),
+          documento: formData.documento || null,
+          contato: formData.contato || null,
+          email: formData.email || null,
+        }),
+      })
+      const payload = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "Erro ao salvar cliente.")
+      }
+
+      setCliente((current) =>
+        current
+          ? {
+              ...current,
+              nome: formData.nome.trim(),
+              documento: formData.documento || null,
+              contato: formData.contato || null,
+              email: formData.email || null,
+            }
+          : current,
+      )
+      setEditing(false)
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao salvar cliente.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirm("Deseja realmente excluir este cliente? A exclusao so e permitida quando nao houver propostas ou compras vinculadas.")) {
+      return
+    }
+
+    setDeleting(true)
+
+    try {
+      const response = await fetch(`/api/clientes/${id}`, { method: "DELETE" })
+      const payload = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "Erro ao excluir cliente.")
+      }
+
+      router.push("/clientes")
+      router.refresh()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao excluir cliente.")
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  function startEditing() {
+    if (!cliente) {
+      return
+    }
+
+    setFormData({
+      nome: cliente.nome,
+      documento: cliente.documento ?? "",
+      contato: cliente.contato ?? "",
+      email: cliente.email ?? "",
+    })
+    setEditing(true)
+  }
+
+  function cancelEditing() {
+    if (!cliente) {
+      return
+    }
+
+    setFormData({
+      nome: cliente.nome,
+      documento: cliente.documento ?? "",
+      contato: cliente.contato ?? "",
+      email: cliente.email ?? "",
+    })
+    setEditing(false)
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
@@ -244,19 +361,7 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={handleArchiveToggle} disabled={togglingArchive}>
-            {togglingArchive ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Salvando...
-              </>
-            ) : cliente.arquivado ? (
-              "Desarquivar"
-            ) : (
-              "Arquivar"
-            )}
-          </Button>
-          {!cliente.arquivado && (
+          {!cliente.arquivado && !editing && (
             <Link href={`/compras/novo?cliente_id=${cliente.id}`}>
               <Button>
                 <Plus className="mr-2 h-4 w-4" />
@@ -264,8 +369,72 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
               </Button>
             </Link>
           )}
+
+          {editing ? (
+            <>
+              <Button variant="outline" onClick={cancelEditing}>
+                Cancelar
+              </Button>
+              <Button onClick={handleSave} disabled={saving}>
+                {saving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Salvando...
+                  </>
+                ) : (
+                  "Salvar"
+                )}
+              </Button>
+            </>
+          ) : (
+            <RowActionsMenu label={`Acoes do cliente ${cliente.nome}`}>
+              <DropdownMenuItem onClick={startEditing}>Editar cadastro</DropdownMenuItem>
+              <DropdownMenuItem onClick={handleArchiveToggle} disabled={togglingArchive}>
+                {togglingArchive ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Salvando...
+                  </>
+                ) : cliente.arquivado ? (
+                  "Desarquivar cliente"
+                ) : (
+                  "Arquivar cliente"
+                )}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={handleDelete} disabled={deleting}>
+                Excluir cliente
+              </DropdownMenuItem>
+            </RowActionsMenu>
+          )}
         </div>
       </div>
+
+      {editing && (
+        <Card className="border-primary/20">
+          <CardHeader>
+            <CardTitle>Edicao do cliente</CardTitle>
+            <CardDescription>Faça ajustes no cadastro a partir do detalhe para reduzir o risco de alteracoes acidentais.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-2">
+            <Field label="Nome *">
+              <Input value={formData.nome} onChange={(event) => setFormData((current) => ({ ...current, nome: event.target.value }))} />
+            </Field>
+            <Field label="Documento">
+              <Input
+                value={formData.documento}
+                onChange={(event) => setFormData((current) => ({ ...current, documento: event.target.value }))}
+              />
+            </Field>
+            <Field label="Contato">
+              <Input value={formData.contato} onChange={(event) => setFormData((current) => ({ ...current, contato: event.target.value }))} />
+            </Field>
+            <Field label="E-mail">
+              <Input value={formData.email} onChange={(event) => setFormData((current) => ({ ...current, email: event.target.value }))} />
+            </Field>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <SummaryCard
@@ -585,6 +754,15 @@ function SummaryLine({ label, value }: { label: string; value: ReactNode }) {
     <div className="flex items-center justify-between gap-4">
       <span className="text-muted-foreground">{label}</span>
       <span className="font-medium">{value}</span>
+    </div>
+  )
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      {children}
     </div>
   )
 }

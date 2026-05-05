@@ -1,15 +1,21 @@
 import { rm } from 'fs/promises'
 import path from 'path'
 import { NextRequest, NextResponse } from 'next/server'
+import { requireFeature } from '@/lib/auth/api'
 import { getCompraDetail, permanentlyDeleteCompra, setCompraArchivedState, updateCompra } from '@/lib/repositories'
 
 export const runtime = 'nodejs'
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const guard = await requireFeature(request, 'compras')
+    if ('response' in guard) {
+      return guard.response
+    }
+
     const { id } = await params
     const compra = await getCompraDetail(Number(id))
 
@@ -31,10 +37,33 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { id } = await params
     const body = await request.json()
+    const isAuthorizationUpdate = body.status === 'pedido_autorizado'
+    const isDeliveryRevision =
+      body.status_entrega !== undefined ||
+      body.data_entrega_real !== undefined ||
+      body.previsao_entrega !== undefined ||
+      body.numero_pedido !== undefined ||
+      body.motivo_revisao !== undefined
+
+    const guard = isAuthorizationUpdate
+      ? await requireFeature(request, 'autorizacoes')
+      : isDeliveryRevision
+        ? await requireFeature(request, 'revisar_entrega')
+        : await requireFeature(request, 'editar_compra')
+
+    if ('response' in guard) {
+      return guard.response
+    }
+
+    const { id } = await params
 
     if (typeof body.arquivado === 'boolean') {
+      const archiveGuard = await requireFeature(request, 'editar_compra')
+      if ('response' in archiveGuard) {
+        return archiveGuard.response
+      }
+
       const result = await setCompraArchivedState(Number(id), body.arquivado)
       return NextResponse.json({
         message: result.archived ? 'Pedido arquivado com sucesso.' : 'Pedido desarquivado com sucesso.',
@@ -53,6 +82,8 @@ export async function PUT(
       previsao_entrega: body.previsao_entrega,
       data_envio_fornecedor: body.data_envio_fornecedor,
       data_entrega_real: body.data_entrega_real,
+      usuario: guard.session.nome,
+      motivo_revisao: body.motivo_revisao ?? null,
     })
 
     return NextResponse.json({ message: 'Compra atualizada com sucesso.' })
@@ -65,10 +96,15 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const guard = await requireFeature(request, 'editar_compra')
+    if ('response' in guard) {
+      return guard.response
+    }
+
     const { id } = await params
     await permanentlyDeleteCompra(Number(id))
 

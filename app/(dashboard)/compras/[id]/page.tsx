@@ -15,6 +15,7 @@ import {
   DollarSign,
   FileText,
   Loader2,
+  MoreHorizontal,
   Package,
   Paperclip,
   Save,
@@ -22,10 +23,18 @@ import {
   Trash2,
   Upload,
 } from "lucide-react"
+import { useCurrentSession } from "@/components/auth-provider"
 import { DeliveryStatusBadge } from "@/components/compras/delivery-status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -57,6 +66,7 @@ const ATTACHMENT_TYPE_OPTIONS: TipoAnexo[] = ["cotacao", "nf", "boleto", "outro"
 
 export default function CompraDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
+  const session = useCurrentSession()
   const router = useRouter()
   const attachmentInputRef = useRef<HTMLInputElement | null>(null)
   const [compra, setCompra] = useState<CompraDetalhe | null>(null)
@@ -69,6 +79,7 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([])
   const [uploadingAttachments, setUploadingAttachments] = useState(false)
   const [deletingAttachmentId, setDeletingAttachmentId] = useState<number | null>(null)
+  const [requestingAuthorization, setRequestingAuthorization] = useState(false)
   const [formData, setFormData] = useState({
     categoria: "perdas",
     fornecedor: "",
@@ -197,6 +208,32 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
     }
   }
 
+  async function handleRequestAuthorization() {
+    if (!compra) {
+      return
+    }
+
+    setRequestingAuthorization(true)
+
+    try {
+      const response = await fetch(`/api/compras/${compra.id}/solicitacao-autorizacao`, {
+        method: "POST",
+      })
+      const payload = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "Erro ao solicitar autorizacao.")
+      }
+
+      alert("Solicitacao registrada no historico do pedido.")
+      await fetchCompra()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao solicitar autorizacao.")
+    } finally {
+      setRequestingAuthorization(false)
+    }
+  }
+
   async function handleUploadAttachments() {
     if (attachmentFiles.length === 0) {
       alert("Selecione pelo menos um arquivo para enviar.")
@@ -319,21 +356,27 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {compra.status !== "pedido_autorizado" ? (
+          {compra.status !== "pedido_autorizado" && session?.perfil === "admin" ? (
             <Link href={`/autorizacoes/${compra.id}`}>
               <Button variant="outline">
                 <CheckCircle2 className="mr-2 h-4 w-4" />
                 Autorizar pedido
               </Button>
             </Link>
-          ) : (
+          ) : compra.status !== "pedido_autorizado" ? (
+            <Button variant="outline" onClick={handleRequestAuthorization} disabled={requestingAuthorization}>
+              <CheckCircle2 className="mr-2 h-4 w-4" />
+              {requestingAuthorization ? "Solicitando..." : "Solicitar autorizacao"}
+            </Button>
+          ) : session?.perfil === "admin" ? (
             <Link href={`/autorizacoes/${compra.id}`}>
               <Button variant="outline">
                 <CheckCircle2 className="mr-2 h-4 w-4" />
                 Revisar autorizacao
               </Button>
             </Link>
-          )}
+          ) : null}
+
           {compra.status === "pedido_autorizado" && (
             <Link href={`/entregas/${compra.id}`}>
               <Button variant="outline">
@@ -342,35 +385,26 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
               </Button>
             </Link>
           )}
+
           {!editing ? (
-            <>
-              <Button variant="outline" onClick={handleArchiveToggle} disabled={togglingArchive}>
-                {togglingArchive ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Salvando...
-                  </>
-                ) : compra.arquivado ? (
-                  "Desarquivar"
-                ) : (
-                  "Arquivar"
-                )}
-              </Button>
-              <Button variant="destructive" onClick={handleDelete} disabled={deleting || togglingArchive}>
-                {deleting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Excluindo...
-                  </>
-                ) : (
-                  <>
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Excluir
-                  </>
-                )}
-              </Button>
-              <Button onClick={() => setEditing(true)}>Editar</Button>
-            </>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline">
+                  <MoreHorizontal className="mr-2 h-4 w-4" />
+                  Mais acoes
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => setEditing(true)}>Editar dados gerais</DropdownMenuItem>
+                <DropdownMenuItem onClick={handleArchiveToggle} disabled={togglingArchive}>
+                  {compra.arquivado ? "Desarquivar pedido" : "Arquivar pedido"}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onClick={handleDelete} disabled={deleting || togglingArchive}>
+                  Excluir pedido
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           ) : (
             <>
               <Button variant="outline" onClick={resetEditing}>

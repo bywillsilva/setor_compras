@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
   nome VARCHAR(255) NOT NULL,
   email VARCHAR(255) NOT NULL UNIQUE,
   senha_hash VARCHAR(255) NOT NULL,
-  perfil ENUM('admin', 'comprador') DEFAULT 'comprador',
+  perfil ENUM('admin', 'comprador', 'orcamentista') DEFAULT 'comprador',
   ativo BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP

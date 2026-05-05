@@ -1,27 +1,98 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
+import { useEffect, useState, type ReactNode } from "react"
+import {
+  AlertCircle,
+  CheckCircle2,
+  Database,
+  ExternalLink,
+  Loader2,
+  RefreshCw,
+  Settings2,
+  Users,
+} from "lucide-react"
+import { useCurrentSession } from "@/components/auth-provider"
 import { Badge } from "@/components/ui/badge"
-import { Database, CheckCircle2, AlertCircle, Loader2, RefreshCw, ExternalLink } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { PERFIL_LABELS } from "@/lib/auth/permissions"
+import type { PerfilUsuario } from "@/lib/types"
+
+type DatabaseStatus = {
+  configured: boolean
+  dbType: "supabase" | "mysql" | "none"
+  existingTables?: string[]
+  missingTables?: string[]
+  setupScript?: string
+  error?: string
+  details?: string
+}
+
+type UsuarioResumo = {
+  id: number
+  nome: string
+  email: string
+  perfil: PerfilUsuario
+  ativo: boolean
+  created_at: string
+  updated_at: string
+}
+
+const EMPTY_USER_FORM = {
+  nome: "",
+  email: "",
+  senha: "",
+  perfil: "comprador" as PerfilUsuario,
+  ativo: "ativo",
+}
 
 export default function ConfiguracoesPage() {
+  const session = useCurrentSession()
   const [checking, setChecking] = useState(false)
-  const [dbStatus, setDbStatus] = useState<{
-    configured: boolean
-    dbType: 'supabase' | 'mysql' | 'none'
-    existingTables?: string[]
-    missingTables?: string[]
-    setupScript?: string
-    error?: string
-    details?: string
-  } | null>(null)
   const [setting, setSetting] = useState(false)
+  const [dbStatus, setDbStatus] = useState<DatabaseStatus | null>(null)
+  const [usuarios, setUsuarios] = useState<UsuarioResumo[]>([])
+  const [loadingUsuarios, setLoadingUsuarios] = useState(false)
+  const [savingUsuario, setSavingUsuario] = useState(false)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingUsuario, setEditingUsuario] = useState<UsuarioResumo | null>(null)
+  const [userFormData, setUserFormData] = useState(EMPTY_USER_FORM)
 
   useEffect(() => {
     checkDatabase()
   }, [])
+
+  useEffect(() => {
+    if (session?.perfil === "admin") {
+      fetchUsuarios()
+    }
+  }, [session?.perfil])
 
   async function checkDatabase() {
     setChecking(true)
@@ -29,8 +100,8 @@ export default function ConfiguracoesPage() {
       const res = await fetch("/api/setup")
       const data = await res.json()
       setDbStatus(data)
-    } catch (error) {
-      setDbStatus({ configured: false, dbType: 'none', error: "Erro ao conectar" })
+    } catch {
+      setDbStatus({ configured: false, dbType: "none", error: "Erro ao conectar" })
     } finally {
       setChecking(false)
     }
@@ -41,60 +112,130 @@ export default function ConfiguracoesPage() {
     try {
       const res = await fetch("/api/setup", { method: "POST" })
       const data = await res.json()
+
       if (data.success) {
         await checkDatabase()
       } else {
-        setDbStatus(prev => ({
-          ...prev,
+        setDbStatus((current) => ({
+          ...current,
           configured: false,
-          dbType: prev?.dbType || 'none',
-          error: data.details || data.error
+          dbType: current?.dbType || "none",
+          error: data.details || data.error,
         }))
       }
-    } catch (error) {
-      setDbStatus(prev => ({
-        ...prev,
+    } catch {
+      setDbStatus((current) => ({
+        ...current,
         configured: false,
-        dbType: prev?.dbType || 'none',
-        error: "Erro ao configurar banco de dados"
+        dbType: current?.dbType || "none",
+        error: "Erro ao configurar banco de dados",
       }))
     } finally {
       setSetting(false)
     }
   }
 
+  async function fetchUsuarios() {
+    setLoadingUsuarios(true)
+    try {
+      const response = await fetch("/api/usuarios")
+
+      if (response.ok) {
+        setUsuarios(await response.json())
+      }
+    } finally {
+      setLoadingUsuarios(false)
+    }
+  }
+
+  function openUserDialog(usuario?: UsuarioResumo) {
+    if (usuario) {
+      setEditingUsuario(usuario)
+      setUserFormData({
+        nome: usuario.nome,
+        email: usuario.email,
+        senha: "",
+        perfil: usuario.perfil,
+        ativo: usuario.ativo ? "ativo" : "inativo",
+      })
+    } else {
+      setEditingUsuario(null)
+      setUserFormData(EMPTY_USER_FORM)
+    }
+
+    setDialogOpen(true)
+  }
+
+  async function handleSaveUsuario() {
+    if (!userFormData.nome.trim() || !userFormData.email.trim()) {
+      alert("Nome e email sao obrigatorios.")
+      return
+    }
+
+    if (!editingUsuario && !userFormData.senha.trim()) {
+      alert("Senha obrigatoria para criar usuario.")
+      return
+    }
+
+    setSavingUsuario(true)
+
+    try {
+      const response = await fetch(editingUsuario ? `/api/usuarios/${editingUsuario.id}` : "/api/usuarios", {
+        method: editingUsuario ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nome: userFormData.nome.trim(),
+          email: userFormData.email.trim(),
+          senha: userFormData.senha.trim() || null,
+          perfil: userFormData.perfil,
+          ativo: userFormData.ativo === "ativo",
+        }),
+      })
+      const payload = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "Erro ao salvar usuario.")
+      }
+
+      setDialogOpen(false)
+      setEditingUsuario(null)
+      setUserFormData(EMPTY_USER_FORM)
+      await fetchUsuarios()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao salvar usuario.")
+    } finally {
+      setSavingUsuario(false)
+    }
+  }
+
   const dbTypeLabel = {
-    supabase: 'Supabase (PostgreSQL)',
-    mysql: 'MySQL Hostinger',
-    none: 'Não configurado'
+    supabase: "Supabase (PostgreSQL)",
+    mysql: "MySQL Hostinger",
+    none: "Nao configurado",
   }
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
+    <div className="space-y-6 p-6">
       <div>
-        <h1 className="text-2xl font-bold text-foreground">Configurações</h1>
-        <p className="text-muted-foreground">Gerencie as configurações do sistema</p>
+        <h1 className="text-2xl font-bold text-foreground">Configuracoes</h1>
+        <p className="text-muted-foreground">Banco de dados, acesso inicial e administracao do sistema.</p>
       </div>
 
-      {/* Database Status */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Database className="h-5 w-5" />
-            Banco de Dados
-            {dbStatus && dbStatus.dbType !== 'none' && (
+            Banco de dados
+            {dbStatus && dbStatus.dbType !== "none" && (
               <Badge variant="outline" className="ml-2">
-                {dbStatus.dbType === 'supabase' ? 'Supabase' : 'MySQL'}
+                {dbStatus.dbType === "supabase" ? "Supabase" : "MySQL"}
               </Badge>
             )}
           </CardTitle>
-          <CardDescription>
-            Verifique e configure a conexão com o banco de dados
-          </CardDescription>
+          <CardDescription>Verifique a conexao e alinhe o banco com a estrutura atual do sistema.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button onClick={checkDatabase} disabled={checking} variant="outline">
               {checking ? (
                 <>
@@ -104,12 +245,12 @@ export default function ConfiguracoesPage() {
               ) : (
                 <>
                   <RefreshCw className="mr-2 h-4 w-4" />
-                  Verificar Conexão
+                  Verificar conexao
                 </>
               )}
             </Button>
-            
-            {dbStatus && !dbStatus.configured && dbStatus.dbType === 'mysql' && (
+
+            {dbStatus && !dbStatus.configured && dbStatus.dbType === "mysql" && (
               <Button onClick={setupDatabase} disabled={setting}>
                 {setting ? (
                   <>
@@ -119,7 +260,7 @@ export default function ConfiguracoesPage() {
                 ) : (
                   <>
                     <Database className="mr-2 h-4 w-4" />
-                    Criar Tabelas
+                    Criar tabelas
                   </>
                 )}
               </Button>
@@ -127,21 +268,21 @@ export default function ConfiguracoesPage() {
           </div>
 
           {dbStatus && (
-            <div className="rounded-lg border p-4 space-y-3">
+            <div className="space-y-3 rounded-lg border p-4">
               <div className="flex items-center gap-2">
                 {dbStatus.configured ? (
                   <>
                     <CheckCircle2 className="h-5 w-5 text-green-600" />
                     <span className="font-medium text-green-700">
-                      Banco de dados configurado ({dbTypeLabel[dbStatus.dbType]})
+                      Banco configurado ({dbTypeLabel[dbStatus.dbType]})
                     </span>
                   </>
                 ) : dbStatus.error ? (
                   <>
                     <AlertCircle className="h-5 w-5 text-red-600" />
-                    <span className="font-medium text-red-700">Erro na conexão</span>
+                    <span className="font-medium text-red-700">Erro na conexao</span>
                   </>
-                ) : dbStatus.dbType === 'none' ? (
+                ) : dbStatus.dbType === "none" ? (
                   <>
                     <AlertCircle className="h-5 w-5 text-yellow-600" />
                     <span className="font-medium text-yellow-700">Nenhum banco configurado</span>
@@ -149,66 +290,48 @@ export default function ConfiguracoesPage() {
                 ) : (
                   <>
                     <AlertCircle className="h-5 w-5 text-yellow-600" />
-                    <span className="font-medium text-yellow-700">Tabelas faltando</span>
+                    <span className="font-medium text-yellow-700">Estrutura pendente</span>
                   </>
                 )}
               </div>
 
-              {dbStatus.error && (
-                <p className="text-sm text-red-600">{dbStatus.error}</p>
-              )}
+              {dbStatus.error && <p className="text-sm text-red-600">{dbStatus.error}</p>}
 
               {dbStatus.existingTables && dbStatus.existingTables.length > 0 && (
-                <div>
-                  <p className="text-sm text-muted-foreground mb-2">Tabelas existentes:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {dbStatus.existingTables.map((table) => (
-                      <Badge key={table} variant="secondary" className="bg-green-100 text-green-800">
-                        {table}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
+                <InfoBlock
+                  title="Tabelas existentes"
+                  badges={dbStatus.existingTables}
+                  className="bg-green-100 text-green-800"
+                />
               )}
 
               {dbStatus.missingTables && dbStatus.missingTables.length > 0 && (
-                <div>
-                  <p className="text-sm text-muted-foreground mb-2">Estruturas pendentes na versao atual:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {dbStatus.missingTables.map((table) => (
-                      <Badge key={table} variant="secondary" className="bg-red-100 text-red-800">
-                        {table}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
+                <InfoBlock
+                  title="Estruturas pendentes na versao atual"
+                  badges={dbStatus.missingTables}
+                  className="bg-red-100 text-red-800"
+                />
               )}
 
-              {dbStatus.dbType === 'supabase' && dbStatus.missingTables && dbStatus.missingTables.length > 0 && (
-                <div className="mt-4 p-3 bg-amber-50 rounded-lg border border-amber-200">
-                  <p className="text-sm text-amber-800 mb-2">
-                    Primeira instalacao no Supabase:
-                  </p>
-                  <code className="block bg-amber-100 p-2 rounded text-xs text-amber-900">
+              {dbStatus.dbType === "supabase" && dbStatus.missingTables && dbStatus.missingTables.length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                  <p className="mb-2 text-sm text-amber-800">Primeira instalacao no Supabase:</p>
+                  <code className="block rounded bg-amber-100 p-2 text-xs text-amber-900">
                     scripts/setup-database-supabase.sql
                   </code>
-                  <p className="mt-3 text-sm text-amber-800 mb-2">
-                    Para alinhar uma base existente com a versao atual do sistema, use a migration consolidada:
-                  </p>
-                  <code className="block bg-amber-100 p-2 rounded text-xs text-amber-900">
+                  <p className="mb-2 mt-3 text-sm text-amber-800">Para alinhar uma base existente com a versao atual:</p>
+                  <code className="block rounded bg-amber-100 p-2 text-xs text-amber-900">
                     scripts/migrations/supabase/2026-04-29-upgrade-current-schema.sql
                   </code>
-                  <p className="mt-3 text-sm text-amber-800 mb-2">
-                    Se quiser resetar tudo e recriar a base do zero na estrutura atual:
-                  </p>
-                  <code className="block bg-amber-100 p-2 rounded text-xs text-amber-900">
+                  <p className="mb-2 mt-3 text-sm text-amber-800">Se quiser resetar tudo e recriar do zero:</p>
+                  <code className="block rounded bg-amber-100 p-2 text-xs text-amber-900">
                     scripts/reset-database-supabase.sql
                   </code>
                   <Button
                     variant="outline"
                     size="sm"
-                    className="mt-2 text-amber-700 border-amber-300 hover:bg-amber-100"
-                    onClick={() => window.open('https://supabase.com/dashboard', '_blank')}
+                    className="mt-3 border-amber-300 text-amber-700 hover:bg-amber-100"
+                    onClick={() => window.open("https://supabase.com/dashboard", "_blank")}
                   >
                     <ExternalLink className="mr-2 h-4 w-4" />
                     Abrir Supabase Dashboard
@@ -219,85 +342,234 @@ export default function ConfiguracoesPage() {
           )}
 
           <div className="rounded-lg bg-muted p-4">
-            <h4 className="font-medium mb-3">Opções de Configuração</h4>
-            
+            <h4 className="mb-3 font-medium">Configuracao recomendada</h4>
             <div className="space-y-4">
-              {/* Supabase Option */}
-              <div className="p-3 bg-background rounded-lg border">
-                <h5 className="font-medium text-primary mb-2 flex items-center gap-2">
-                  <Badge variant="outline" className="text-xs">Recomendado</Badge>
-                  Supabase (PostgreSQL)
+              <div className="rounded-lg border bg-background p-3">
+                <h5 className="mb-2 flex items-center gap-2 font-medium text-primary">
+                  <Badge variant="outline" className="text-xs">
+                    Recomendado
+                  </Badge>
+                  Supabase
                 </h5>
-                <p className="text-sm text-muted-foreground mb-2">
-                  Configure as seguintes variáveis de ambiente:
-                </p>
-                <pre className="bg-muted p-2 rounded text-xs overflow-x-auto">
+                <pre className="overflow-x-auto rounded bg-muted p-2 text-xs">
 {`NEXT_PUBLIC_SUPABASE_URL="https://seu-projeto.supabase.co"
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="sb_publishable_..."
 SUPABASE_SECRET_KEY="sb_secret_..."`}
                 </pre>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Em bases existentes, execute a migration consolidada da versao atual antes de usar o sistema.
-                </p>
               </div>
 
-              {/* MySQL Option */}
-              <div className="p-3 bg-background rounded-lg border">
-                <h5 className="font-medium text-primary mb-2">MySQL Hostinger</h5>
-                <p className="text-sm text-muted-foreground mb-2">
-                  Configure a variável DATABASE_URL:
-                </p>
-                <pre className="bg-muted p-2 rounded text-xs overflow-x-auto">
-{`DATABASE_URL="mysql://usuario:senha@host:porta/banco"
-
-# Exemplo:
-DATABASE_URL="mysql://u123456_admin:Senha123@srv123.hostinger.com:3306/u123456_compras"`}
+              <div className="rounded-lg border bg-background p-3">
+                <h5 className="mb-2 font-medium text-primary">MySQL</h5>
+                <pre className="overflow-x-auto rounded bg-muted p-2 text-xs">
+{`DATABASE_URL="mysql://usuario:senha@host:porta/banco"`}
                 </pre>
               </div>
-              <div className="p-3 bg-background rounded-lg border">
-                <h5 className="font-medium text-primary mb-2">AutenticaÃ§Ã£o inicial</h5>
-                <p className="text-sm text-muted-foreground mb-2">
-                  O sistema cria automaticamente um administrador padrÃ£o quando encontra o banco configurado e ainda nÃ£o existem usuÃ¡rios.
-                </p>
-                <pre className="bg-muted p-2 rounded text-xs overflow-x-auto">
+
+              <div className="rounded-lg border bg-background p-3">
+                <h5 className="mb-2 font-medium text-primary">Autenticacao inicial</h5>
+                <pre className="overflow-x-auto rounded bg-muted p-2 text-xs">
 {`AUTH_SECRET="gere-uma-chave-segura"
 APP_ADMIN_NAME="Administrador do Sistema"
 APP_ADMIN_EMAIL="admin@compras.local"
 APP_ADMIN_PASSWORD="admin123456"`}
                 </pre>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Se vocÃª nÃ£o definir email e senha no ambiente local, o sistema usa <strong>admin@compras.local</strong> e <strong>admin123456</strong> no primeiro acesso.
-                </p>
               </div>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* System Info */}
+      {session?.perfil === "admin" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              Usuarios e perfis
+            </CardTitle>
+            <CardDescription>Crie e ajuste acessos para administrador, comprador e orcamentista.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex justify-end">
+              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button onClick={() => openUserDialog()}>
+                    <Settings2 className="mr-2 h-4 w-4" />
+                    Novo usuario
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>{editingUsuario ? "Editar usuario" : "Novo usuario"}</DialogTitle>
+                    <DialogDescription>
+                      {editingUsuario
+                        ? "Ajuste perfil, status e, se precisar, redefina a senha."
+                        : "Crie um novo acesso para o sistema."}
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <div className="space-y-4 py-2">
+                    <Field label="Nome">
+                      <Input
+                        value={userFormData.nome}
+                        onChange={(event) => setUserFormData((current) => ({ ...current, nome: event.target.value }))}
+                      />
+                    </Field>
+
+                    <Field label="Email">
+                      <Input
+                        type="email"
+                        value={userFormData.email}
+                        onChange={(event) => setUserFormData((current) => ({ ...current, email: event.target.value }))}
+                      />
+                    </Field>
+
+                    <Field label={editingUsuario ? "Nova senha (opcional)" : "Senha"}>
+                      <Input
+                        type="password"
+                        value={userFormData.senha}
+                        onChange={(event) => setUserFormData((current) => ({ ...current, senha: event.target.value }))}
+                      />
+                    </Field>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <Field label="Perfil">
+                        <Select
+                          value={userFormData.perfil}
+                          onValueChange={(value) =>
+                            setUserFormData((current) => ({ ...current, perfil: value as PerfilUsuario }))
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="admin">Administrador</SelectItem>
+                            <SelectItem value="comprador">Comprador</SelectItem>
+                            <SelectItem value="orcamentista">Orcamentista</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+
+                      <Field label="Status">
+                        <Select
+                          value={userFormData.ativo}
+                          onValueChange={(value) => setUserFormData((current) => ({ ...current, ativo: value }))}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="ativo">Ativo</SelectItem>
+                            <SelectItem value="inativo">Inativo</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                    </div>
+                  </div>
+
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setDialogOpen(false)}>
+                      Cancelar
+                    </Button>
+                    <Button onClick={handleSaveUsuario} disabled={savingUsuario}>
+                      {savingUsuario ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Salvando...
+                        </>
+                      ) : (
+                        "Salvar usuario"
+                      )}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
+
+            {loadingUsuarios ? (
+              <div className="flex min-h-[180px] items-center justify-center">
+                <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Nome</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Perfil</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Acoes</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {usuarios.map((usuario) => (
+                    <TableRow key={usuario.id}>
+                      <TableCell className="font-medium">{usuario.nome}</TableCell>
+                      <TableCell>{usuario.email}</TableCell>
+                      <TableCell>{PERFIL_LABELS[usuario.perfil]}</TableCell>
+                      <TableCell>
+                        <Badge variant={usuario.ativo ? "default" : "outline"}>{usuario.ativo ? "Ativo" : "Inativo"}</Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="sm" onClick={() => openUserDialog(usuario)}>
+                          Editar
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
-          <CardTitle>Informações do Sistema</CardTitle>
+          <CardTitle>Informacoes do sistema</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Versão</span>
-              <span className="font-medium">1.0.0</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Framework</span>
-              <span className="font-medium">Next.js 16</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Banco de Dados</span>
-              <span className="font-medium">
-                {dbStatus ? dbTypeLabel[dbStatus.dbType] : 'Verificando...'}
-              </span>
-            </div>
+            <InfoLine label="Versao" value="1.0.0" />
+            <InfoLine label="Framework" value="Next.js 16" />
+            <InfoLine label="Banco de dados" value={dbStatus ? dbTypeLabel[dbStatus.dbType] : "Verificando..."} />
+            <InfoLine label="Perfil atual" value={session ? PERFIL_LABELS[session.perfil] : "Sem sessao"} />
           </div>
         </CardContent>
       </Card>
+    </div>
+  )
+}
+
+function InfoBlock({ title, badges, className }: { title: string; badges: string[]; className: string }) {
+  return (
+    <div>
+      <p className="mb-2 text-sm text-muted-foreground">{title}:</p>
+      <div className="flex flex-wrap gap-2">
+        {badges.map((badge) => (
+          <Badge key={badge} variant="secondary" className={className}>
+            {badge}
+          </Badge>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      {children}
+    </div>
+  )
+}
+
+function InfoLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-medium">{value}</span>
     </div>
   )
 }

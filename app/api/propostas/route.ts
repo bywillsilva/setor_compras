@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireFeature } from '@/lib/auth/api'
 import { createProposta, listPropostas } from '@/lib/repositories'
 
 export async function GET(request: NextRequest) {
   try {
+    const guard = await requireFeature(request, 'propostas')
+    if ('response' in guard) {
+      return guard.response
+    }
+
     const { searchParams } = new URL(request.url)
     const clienteId = searchParams.get('cliente_id')
     const arquivados = searchParams.get('arquivados')
@@ -24,6 +30,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const guard = await requireFeature(request, 'propostas')
+    if ('response' in guard) {
+      return guard.response
+    }
+
     const body = await request.json()
 
     if (!body.cliente_id || !String(body.nome ?? '').trim()) {
@@ -35,7 +46,7 @@ export async function POST(request: NextRequest) {
       nome: String(body.nome).trim(),
       data_inicio: body.data_inicio ?? null,
       data_fim: body.data_fim ?? null,
-      valor_previsto: body.valor_previsto ?? 0,
+      valor_previsto: 0,
       valor_previsto_perfis: body.valor_previsto_perfis ?? 0,
       valor_previsto_vidros: body.valor_previsto_vidros ?? 0,
       valor_previsto_acessorios: body.valor_previsto_acessorios ?? 0,

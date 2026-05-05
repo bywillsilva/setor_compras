@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireFeature } from '@/lib/auth/api'
 import { deleteProposta, getPropostaById, setPropostaArchivedState, updateProposta } from '@/lib/repositories'
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const guard = await requireFeature(request, 'propostas')
+    if ('response' in guard) {
+      return guard.response
+    }
+
     const { id } = await params
     const proposta = await getPropostaById(Number(id))
 
@@ -27,6 +33,11 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const guard = await requireFeature(request, 'editar_proposta')
+    if ('response' in guard) {
+      return guard.response
+    }
+
     const { id } = await params
     const body = await request.json()
 
@@ -47,7 +58,7 @@ export async function PUT(
       nome: String(body.nome).trim(),
       data_inicio: body.data_inicio ?? null,
       data_fim: body.data_fim ?? null,
-      valor_previsto: body.valor_previsto ?? 0,
+      valor_previsto: 0,
       valor_previsto_perfis: body.valor_previsto_perfis ?? 0,
       valor_previsto_vidros: body.valor_previsto_vidros ?? 0,
       valor_previsto_acessorios: body.valor_previsto_acessorios ?? 0,
@@ -65,10 +76,15 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const guard = await requireFeature(request, 'editar_proposta')
+    if ('response' in guard) {
+      return guard.response
+    }
+
     const { id } = await params
     await deleteProposta(Number(id))
     return NextResponse.json({ message: 'Proposta excluída com sucesso.' })

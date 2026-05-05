@@ -2,6 +2,8 @@ ALTER TABLE clientes ADD COLUMN IF NOT EXISTS arquivado BOOLEAN DEFAULT FALSE;
 ALTER TABLE propostas ADD COLUMN IF NOT EXISTS arquivado BOOLEAN DEFAULT FALSE;
 ALTER TABLE compras ADD COLUMN IF NOT EXISTS arquivado BOOLEAN DEFAULT FALSE;
 
+ALTER TABLE usuarios MODIFY COLUMN perfil ENUM('admin', 'comprador', 'orcamentista') DEFAULT 'comprador';
+
 ALTER TABLE compras MODIFY COLUMN categoria VARCHAR(30) NULL;
 UPDATE compras
 SET categoria = 'perdas'

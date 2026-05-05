@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireFeature } from '@/lib/auth/api'
 import { createCliente, listClientes } from '@/lib/repositories'
 
 export async function GET(request: NextRequest) {
   try {
+    const guard = await requireFeature(request, 'clientes')
+    if ('response' in guard) {
+      return guard.response
+    }
+
     const { searchParams } = new URL(request.url)
     const arquivados = searchParams.get('arquivados')
 
@@ -21,6 +27,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const guard = await requireFeature(request, 'clientes')
+    if ('response' in guard) {
+      return guard.response
+    }
+
     const body = await request.json()
 
     if (!String(body.nome ?? '').trim()) {

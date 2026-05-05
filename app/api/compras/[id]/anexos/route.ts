@@ -1,15 +1,21 @@
 import { mkdir, rm, writeFile } from 'fs/promises'
 import path from 'path'
 import { NextRequest, NextResponse } from 'next/server'
+import { requireFeature } from '@/lib/auth/api'
 import { createAnexo, deleteAnexo, listAnexosByCompraId } from '@/lib/repositories'
 
 export const runtime = 'nodejs'
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const guard = await requireFeature(request, 'compras')
+    if ('response' in guard) {
+      return guard.response
+    }
+
     const { id } = await params
     const anexos = await listAnexosByCompraId(Number(id))
     return NextResponse.json(anexos)
@@ -26,6 +32,11 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const guard = await requireFeature(request, 'compras')
+    if ('response' in guard) {
+      return guard.response
+    }
+
     const { id } = await params
     const compraId = Number(id)
     const formData = await request.formData()

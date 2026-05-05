@@ -5,13 +5,16 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { format, parseISO } from "date-fns"
 import { ptBR } from "date-fns/locale"
-import { AlertTriangle, ArrowLeft, CheckCircle2, Loader2, RotateCcw, Save, Truck } from "lucide-react"
+import { AlertTriangle, ArrowLeft, CheckCircle2, Eye, Loader2, RotateCcw, Save, Truck } from "lucide-react"
+import { RowActionsMenu } from "@/components/shared/row-actions-menu"
 import { DeliveryStatusBadge } from "@/components/compras/delivery-status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { getDeliverySituation, STATUS_BADGE_CLASSES, STATUS_LABELS } from "@/lib/domain"
 import type { Compra } from "@/lib/types"
 
@@ -27,7 +30,10 @@ export default function EntregaDetailPage({ params }: { params: Promise<{ id: st
   const [saving, setSaving] = useState(false)
   const [reverting, setReverting] = useState(false)
   const [formData, setFormData] = useState({
+    numero_pedido: "",
+    previsao_entrega: "",
     data_entrega_real: "",
+    motivo_revisao: "",
   })
 
   useEffect(() => {
@@ -41,7 +47,10 @@ export default function EntregaDetailPage({ params }: { params: Promise<{ id: st
         const payload = await response.json()
         setCompra(payload)
         setFormData({
+          numero_pedido: payload.numero_pedido ?? "",
+          previsao_entrega: payload.previsao_entrega ?? "",
           data_entrega_real: payload.data_entrega_real ?? "",
+          motivo_revisao: "",
         })
       } catch (error) {
         console.error(error)
@@ -56,20 +65,39 @@ export default function EntregaDetailPage({ params }: { params: Promise<{ id: st
   const situacao = useMemo(() => (compra ? getDeliverySituation(compra) : "pendente"), [compra])
 
   async function handleSave() {
-    if (!formData.data_entrega_real) {
+    const changedNumeroPedido = formData.numero_pedido.trim() !== (compra?.numero_pedido ?? "")
+    const changedPrevisaoEntrega = formData.previsao_entrega !== (compra?.previsao_entrega ?? "")
+    const changedEntregaReal = formData.data_entrega_real !== (compra?.data_entrega_real ?? "")
+    const changedAuthorizationData = changedNumeroPedido || changedPrevisaoEntrega
+
+    if (!changedAuthorizationData && !changedEntregaReal) {
+      alert("Faça pelo menos uma alteração antes de salvar.")
+      return
+    }
+
+    if (!formData.data_entrega_real && compra?.status_entrega !== "entregue" && !changedAuthorizationData) {
       alert("Informe a data em que o material chegou.")
+      return
+    }
+
+    if (changedAuthorizationData && !formData.motivo_revisao.trim()) {
+      alert("Informe o motivo da revisao para atualizar previsao ou numero do pedido.")
       return
     }
 
     setSaving(true)
 
     try {
+      const nextStatusEntrega = formData.data_entrega_real ? "entregue" : compra?.status_entrega ?? "pendente"
       const response = await fetch(`/api/compras/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          status_entrega: "entregue",
-          data_entrega_real: formData.data_entrega_real,
+          numero_pedido: formData.numero_pedido.trim(),
+          previsao_entrega: formData.previsao_entrega || null,
+          status_entrega: nextStatusEntrega,
+          data_entrega_real: formData.data_entrega_real || null,
+          motivo_revisao: changedAuthorizationData ? formData.motivo_revisao.trim() : null,
         }),
       })
 
@@ -200,12 +228,20 @@ export default function EntregaDetailPage({ params }: { params: Promise<{ id: st
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Link href={`/autorizacoes/${compra.id}`}>
-            <Button variant="outline">Revisar autorizacao</Button>
-          </Link>
-          <Link href={`/compras/${compra.id}`}>
-            <Button variant="outline">Voltar ao pedido</Button>
-          </Link>
+          <RowActionsMenu label={`Acoes da entrega do pedido ${compra.id}`}>
+            <DropdownMenuItem asChild>
+              <Link href={`/compras/${compra.id}`}>
+                <Eye className="h-4 w-4" />
+                Ver pedido
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href={`/autorizacoes/${compra.id}`}>
+                <CheckCircle2 className="h-4 w-4" />
+                Revisar autorizacao
+              </Link>
+            </DropdownMenuItem>
+          </RowActionsMenu>
         </div>
       </div>
 
@@ -240,17 +276,21 @@ export default function EntregaDetailPage({ params }: { params: Promise<{ id: st
                 <InfoValue>{compra.fornecedor}</InfoValue>
               </Field>
               <Field label="Numero do pedido">
-                <InfoValue>{compra.numero_pedido || "-"}</InfoValue>
+                <Input
+                  value={formData.numero_pedido}
+                  onChange={(event) => setFormData((current) => ({ ...current, numero_pedido: event.target.value }))}
+                  placeholder="Ex: PED-2026-014"
+                />
               </Field>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="Previsao registrada">
-                <InfoValue>
-                  {compra.previsao_entrega
-                    ? format(parseISO(compra.previsao_entrega), "dd/MM/yyyy", { locale: ptBR })
-                    : "-"}
-                </InfoValue>
+                <Input
+                  type="date"
+                  value={formData.previsao_entrega}
+                  onChange={(event) => setFormData((current) => ({ ...current, previsao_entrega: event.target.value }))}
+                />
               </Field>
 
               <Field label="Status atual da entrega">
@@ -268,6 +308,17 @@ export default function EntregaDetailPage({ params }: { params: Promise<{ id: st
               />
               <p className="text-xs text-muted-foreground">
                 Ao salvar esta data, o pedido passa automaticamente para entregue. Se precisar corrigir depois, volte o pedido para pendente.
+              </p>
+            </Field>
+
+            <Field label="Motivo da revisao">
+              <Textarea
+                value={formData.motivo_revisao}
+                onChange={(event) => setFormData((current) => ({ ...current, motivo_revisao: event.target.value }))}
+                placeholder="Explique o motivo se voce alterar a previsao de entrega ou o numero do pedido."
+              />
+              <p className="text-xs text-muted-foreground">
+                Esse motivo entra no historico para que o administrativo acompanhe ajustes apos a autorizacao.
               </p>
             </Field>
 
@@ -299,7 +350,7 @@ export default function EntregaDetailPage({ params }: { params: Promise<{ id: st
                 ) : (
                   <>
                     <Save className="mr-2 h-4 w-4" />
-                    {isDelivered ? "Atualizar data de chegada" : "Registrar entrega"}
+                    {isDelivered ? "Salvar revisao da entrega" : "Salvar entrega"}
                   </>
                 )}
               </Button>
@@ -348,7 +399,8 @@ export default function EntregaDetailPage({ params }: { params: Promise<{ id: st
             </CardHeader>
             <CardContent className="space-y-3 text-sm text-muted-foreground">
               <p>Somente pedidos autorizados entram no fluxo de entregas.</p>
-              <p>A previsao de entrega ja vem definida na autorizacao e fica aqui apenas como referencia.</p>
+              <p>Voce pode revisar previsao de entrega e numero do pedido caso algo tenha sido registrado incorretamente.</p>
+              <p>Ao alterar dados apos a autorizacao, informe o motivo para manter o historico auditavel.</p>
               <p>Ao registrar a data real de chegada, o sistema atualiza o pedido para entregue e alimenta o historico.</p>
               <p>Se a entrega for marcada por engano, voce pode reabrir esta etapa e voltar o pedido para pendente.</p>
             </CardContent>

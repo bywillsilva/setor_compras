@@ -5,7 +5,7 @@ export type StatusEntrega = 'pendente' | 'entregue'
 export type CategoriaCompra = 'perfis' | 'vidros' | 'acessorios' | 'perdas'
 export type TipoAnexo = 'cotacao' | 'nf' | 'boleto' | 'outro'
 export type SituacaoEntrega = 'pendente' | 'entregue' | 'atrasado' | 'proximo' | 'no_prazo'
-export type PerfilUsuario = 'admin' | 'comprador'
+export type PerfilUsuario = 'admin' | 'comprador' | 'orcamentista'
 
 export interface Cliente {
   id: number
@@ -83,6 +83,14 @@ export interface Usuario {
   ativo: boolean
   created_at: string
   updated_at: string
+}
+
+export interface UsuarioFormData {
+  nome: string
+  email: string
+  senha?: string | null
+  perfil: PerfilUsuario
+  ativo: boolean
 }
 
 export interface CompraFormData {

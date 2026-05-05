@@ -1,15 +1,21 @@
 import { rm } from 'fs/promises'
 import path from 'path'
 import { NextRequest, NextResponse } from 'next/server'
+import { requireFeature } from '@/lib/auth/api'
 import { deleteAnexo, getAnexoById } from '@/lib/repositories'
 
 export const runtime = 'nodejs'
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string; anexoId: string }> },
 ) {
   try {
+    const guard = await requireFeature(request, 'compras')
+    if ('response' in guard) {
+      return guard.response
+    }
+
     const { id, anexoId } = await params
     const compraId = Number(id)
     const attachmentId = Number(anexoId)

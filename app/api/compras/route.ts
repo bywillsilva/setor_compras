@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireFeature } from '@/lib/auth/api'
 import type { StatusPedido } from '@/lib/types'
 import { createCompra, listCompras } from '@/lib/repositories'
 
 export async function GET(request: NextRequest) {
   try {
+    const guard = await requireFeature(request, 'compras')
+    if ('response' in guard) {
+      return guard.response
+    }
+
     const { searchParams } = new URL(request.url)
     const clienteId = searchParams.get('cliente_id')
     const propostaId = searchParams.get('proposta_id')
@@ -29,6 +35,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const guard = await requireFeature(request, 'compras')
+    if ('response' in guard) {
+      return guard.response
+    }
+
     const body = await request.json()
 
     if (!body.cliente_id || !body.proposta_id || !String(body.fornecedor ?? '').trim() || !String(body.descricao ?? '').trim()) {

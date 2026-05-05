@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
+import { Eye, Loader2, Plus, Search, Users } from "lucide-react"
+import { DateRangeFilter } from "@/components/shared/date-range-filter"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -31,7 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Edit2, Eye, Loader2, Plus, Search, Trash2, Users } from "lucide-react"
+import { matchesDateRange } from "@/lib/date-range"
 import type { Cliente } from "@/lib/types"
 
 const ARCHIVE_FILTER_LABELS = {
@@ -45,8 +47,9 @@ export default function ClientesPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
   const [archiveFilter, setArchiveFilter] = useState<keyof typeof ARCHIVE_FILTER_LABELS>("ativos")
+  const [dateFrom, setDateFrom] = useState("")
+  const [dateTo, setDateTo] = useState("")
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [editingCliente, setEditingCliente] = useState<Cliente | null>(null)
   const [saving, setSaving] = useState(false)
   const [formData, setFormData] = useState({
     nome: "",
@@ -74,20 +77,8 @@ export default function ClientesPage() {
     }
   }
 
-  function openDialog(cliente?: Cliente) {
-    if (cliente) {
-      setEditingCliente(cliente)
-      setFormData({
-        nome: cliente.nome,
-        documento: cliente.documento || "",
-        contato: cliente.contato || "",
-        email: cliente.email || "",
-      })
-    } else {
-      setEditingCliente(null)
-      setFormData({ nome: "", documento: "", contato: "", email: "" })
-    }
-
+  function openDialog() {
+    setFormData({ nome: "", documento: "", contato: "", email: "" })
     setDialogOpen(true)
   }
 
@@ -100,10 +91,8 @@ export default function ClientesPage() {
     setSaving(true)
 
     try {
-      const url = editingCliente ? `/api/clientes/${editingCliente.id}` : "/api/clientes"
-
-      const response = await fetch(url, {
-        method: editingCliente ? "PUT" : "POST",
+      const response = await fetch("/api/clientes", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
       })
@@ -122,25 +111,6 @@ export default function ClientesPage() {
     }
   }
 
-  async function handleDelete(id: number) {
-    if (!confirm("Deseja realmente excluir este cliente? A exclusao so e permitida quando nao houver propostas ou compras vinculadas.")) {
-      return
-    }
-
-    try {
-      const response = await fetch(`/api/clientes/${id}`, { method: "DELETE" })
-
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null)
-        throw new Error(payload?.error || "Erro ao excluir cliente")
-      }
-
-      await fetchClientes()
-    } catch (error) {
-      alert(error instanceof Error ? error.message : "Erro ao excluir cliente")
-    }
-  }
-
   const filteredClientes = clientes.filter((cliente) => {
     const normalizedSearch = search.toLowerCase()
 
@@ -149,7 +119,7 @@ export default function ClientesPage() {
       cliente.documento?.toLowerCase().includes(normalizedSearch) ||
       cliente.email?.toLowerCase().includes(normalizedSearch)
     )
-  })
+  }).filter((cliente) => matchesDateRange(cliente.created_at, dateFrom, dateTo))
 
   if (loading) {
     return (
@@ -169,7 +139,7 @@ export default function ClientesPage() {
 
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button onClick={() => openDialog()}>
+            <Button onClick={openDialog}>
               <Plus className="mr-2 h-4 w-4" />
               Novo Cliente
             </Button>
@@ -177,12 +147,8 @@ export default function ClientesPage() {
 
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>{editingCliente ? "Editar Cliente" : "Novo Cliente"}</DialogTitle>
-              <DialogDescription>
-                {editingCliente
-                  ? "Atualize as informacoes do cliente"
-                  : "Preencha os dados para cadastrar um novo cliente"}
-              </DialogDescription>
+                <DialogTitle>Novo Cliente</DialogTitle>
+                <DialogDescription>Preencha os dados para cadastrar um novo cliente</DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4 py-4">
@@ -249,26 +215,41 @@ export default function ClientesPage() {
 
       <Card>
         <CardContent className="pt-6">
-          <div className="flex flex-col gap-4 md:flex-row">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Buscar por nome, documento ou e-mail..."
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                className="pl-10"
-              />
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-4 md:flex-row">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar por nome, documento ou e-mail..."
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <Select value={archiveFilter} onValueChange={(value) => setArchiveFilter(value as keyof typeof ARCHIVE_FILTER_LABELS)}>
+                <SelectTrigger className="w-full md:w-[180px]">
+                  <SelectValue placeholder="Arquivamento" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ativos">Ativos</SelectItem>
+                  <SelectItem value="arquivados">Arquivados</SelectItem>
+                  <SelectItem value="todos">Todos</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <Select value={archiveFilter} onValueChange={(value) => setArchiveFilter(value as keyof typeof ARCHIVE_FILTER_LABELS)}>
-              <SelectTrigger className="w-full md:w-[180px]">
-                <SelectValue placeholder="Arquivamento" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ativos">Ativos</SelectItem>
-                <SelectItem value="arquivados">Arquivados</SelectItem>
-                <SelectItem value="todos">Todos</SelectItem>
-              </SelectContent>
-            </Select>
+
+            <DateRangeFilter
+              startDate={dateFrom}
+              endDate={dateTo}
+              onStartDateChange={setDateFrom}
+              onEndDateChange={setDateTo}
+              onClear={() => {
+                setDateFrom("")
+                setDateTo("")
+              }}
+              startLabel="Cadastro de"
+              endLabel="Cadastro ate"
+            />
           </div>
         </CardContent>
       </Card>
@@ -286,7 +267,7 @@ export default function ClientesPage() {
               <Users className="mx-auto mb-2 h-12 w-12 opacity-50" />
               <p>{archiveFilter === "arquivados" ? "Nenhum cliente arquivado." : "Nenhum cliente cadastrado"}</p>
               {archiveFilter !== "arquivados" && (
-                <Button variant="link" onClick={() => openDialog()}>
+                <Button variant="link" onClick={openDialog}>
                   Cadastrar primeiro cliente
                 </Button>
               )}
@@ -315,28 +296,14 @@ export default function ClientesPage() {
                     <TableCell>{cliente.contato || "-"}</TableCell>
                     <TableCell>{cliente.email || "-"}</TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Link href={`/clientes/${cliente.id}`}>
-                          <Button variant="outline" size="sm">
-                            <Eye className="mr-2 h-4 w-4" />
-                            Abrir
-                          </Button>
-                        </Link>
-                        <Button variant="ghost" size="sm" onClick={() => openDialog(cliente)}>
-                          <Edit2 className="h-4 w-4" />
+                      <Link href={`/clientes/${cliente.id}`}>
+                        <Button variant="ghost" size="icon" aria-label={`Abrir resumo do cliente ${cliente.nome}`} title="Abrir resumo">
+                          <Eye className="h-4 w-4" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDelete(cliente.id)}
-                          className="text-destructive hover:text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      </Link>
+                      </TableCell>
+                    </TableRow>
+                  ))}
               </TableBody>
             </Table>
           )}

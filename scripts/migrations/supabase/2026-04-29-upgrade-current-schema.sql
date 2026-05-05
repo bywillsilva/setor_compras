@@ -2,6 +2,11 @@ ALTER TABLE clientes ADD COLUMN IF NOT EXISTS arquivado BOOLEAN DEFAULT FALSE;
 ALTER TABLE propostas ADD COLUMN IF NOT EXISTS arquivado BOOLEAN DEFAULT FALSE;
 ALTER TABLE compras ADD COLUMN IF NOT EXISTS arquivado BOOLEAN DEFAULT FALSE;
 
+ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS usuarios_perfil_check;
+ALTER TABLE usuarios
+ADD CONSTRAINT usuarios_perfil_check
+CHECK (perfil IN ('admin', 'comprador', 'orcamentista'));
+
 ALTER TABLE compras DROP CONSTRAINT IF EXISTS compras_categoria_check;
 UPDATE compras
 SET categoria = 'perdas'

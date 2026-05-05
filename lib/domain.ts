@@ -148,7 +148,7 @@ export function resolvePropostaValues(input: Partial<PropostaFormData>) {
     valor_previsto_acessorios: valorPrevistoAcessorios,
     valor_previsto_outros: valorPrevistoOutros,
     custo_perdas: toNumber(input.custo_perdas),
-    valor_previsto: totalCategorias > 0 ? totalCategorias : toNumber(input.valor_previsto),
+    valor_previsto: totalCategorias,
   }
 }
 

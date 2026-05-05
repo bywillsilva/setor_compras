@@ -72,7 +72,17 @@ async function signString(value: string) {
 }
 
 function getAuthSecret() {
-  return process.env.AUTH_SECRET?.trim() || 'setor-compras-local-secret'
+  const secret = process.env.AUTH_SECRET?.trim()
+
+  if (secret) {
+    return secret
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    return "setor-compras-local-secret"
+  }
+
+  throw new Error("Defina AUTH_SECRET para habilitar a autenticacao com seguranca.")
 }
 
 function encodeBase64Url(bytes: Uint8Array) {

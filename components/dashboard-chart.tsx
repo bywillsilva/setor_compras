@@ -60,10 +60,18 @@ export function DashboardChart({ data }: DashboardChartProps) {
             }).format(value),
             name === "previsto" ? "Previsto" : "Realizado",
           ]}
+          labelStyle={{
+            color: "#0f172a",
+            fontWeight: 600,
+          }}
+          itemStyle={{
+            color: "#0f172a",
+          }}
           contentStyle={{
             backgroundColor: "hsl(var(--background))",
             border: "1px solid hsl(var(--border))",
             borderRadius: "var(--radius)",
+            color: "#0f172a",
           }}
         />
         <Legend formatter={(value) => (value === "previsto" ? "Previsto" : "Realizado")} />
