@@ -1,9 +1,8 @@
 "use client"
 
 import { Suspense, useState, type FormEvent, type ReactNode } from "react"
-import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { ArrowRight, Database, Loader2, LockKeyhole, ShieldCheck } from "lucide-react"
+import { ArrowRight, FileText, Loader2, ShieldCheck, ShoppingCart, Truck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -42,13 +41,13 @@ function LoginContent() {
       const payload = await response.json()
 
       if (!response.ok) {
-        throw new Error(payload.error || "Não foi possível entrar no sistema.")
+        throw new Error(getLoginErrorMessage(payload?.error, response.status))
       }
 
       router.push(searchParams.get("next") || "/")
       router.refresh()
     } catch (currentError) {
-      setError(currentError instanceof Error ? currentError.message : "Erro ao realizar login.")
+      setError(currentError instanceof Error ? currentError.message : "Nao foi possivel entrar no sistema.")
     } finally {
       setLoading(false)
     }
@@ -60,33 +59,33 @@ function LoginContent() {
         <section className="space-y-8 text-white">
           <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm backdrop-blur">
             <ShieldCheck className="h-4 w-4 text-emerald-300" />
-            Gestão corporativa de compras
+            Sistema corporativo de compras
           </div>
 
           <div className="space-y-4">
             <h1 className="max-w-2xl text-4xl font-semibold tracking-tight md:text-5xl">
-              Compras, propostas, entregas e orçamento em um fluxo só.
+              Acesse o sistema para acompanhar compras, propostas e entregas.
             </h1>
             <p className="max-w-xl text-base leading-7 text-slate-300 md:text-lg">
-              Acesse o painel para controlar pedidos por cliente e obra, acompanhar atrasos, organizar anexos e comparar previsto versus realizado.
+              Entre com seu email e senha para continuar o acompanhamento operacional do setor de compras.
             </p>
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">
             <InfoCard
-              icon={<Database className="h-5 w-5 text-sky-300" />}
-              title="Banco flexível"
-              description="Funciona com MySQL ou Supabase usando a mesma camada de dados."
+              icon={<ShoppingCart className="h-5 w-5 text-sky-300" />}
+              title="Pedidos centralizados"
+              description="Acompanhe cotacao, autorizacao e entrega em um fluxo organizado."
             />
             <InfoCard
-              icon={<LockKeyhole className="h-5 w-5 text-emerald-300" />}
-              title="Acesso inicial"
-              description="Use APP_ADMIN_EMAIL e APP_ADMIN_PASSWORD ou o padrão local para o primeiro login."
+              icon={<Truck className="h-5 w-5 text-emerald-300" />}
+              title="Entregas visiveis"
+              description="Consulte previsoes, atrasos e confirmacoes de recebimento com clareza."
             />
             <InfoCard
-              icon={<ShieldCheck className="h-5 w-5 text-amber-300" />}
-              title="Fluxo validado"
-              description="Status, previsão de entrega, histórico e anexos seguem as regras do processo."
+              icon={<FileText className="h-5 w-5 text-amber-300" />}
+              title="Historico registrado"
+              description="Mantenha informacoes, anexos e movimentacoes do processo no mesmo lugar."
             />
           </div>
         </section>
@@ -97,9 +96,7 @@ function LoginContent() {
               <div className="space-y-2">
                 <p className="text-sm font-medium uppercase tracking-[0.2em] text-primary">Login</p>
                 <h2 className="text-2xl font-semibold text-slate-900">Entrar no sistema</h2>
-                <p className="text-sm leading-6 text-slate-600">
-                  Primeiro acesso local: <strong>admin@compras.local</strong> / <strong>admin123456</strong>.
-                </p>
+                <p className="text-sm leading-6 text-slate-600">Use seu email e sua senha para acessar o painel.</p>
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">
@@ -145,11 +142,7 @@ function LoginContent() {
               </form>
 
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                Se o banco ainda não estiver configurado, abra a tela de{" "}
-                <Link href="/configuracoes" className="font-medium text-primary underline-offset-4 hover:underline">
-                  configurações
-                </Link>{" "}
-                para validar a conexão e criar as tabelas necessárias.
+                Se voce tiver dificuldade para entrar, procure o administrador responsavel pelo sistema.
               </div>
             </CardContent>
           </Card>
@@ -175,4 +168,22 @@ function InfoCard({
       <p className="text-sm leading-6 text-slate-300">{description}</p>
     </div>
   )
+}
+
+function getLoginErrorMessage(error: unknown, status: number) {
+  const message = typeof error === "string" ? error : ""
+  const normalized = message
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+
+  if (status === 401 || normalized.includes("email ou senha")) {
+    return "Email ou senha invalidos."
+  }
+
+  if (normalized.includes("informe o email e a senha")) {
+    return "Informe o email e a senha."
+  }
+
+  return "Nao foi possivel entrar no sistema no momento. Procure o administrador."
 }
