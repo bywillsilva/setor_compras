@@ -104,6 +104,7 @@ UPDATE anexos
 SET created_at = CURRENT_TIMESTAMP
 WHERE created_at IS NULL;
 
+ALTER TABLE usuarios MODIFY COLUMN perfil ENUM('admin', 'comprador', 'orcamentista') DEFAULT 'comprador';
 ALTER TABLE compras MODIFY COLUMN categoria ENUM('perfis', 'vidros', 'acessorios', 'perdas', 'outros') DEFAULT 'outros';
 UPDATE compras
 SET categoria = 'outros'

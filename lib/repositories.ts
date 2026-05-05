@@ -104,6 +104,15 @@ const REQUIRED_SCHEMA_COLUMNS: Record<(typeof REQUIRED_TABLES)[number], string[]
   anexos: ['id', 'compra_id', 'tipo', 'arquivo_url', 'nome_arquivo', 'created_at'],
 }
 
+const REQUIRED_MYSQL_ENUM_VALUES = {
+  'usuarios.perfil': ['admin', 'comprador', 'orcamentista'],
+  'compras.categoria': ['perfis', 'vidros', 'acessorios', 'perdas', 'outros'],
+  'compras.status': ['cotacao', 'em_analise', 'retificacao', 'pedido_autorizado'],
+  'compras.status_entrega': ['pendente', 'entregue'],
+  'compras.etapa_autorizacao': ['nenhuma', 'solicitada', 'liberada'],
+  'anexos.tipo': ['cotacao', 'nf', 'boleto', 'outro'],
+} as const
+
 export async function getSetupStatus(): Promise<SetupStatus> {
   const dbType = getDatabaseType()
 
@@ -1162,6 +1171,21 @@ export async function deleteAnexo(compraId: number, anexoId: number) {
   return { deleted: true }
 }
 
+export async function updateAnexoArquivoUrl(compraId: number, anexoId: number, arquivoUrl: string) {
+  if (getDatabaseType() === 'mysql') {
+    await mysqlExecute('UPDATE anexos SET arquivo_url = ? WHERE id = ? AND compra_id = ?', [arquivoUrl, anexoId, compraId])
+    return
+  }
+
+  const client = getSupabaseOrThrow()
+  const { error } = await client
+    .from('anexos')
+    .update({ arquivo_url: arquivoUrl })
+    .eq('id', anexoId)
+    .eq('compra_id', compraId)
+  throwIfSupabaseError(error)
+}
+
 export async function getDashboardData(): Promise<DashboardData> {
   const [compras, propostas, historicos] = await Promise.all([listCompras(), listPropostas(), listHistoricosRaw()])
   const hoje = new Date()
@@ -1574,7 +1598,8 @@ async function checkMySQLSetup(): Promise<SetupStatus> {
   const existingTables = rows.map((row) => String(row.TABLE_NAME))
   const missingTables = REQUIRED_TABLES.filter((table) => !existingTables.includes(table))
   const missingColumns = missingTables.length === 0 ? await getMissingCurrentSchemaItemsMySQL() : []
-  const missingItems = [...missingTables, ...missingColumns]
+  const missingRules = missingTables.length === 0 ? await getMissingCurrentSchemaRulesMySQL() : []
+  const missingItems = [...missingTables, ...missingColumns, ...missingRules]
 
   return {
     configured: missingItems.length === 0,
@@ -1611,7 +1636,8 @@ async function checkSupabaseSetup(): Promise<SetupStatus> {
   }
 
   const missingColumns = missingTables.length === 0 ? await getMissingCurrentSchemaItemsSupabase() : []
-  const missingItems = [...missingTables, ...missingColumns]
+  const missingRules = missingTables.length === 0 ? await getMissingCurrentSchemaRulesSupabase() : []
+  const missingItems = [...missingTables, ...missingColumns, ...missingRules]
 
   return {
     configured: missingItems.length === 0,
@@ -1653,6 +1679,44 @@ async function getMissingCurrentSchemaItemsMySQL() {
   }
 }
 
+async function getMissingCurrentSchemaRulesMySQL() {
+  const pool = getMySQLPool()
+
+  if (!pool) {
+    return []
+  }
+
+  const connection = await pool.getConnection()
+
+  try {
+    const missingItems: string[] = []
+
+    for (const [key, expectedValues] of Object.entries(REQUIRED_MYSQL_ENUM_VALUES)) {
+      const [table, column] = key.split('.') as [string, string]
+      const [rows] = await connection.execute(
+        `SELECT COLUMN_TYPE
+         FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = ?
+           AND COLUMN_NAME = ?
+         LIMIT 1`,
+        [table, column],
+      )
+
+      const currentType = String((rows as Row[])[0]?.COLUMN_TYPE ?? '').toLowerCase()
+      const missingValue = expectedValues.find((value) => !currentType.includes(`'${value}'`))
+
+      if (missingValue) {
+        missingItems.push(`${table}.${column}:enum`)
+      }
+    }
+
+    return missingItems
+  } finally {
+    connection.release()
+  }
+}
+
 async function getMissingCurrentSchemaItemsSupabase() {
   const client = getSupabaseOrThrow()
   const missingItems: string[] = []
@@ -1677,6 +1741,30 @@ async function getMissingCurrentSchemaItemsSupabase() {
   }
 
   return [...new Set(missingItems)]
+}
+
+async function getMissingCurrentSchemaRulesSupabase() {
+  const client = getSupabaseOrThrow()
+  const { data, error } = await client.rpc('validate_setor_compras_schema')
+
+  if (error) {
+    const message = error.message.toLowerCase()
+
+    if (message.includes('validate_setor_compras_schema')) {
+      return ['public.validate_setor_compras_schema']
+    }
+
+    throw new Error(error.message)
+  }
+
+  const payload =
+    data && typeof data === 'object' && !Array.isArray(data)
+      ? (data as { missing_items?: unknown })
+      : { missing_items: [] }
+
+  return Array.isArray(payload.missing_items)
+    ? payload.missing_items.map((item) => String(item))
+    : []
 }
 
 async function setupMySQLDatabase() {
@@ -1945,6 +2033,11 @@ async function setupMySQLDatabase() {
     `)
 
     await connection.execute(`
+      ALTER TABLE usuarios
+      MODIFY COLUMN perfil ENUM('admin', 'comprador', 'orcamentista') DEFAULT 'comprador'
+    `)
+
+    await connection.execute(`
       ALTER TABLE compras
       MODIFY COLUMN status ENUM('cotacao', 'em_analise', 'retificacao', 'pedido_autorizado') DEFAULT 'cotacao',
       MODIFY COLUMN status_entrega ENUM('pendente', 'entregue') DEFAULT 'pendente',
@@ -2048,7 +2141,45 @@ function getSupabaseOrThrow(): any {
 
 function throwIfSupabaseError(error: { message: string } | null) {
   if (error) {
-    throw new Error(error.message)
+    const message = error.message
+
+    if (message.includes("usuarios_perfil_check")) {
+      throw new Error(
+        "O banco Supabase ainda esta com a constraint antiga de perfis de usuario. Execute scripts/migrations/supabase/2026-04-29-upgrade-current-schema.sql e tente novamente.",
+      )
+    }
+
+    if (message.includes("compras_categoria_check")) {
+      throw new Error(
+        "O banco Supabase ainda esta com a constraint antiga de categorias de compra. Execute scripts/migrations/supabase/2026-04-29-upgrade-current-schema.sql e tente novamente.",
+      )
+    }
+
+    if (message.includes("compras_etapa_autorizacao_check")) {
+      throw new Error(
+        "O banco Supabase ainda esta com a constraint antiga do fluxo de autorizacao. Execute scripts/migrations/supabase/2026-04-29-upgrade-current-schema.sql e tente novamente.",
+      )
+    }
+
+    if (message.includes("compras_status_check")) {
+      throw new Error(
+        "O banco Supabase ainda esta com a constraint antiga de status do pedido. Execute scripts/migrations/supabase/2026-04-29-upgrade-current-schema.sql e tente novamente.",
+      )
+    }
+
+    if (message.includes("compras_status_entrega_check")) {
+      throw new Error(
+        "O banco Supabase ainda esta com a constraint antiga de status de entrega. Execute scripts/migrations/supabase/2026-04-29-upgrade-current-schema.sql e tente novamente.",
+      )
+    }
+
+    if (message.includes("anexos_tipo_check")) {
+      throw new Error(
+        "O banco Supabase ainda esta com a constraint antiga de tipos de anexo. Execute scripts/migrations/supabase/2026-04-29-upgrade-current-schema.sql e tente novamente.",
+      )
+    }
+
+    throw new Error(message)
   }
 }
 

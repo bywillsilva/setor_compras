@@ -1,7 +1,8 @@
 import { rm } from 'fs/promises'
-import path from 'path'
 import { NextRequest, NextResponse } from 'next/server'
+import { deleteSupabaseAttachmentObject } from '@/lib/attachment-storage'
 import { requireFeature } from '@/lib/auth/api'
+import { parseSupabaseAttachmentUrl, resolveLocalAttachmentPath } from '@/lib/attachments'
 import { deleteAnexo, getAnexoById } from '@/lib/repositories'
 
 export const runtime = 'nodejs'
@@ -27,10 +28,15 @@ export async function DELETE(
 
     await deleteAnexo(compraId, attachmentId)
 
-    const attachmentPath = resolveAttachmentPath(anexo.arquivo_url)
+    const supabaseObject = parseSupabaseAttachmentUrl(anexo.arquivo_url)
 
-    if (attachmentPath) {
-      await rm(attachmentPath, { force: true }).catch(() => undefined)
+    if (supabaseObject) {
+      await deleteSupabaseAttachmentObject(supabaseObject.bucket, supabaseObject.objectPath)
+    } else {
+      const attachmentPath = resolveLocalAttachmentPath(anexo.arquivo_url)
+      if (attachmentPath) {
+        await rm(attachmentPath, { force: true }).catch(() => undefined)
+      }
     }
 
     return NextResponse.json({ message: 'Anexo excluido com sucesso.' })
@@ -40,16 +46,4 @@ export async function DELETE(
       { status: 400 },
     )
   }
-}
-
-function resolveAttachmentPath(arquivoUrl: string) {
-  const relativePath = arquivoUrl.replace(/^\/+/, '')
-  const uploadsRoot = path.resolve(process.cwd(), 'public', 'uploads')
-  const attachmentPath = path.resolve(process.cwd(), 'public', relativePath)
-
-  if (attachmentPath === uploadsRoot || attachmentPath.startsWith(`${uploadsRoot}${path.sep}`)) {
-    return attachmentPath
-  }
-
-  return null
 }

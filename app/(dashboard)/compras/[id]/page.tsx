@@ -311,6 +311,10 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
     }
   }
 
+  function getAttachmentHref(anexo: Anexo) {
+    return `/api/compras/${compra?.id ?? id}/anexos/${anexo.id}/arquivo`
+  }
+
   function resetEditing() {
     if (!compra) {
       return
@@ -700,7 +704,7 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
                       <p className="text-xs text-muted-foreground">{formatAttachmentDate(anexo.created_at)}</p>
                       <div className="mt-4 flex items-center justify-between gap-2">
                         <Button asChild variant="outline" size="sm">
-                          <a href={anexo.arquivo_url} target="_blank" rel="noreferrer">
+                          <a href={getAttachmentHref(anexo)} target="_blank" rel="noreferrer">
                             Abrir anexo
                           </a>
                         </Button>
