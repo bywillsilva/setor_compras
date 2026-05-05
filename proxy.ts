@@ -7,12 +7,14 @@ const PUBLIC_API_PATHS = new Set(["/api/auth/login", "/api/auth/logout", "/api/s
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
+  const token = request.cookies.get(SESSION_COOKIE_NAME)?.value
+  const hasSessionCookie = Boolean(token)
 
   if (isStaticAsset(pathname)) {
     return NextResponse.next()
   }
 
-  const session = await verifySessionToken(request.cookies.get(SESSION_COOKIE_NAME)?.value)
+  const session = await verifySessionToken(token)
 
   if (pathname === "/auth/login") {
     if (!session) {
@@ -56,6 +58,10 @@ export async function proxy(request: NextRequest) {
       return redirectToDefaultPath(request, session.perfil)
     }
 
+    return NextResponse.next()
+  }
+
+  if (hasSessionCookie) {
     return NextResponse.next()
   }
 

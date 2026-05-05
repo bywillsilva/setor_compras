@@ -1,21 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyPassword } from '@/lib/auth/password'
 import { createSessionToken, SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS } from '@/lib/auth/session'
-import { ensureDefaultAdminUser, getSetupStatus, getUsuarioByEmail } from '@/lib/repositories'
+import { ensureDefaultAdminUser, getUsuarioByEmail } from '@/lib/repositories'
 
 export const runtime = 'nodejs'
 
 export async function POST(request: NextRequest) {
   try {
-    const setupStatus = await getSetupStatus()
-
-    if (!setupStatus.configured) {
-      return NextResponse.json(
-        { error: 'Configure o banco de dados antes de acessar o sistema.' },
-        { status: 400 },
-      )
-    }
-
     const body = await request.json()
     const email = String(body.email ?? '').trim().toLowerCase()
     const senha = String(body.senha ?? '')

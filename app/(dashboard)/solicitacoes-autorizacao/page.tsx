@@ -27,7 +27,13 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { matchesDateRange } from "@/lib/date-range"
-import { CATEGORIA_LABELS, STATUS_BADGE_CLASSES, STATUS_LABELS } from "@/lib/domain"
+import {
+  CATEGORIA_LABELS,
+  ETAPA_AUTORIZACAO_BADGE_CLASSES,
+  ETAPA_AUTORIZACAO_LABELS,
+  STATUS_BADGE_CLASSES,
+  STATUS_LABELS,
+} from "@/lib/domain"
 import type { Cliente, Compra } from "@/lib/types"
 
 export default function SolicitacoesAutorizacaoPage() {
@@ -44,7 +50,7 @@ export default function SolicitacoesAutorizacaoPage() {
     try {
       setLoading(true)
       const [comprasResponse, clientesResponse] = await Promise.all([
-        fetch("/api/compras?etapa_autorizacao=solicitada"),
+        fetch("/api/compras"),
         fetch("/api/clientes"),
       ])
 
@@ -64,7 +70,15 @@ export default function SolicitacoesAutorizacaoPage() {
     fetchData()
   }, [])
 
-  const filteredCompras = compras
+  const comprasPendentes = useMemo(
+    () =>
+      compras
+        .filter((compra) => compra.status !== "pedido_autorizado")
+        .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()),
+    [compras],
+  )
+
+  const filteredCompras = comprasPendentes
     .filter((compra) => {
       const term = search.toLowerCase()
       const matchSearch =
@@ -78,8 +92,13 @@ export default function SolicitacoesAutorizacaoPage() {
     })
     .filter((compra) => matchesDateRange(compra.updated_at, dateFrom, dateTo))
 
-  const clientesEnvolvidos = useMemo(
-    () => new Set(filteredCompras.map((compra) => compra.cliente_id)).size,
+  const resumo = useMemo(
+    () => ({
+      clientesEnvolvidos: new Set(filteredCompras.map((compra) => compra.cliente_id)).size,
+      semSolicitacao: filteredCompras.filter((compra) => compra.etapa_autorizacao === "nenhuma").length,
+      solicitadas: filteredCompras.filter((compra) => compra.etapa_autorizacao === "solicitada").length,
+      liberadas: filteredCompras.filter((compra) => compra.etapa_autorizacao === "liberada").length,
+    }),
     [filteredCompras],
   )
 
@@ -116,12 +135,17 @@ export default function SolicitacoesAutorizacaoPage() {
     <div className="space-y-6 p-6">
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-bold text-foreground">Solicitacoes de autorizacao</h1>
-        <p className="text-muted-foreground">Pedidos enviados pelo comprador e aguardando aprovacao administrativa.</p>
+        <p className="text-muted-foreground">Visao administrativa de todos os pedidos ainda nao autorizados, inclusive os que continuam em cotacao.</p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <SummaryCard title="Pendentes" value={filteredCompras.length} description="Solicitacoes aguardando aprovacao" />
-        <SummaryCard title="Clientes" value={clientesEnvolvidos} description="Clientes com pedidos na fila" />
+      <div className="grid gap-4 md:grid-cols-4">
+        <SummaryCard title="Sem solicitacao" value={resumo.semSolicitacao} description="Pedidos ainda na fila do comprador" />
+        <SummaryCard title="Para aprovar" value={resumo.solicitadas} description="Solicitacoes aguardando aprovacao" />
+        <SummaryCard title="Liberados" value={resumo.liberadas} description="Ja aprovados pelo administrativo" />
+        <SummaryCard title="Clientes" value={resumo.clientesEnvolvidos} description="Clientes com pedidos na fila" />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-1">
         <SummaryCard
           title="Mais recente"
           value={filteredCompras[0] ? format(new Date(filteredCompras[0].updated_at), "dd/MM", { locale: ptBR }) : "--/--"}
@@ -166,8 +190,8 @@ export default function SolicitacoesAutorizacaoPage() {
                 setDateFrom("")
                 setDateTo("")
               }}
-              startLabel="Solicitado de"
-              endLabel="Solicitado ate"
+              startLabel="Atualizado de"
+              endLabel="Atualizado ate"
             />
           </div>
         </CardContent>
@@ -176,12 +200,12 @@ export default function SolicitacoesAutorizacaoPage() {
       <Card>
         <CardHeader>
           <CardTitle>Fila do administrador</CardTitle>
-          <CardDescription>{filteredCompras.length} pedido(s) aguardando aprovacao</CardDescription>
+          <CardDescription>{filteredCompras.length} pedido(s) em cotacao ou aguardando autorizacao</CardDescription>
         </CardHeader>
         <CardContent>
           {filteredCompras.length === 0 ? (
             <div className="rounded-lg border border-dashed p-10 text-center text-muted-foreground">
-              Nenhuma solicitacao pendente no momento.
+              Nenhum pedido pendente de autorizacao no momento.
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -192,7 +216,8 @@ export default function SolicitacoesAutorizacaoPage() {
                     <TableHead>Cliente</TableHead>
                     <TableHead>Fornecedor</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Solicitado em</TableHead>
+                    <TableHead>Etapa</TableHead>
+                    <TableHead>Atualizado em</TableHead>
                     <TableHead className="text-right">Acoes</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -215,6 +240,11 @@ export default function SolicitacoesAutorizacaoPage() {
                       <TableCell>
                         <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
                       </TableCell>
+                      <TableCell>
+                        <Badge className={ETAPA_AUTORIZACAO_BADGE_CLASSES[compra.etapa_autorizacao]}>
+                          {ETAPA_AUTORIZACAO_LABELS[compra.etapa_autorizacao]}
+                        </Badge>
+                      </TableCell>
                       <TableCell>{format(new Date(compra.updated_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}</TableCell>
                       <TableCell className="text-right">
                         <RowActionsMenu label={`Acoes da solicitacao ${compra.id}`}>
@@ -225,14 +255,26 @@ export default function SolicitacoesAutorizacaoPage() {
                             </Link>
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => handleApprove(compra.id)} disabled={processingId === compra.id}>
-                            {processingId === compra.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
+                          {compra.etapa_autorizacao === "solicitada" ? (
+                            <DropdownMenuItem onClick={() => handleApprove(compra.id)} disabled={processingId === compra.id}>
+                              {processingId === compra.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <CheckCircle2 className="h-4 w-4" />
+                              )}
+                              {processingId === compra.id ? "Aprovando..." : "Aprovar solicitacao"}
+                            </DropdownMenuItem>
+                          ) : compra.etapa_autorizacao === "liberada" ? (
+                            <DropdownMenuItem disabled>
                               <CheckCircle2 className="h-4 w-4" />
-                            )}
-                            {processingId === compra.id ? "Aprovando..." : "Aprovar solicitacao"}
-                          </DropdownMenuItem>
+                              Ja liberado ao comprador
+                            </DropdownMenuItem>
+                          ) : (
+                            <DropdownMenuItem disabled>
+                              <Loader2 className="h-4 w-4" />
+                              Aguardando solicitacao do comprador
+                            </DropdownMenuItem>
+                          )}
                         </RowActionsMenu>
                       </TableCell>
                     </TableRow>
