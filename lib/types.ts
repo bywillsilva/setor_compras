@@ -2,10 +2,11 @@
 
 export type StatusPedido = 'cotacao' | 'em_analise' | 'retificacao' | 'pedido_autorizado'
 export type StatusEntrega = 'pendente' | 'entregue'
-export type CategoriaCompra = 'perfis' | 'vidros' | 'acessorios' | 'perdas'
+export type CategoriaCompra = 'perfis' | 'vidros' | 'acessorios' | 'perdas' | 'outros'
 export type TipoAnexo = 'cotacao' | 'nf' | 'boleto' | 'outro'
 export type SituacaoEntrega = 'pendente' | 'entregue' | 'atrasado' | 'proximo' | 'no_prazo'
 export type PerfilUsuario = 'admin' | 'comprador' | 'orcamentista'
+export type EtapaAutorizacao = 'nenhuma' | 'solicitada' | 'liberada'
 
 export interface Cliente {
   id: number
@@ -44,9 +45,15 @@ export interface Compra {
   fornecedor: string
   descricao: string
   valor_total: number | null
+  valor_categoria_perfis: number
+  valor_categoria_vidros: number
+  valor_categoria_acessorios: number
+  valor_categoria_perdas: number
+  valor_categoria_outros: number
   numero_pedido: string | null
   status: StatusPedido
   status_entrega: StatusEntrega
+  etapa_autorizacao: EtapaAutorizacao
   previsao_entrega: string | null
   data_envio_fornecedor: string | null
   data_entrega_real: string | null
@@ -96,10 +103,15 @@ export interface UsuarioFormData {
 export interface CompraFormData {
   cliente_id: number
   proposta_id: number
-  categoria: CategoriaCompra
+  categoria?: CategoriaCompra
   fornecedor: string
   descricao: string
   valor_total?: number | null
+  valor_categoria_perfis?: number | null
+  valor_categoria_vidros?: number | null
+  valor_categoria_acessorios?: number | null
+  valor_categoria_perdas?: number | null
+  valor_categoria_outros?: number | null
   numero_pedido?: string | null
   previsao_entrega?: string | null
   data_envio_fornecedor?: string | null
@@ -167,6 +179,7 @@ export interface PurchaseFilters {
   clienteId?: number
   propostaId?: number
   status?: StatusPedido
+  etapaAutorizacao?: EtapaAutorizacao
   includeArchived?: boolean
   onlyArchived?: boolean
 }

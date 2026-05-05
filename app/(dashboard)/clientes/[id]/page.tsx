@@ -38,7 +38,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { CATEGORIA_LABELS, STATUS_BADGE_CLASSES, STATUS_LABELS, getDeliverySituation } from "@/lib/domain"
+import { CATEGORIA_LABELS, STATUS_BADGE_CLASSES, STATUS_LABELS, getCompraCategoriaDistribuicao, getDeliverySituation } from "@/lib/domain"
 import type { Cliente, Compra, Proposta } from "@/lib/types"
 
 type PropostaResumo = {
@@ -149,10 +149,16 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
       vidros: 0,
       acessorios: 0,
       perdas: 0,
+      outros: 0,
     }
 
     for (const compra of compras) {
-      gastoPorCategoria[compra.categoria] += Number(compra.valor_total ?? 0)
+      const distribuicao = getCompraCategoriaDistribuicao(compra)
+      gastoPorCategoria.perfis += distribuicao.valor_categoria_perfis
+      gastoPorCategoria.vidros += distribuicao.valor_categoria_vidros
+      gastoPorCategoria.acessorios += distribuicao.valor_categoria_acessorios
+      gastoPorCategoria.perdas += distribuicao.valor_categoria_perdas
+      gastoPorCategoria.outros += distribuicao.valor_categoria_outros
     }
 
     const valorPrevisto = propostas.reduce((sum, proposta) => sum + Number(proposta.valor_previsto ?? 0), 0)
@@ -574,7 +580,8 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
               <SummaryLine label="Perfis" value={formatCurrency(resumo.gastoPorCategoria.perfis)} />
               <SummaryLine label="Vidros" value={formatCurrency(resumo.gastoPorCategoria.vidros)} />
               <SummaryLine label="Acessorios" value={formatCurrency(resumo.gastoPorCategoria.acessorios)} />
-              <SummaryLine label="Perdas" value={formatCurrency(resumo.gastoPorCategoria.perdas)} />
+              <SummaryLine label="Outros" value={formatCurrency(resumo.gastoPorCategoria.outros)} />
+              <SummaryLine label="Perdas/reposicao" value={formatCurrency(resumo.gastoPorCategoria.perdas)} />
             </CardContent>
           </Card>
         </div>

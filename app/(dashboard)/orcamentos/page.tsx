@@ -152,7 +152,7 @@ export default function OrcamentosPage() {
                     <TableHead>Proposta</TableHead>
                     <TableHead>Cliente</TableHead>
                     <TableHead>Previsto</TableHead>
-                    <TableHead>Perdas</TableHead>
+                    <TableHead>Perdas/reposicao</TableHead>
                     <TableHead>Atualizacao</TableHead>
                     <TableHead className="text-right">Acoes</TableHead>
                   </TableRow>

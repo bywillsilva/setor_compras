@@ -4,10 +4,14 @@ import { hashPassword } from '@/lib/auth/password'
 import { getDatabaseType, getMySQLPool, getSupabaseClient, queryMySQL, type DatabaseType } from '@/lib/db'
 import {
   calculateFinanceDifference,
+  getCompraCategoriaTotal,
   getDeliverySituation,
+  getCompraCategoriaPrincipal,
   normalizeCategoriaCompra,
+  normalizeEtapaAutorizacao,
   normalizeStatusEntrega,
   normalizeStatusPedido,
+  resolveCompraCategoriaValues,
   resolvePropostaValues,
   STATUS_LABELS,
 } from '@/lib/domain'
@@ -18,6 +22,7 @@ import type {
   CompraFormData,
   DashboardData,
   DeliveryMetrics,
+  EtapaAutorizacao,
   FinanceiroReportItem,
   HistoricoCompra,
   HistoricoReportItem,
@@ -79,9 +84,15 @@ const REQUIRED_SCHEMA_COLUMNS: Record<(typeof REQUIRED_TABLES)[number], string[]
     'fornecedor',
     'descricao',
     'valor_total',
+    'valor_categoria_perfis',
+    'valor_categoria_vidros',
+    'valor_categoria_acessorios',
+    'valor_categoria_perdas',
+    'valor_categoria_outros',
     'numero_pedido',
     'status',
     'status_entrega',
+    'etapa_autorizacao',
     'previsao_entrega',
     'data_envio_fornecedor',
     'data_entrega_real',
@@ -650,7 +661,17 @@ export async function getCompraDetail(id: number) {
 }
 
 export async function createCompra(input: CompraFormData) {
-  const categoria = normalizeCategoriaCompra(input.categoria)
+  const distribuicaoCategoria = resolveCompraCategoriaValues(input)
+  const totalRateado = getCompraCategoriaTotal(distribuicaoCategoria)
+  const valorTotal = nullableNumber(input.valor_total) ?? (totalRateado > 0 ? totalRateado : null)
+  const categoria = normalizeCategoriaCompra(
+    input.categoria ??
+      getCompraCategoriaPrincipal({
+        categoria: 'outros',
+        valor_total: valorTotal,
+        ...distribuicaoCategoria,
+      }),
+  )
 
   let compraId = 0
 
@@ -663,21 +684,32 @@ export async function createCompra(input: CompraFormData) {
         fornecedor,
         descricao,
         valor_total,
+        valor_categoria_perfis,
+        valor_categoria_vidros,
+        valor_categoria_acessorios,
+        valor_categoria_perdas,
+        valor_categoria_outros,
         numero_pedido,
         status,
         status_entrega,
+        etapa_autorizacao,
         previsao_entrega,
         data_envio_fornecedor,
         data_entrega_real,
         arquivado
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'cotacao', 'pendente', ?, ?, ?, 0)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'cotacao', 'pendente', 'nenhuma', ?, ?, ?, 0)`,
       [
         input.cliente_id,
         input.proposta_id,
         serializeCategoriaCompra(categoria),
         input.fornecedor,
         input.descricao,
-        nullableNumber(input.valor_total),
+        valorTotal,
+        distribuicaoCategoria.valor_categoria_perfis,
+        distribuicaoCategoria.valor_categoria_vidros,
+        distribuicaoCategoria.valor_categoria_acessorios,
+        distribuicaoCategoria.valor_categoria_perdas,
+        distribuicaoCategoria.valor_categoria_outros,
         nullableString(input.numero_pedido),
         nullableString(input.previsao_entrega),
         nullableString(input.data_envio_fornecedor),
@@ -695,10 +727,12 @@ export async function createCompra(input: CompraFormData) {
         categoria: serializeCategoriaCompra(categoria),
         fornecedor: input.fornecedor,
         descricao: input.descricao,
-        valor_total: nullableNumber(input.valor_total),
+        valor_total: valorTotal,
+        ...distribuicaoCategoria,
         numero_pedido: nullableString(input.numero_pedido),
         status: 'cotacao',
         status_entrega: 'pendente',
+        etapa_autorizacao: 'nenhuma',
         previsao_entrega: nullableString(input.previsao_entrega),
         data_envio_fornecedor: nullableString(input.data_envio_fornecedor),
         data_entrega_real: null,
@@ -730,17 +764,58 @@ export async function updateCompra(
 
   const proximoStatus = input.status ? normalizeStatusPedido(input.status) : atual.status
   const proximaEntrega = input.status_entrega ? normalizeStatusEntrega(input.status_entrega) : atual.status_entrega
-  const proximaCategoria = input.categoria ? normalizeCategoriaCompra(input.categoria) : atual.categoria
-  const proximoValorTotal = input.valor_total !== undefined ? nullableNumber(input.valor_total) : atual.valor_total
+  const proximaDistribuicaoCategoria = resolveCompraCategoriaValues({
+    valor_categoria_perfis:
+      input.valor_categoria_perfis !== undefined ? input.valor_categoria_perfis : atual.valor_categoria_perfis,
+    valor_categoria_vidros:
+      input.valor_categoria_vidros !== undefined ? input.valor_categoria_vidros : atual.valor_categoria_vidros,
+    valor_categoria_acessorios:
+      input.valor_categoria_acessorios !== undefined ? input.valor_categoria_acessorios : atual.valor_categoria_acessorios,
+    valor_categoria_perdas:
+      input.valor_categoria_perdas !== undefined ? input.valor_categoria_perdas : atual.valor_categoria_perdas,
+    valor_categoria_outros:
+      input.valor_categoria_outros !== undefined ? input.valor_categoria_outros : atual.valor_categoria_outros,
+  })
+  const hasRateioUpdate =
+    input.valor_categoria_perfis !== undefined ||
+    input.valor_categoria_vidros !== undefined ||
+    input.valor_categoria_acessorios !== undefined ||
+    input.valor_categoria_perdas !== undefined ||
+    input.valor_categoria_outros !== undefined
+  const proximoTotalRateado = getCompraCategoriaTotal(proximaDistribuicaoCategoria)
+  const proximaCategoria = normalizeCategoriaCompra(
+    input.categoria ??
+      getCompraCategoriaPrincipal({
+        ...atual,
+        valor_total:
+          input.valor_total !== undefined
+            ? nullableNumber(input.valor_total)
+            : hasRateioUpdate && proximoTotalRateado > 0
+              ? proximoTotalRateado
+              : atual.valor_total,
+        ...proximaDistribuicaoCategoria,
+      }),
+  )
+  const proximoValorTotal =
+    input.valor_total !== undefined
+      ? nullableNumber(input.valor_total)
+      : hasRateioUpdate && proximoTotalRateado > 0
+        ? proximoTotalRateado
+        : atual.valor_total
   const proximoNumeroPedido = input.numero_pedido !== undefined ? nullableString(input.numero_pedido) : atual.numero_pedido
   const proximaPrevisao = input.previsao_entrega !== undefined ? nullableString(input.previsao_entrega) : atual.previsao_entrega
   const proximaDataEnvio =
     input.data_envio_fornecedor !== undefined ? nullableString(input.data_envio_fornecedor) : atual.data_envio_fornecedor
+  const estaConcluindoAutorizacao = atual.status !== 'pedido_autorizado' && proximoStatus === 'pedido_autorizado'
 
   if (proximoStatus === 'em_analise') {
     if (!proximoNumeroPedido || !proximoValorTotal || proximoValorTotal <= 0) {
       throw new Error('Para colocar o pedido em análise, informe o número do pedido e o valor total.')
     }
+  }
+
+  if (estaConcluindoAutorizacao && atual.etapa_autorizacao !== 'liberada') {
+    throw new Error('Este pedido ainda nao foi liberado pelo administrador para conclusao da autorizacao.')
   }
 
   if (proximoStatus === 'pedido_autorizado') {
@@ -769,9 +844,11 @@ export async function updateCompra(
     fornecedor: input.fornecedor ?? atual.fornecedor,
     descricao: input.descricao ?? atual.descricao,
     valor_total: proximoValorTotal,
+    ...proximaDistribuicaoCategoria,
     numero_pedido: proximoNumeroPedido,
     status: proximoStatus,
     status_entrega: statusEntrega,
+    etapa_autorizacao: proximoStatus === 'pedido_autorizado' ? 'nenhuma' : atual.etapa_autorizacao,
     previsao_entrega: proximaPrevisao,
     data_envio_fornecedor: proximaDataEnvio,
     data_entrega_real: dataEntregaReal,
@@ -785,9 +862,15 @@ export async function updateCompra(
         fornecedor = ?,
         descricao = ?,
         valor_total = ?,
+        valor_categoria_perfis = ?,
+        valor_categoria_vidros = ?,
+        valor_categoria_acessorios = ?,
+        valor_categoria_perdas = ?,
+        valor_categoria_outros = ?,
         numero_pedido = ?,
         status = ?,
         status_entrega = ?,
+        etapa_autorizacao = ?,
         previsao_entrega = ?,
         data_envio_fornecedor = ?,
         data_entrega_real = ?
@@ -797,9 +880,15 @@ export async function updateCompra(
         payload.fornecedor,
         payload.descricao,
         payload.valor_total,
+        payload.valor_categoria_perfis,
+        payload.valor_categoria_vidros,
+        payload.valor_categoria_acessorios,
+        payload.valor_categoria_perdas,
+        payload.valor_categoria_outros,
         payload.numero_pedido,
         payload.status,
         payload.status_entrega,
+        payload.etapa_autorizacao,
         payload.previsao_entrega,
         payload.data_envio_fornecedor,
         payload.data_entrega_real,
@@ -822,6 +911,16 @@ export async function updateCompra(
 
   if (payload.categoria !== atual.categoria) {
     eventos.push(`Categoria alterada para ${categoriaLabel(payload.categoria)}`)
+  }
+
+  if (
+    payload.valor_categoria_perfis !== atual.valor_categoria_perfis ||
+    payload.valor_categoria_vidros !== atual.valor_categoria_vidros ||
+    payload.valor_categoria_acessorios !== atual.valor_categoria_acessorios ||
+    payload.valor_categoria_perdas !== atual.valor_categoria_perdas ||
+    payload.valor_categoria_outros !== atual.valor_categoria_outros
+  ) {
+    eventos.push('Rateio da compra por categoria atualizado')
   }
 
   if (payload.status !== atual.status) {
@@ -955,8 +1054,37 @@ export async function requestCompraAuthorization(id: number, usuario: string) {
     throw new Error('Este pedido ja foi autorizado.')
   }
 
+  if (compra.etapa_autorizacao === 'solicitada') {
+    throw new Error('Este pedido ja possui uma solicitacao de autorizacao em andamento.')
+  }
+
+  if (compra.etapa_autorizacao === 'liberada') {
+    throw new Error('Este pedido ja foi liberado pelo administrador para conclusao da autorizacao.')
+  }
+
+  await updateCompraAuthorizationStage(id, 'solicitada')
   await addHistoricoEvento(id, 'Solicitacao de autorizacao enviada ao administrador', usuario)
   return { requested: true }
+}
+
+export async function approveCompraAuthorizationRequest(id: number, usuario: string) {
+  const compra = await getCompraById(id)
+
+  if (!compra) {
+    throw new Error('Compra nao encontrada.')
+  }
+
+  if (compra.status === 'pedido_autorizado') {
+    throw new Error('Este pedido ja foi autorizado.')
+  }
+
+  if (compra.etapa_autorizacao !== 'solicitada') {
+    throw new Error('Este pedido nao possui solicitacao pendente para aprovacao.')
+  }
+
+  await updateCompraAuthorizationStage(id, 'liberada')
+  await addHistoricoEvento(id, 'Solicitacao de autorizacao aprovada pelo administrador', usuario)
+  return { approved: true }
 }
 
 export async function listHistoricoByCompraId(compraId: number): Promise<HistoricoCompra[]> {
@@ -1322,6 +1450,11 @@ async function listComprasRaw(filters: PurchaseFilters = {}): Promise<Compra[]> 
       params.push(filters.status)
     }
 
+    if (filters.etapaAutorizacao) {
+      sql += ' AND etapa_autorizacao = ?'
+      params.push(filters.etapaAutorizacao)
+    }
+
     sql += ' ORDER BY updated_at DESC'
     const rows = await mysqlSelect(sql, params)
     return rows.map(normalizeCompra)
@@ -1352,9 +1485,24 @@ async function listComprasRaw(filters: PurchaseFilters = {}): Promise<Compra[]> 
     query = query.eq('status', filters.status)
   }
 
+  if (filters.etapaAutorizacao) {
+    query = query.eq('etapa_autorizacao', filters.etapaAutorizacao)
+  }
+
   const { data, error } = await query
   throwIfSupabaseError(error)
   return (data ?? []).map((row: Row) => normalizeCompra(row))
+}
+
+async function updateCompraAuthorizationStage(id: number, etapaAutorizacao: EtapaAutorizacao) {
+  if (getDatabaseType() === 'mysql') {
+    await mysqlExecute('UPDATE compras SET etapa_autorizacao = ? WHERE id = ?', [etapaAutorizacao, id])
+    return
+  }
+
+  const client = getSupabaseOrThrow()
+  const { error } = await client.from('compras').update({ etapa_autorizacao: etapaAutorizacao }).eq('id', id)
+  throwIfSupabaseError(error)
 }
 
 async function listHistoricosRaw(): Promise<HistoricoCompra[]> {
@@ -1598,13 +1746,19 @@ async function setupMySQLDatabase() {
         id INT AUTO_INCREMENT PRIMARY KEY,
         cliente_id INT NOT NULL,
         proposta_id INT NOT NULL,
-        categoria ENUM('perfis', 'vidros', 'acessorios', 'perdas') DEFAULT 'perdas',
+        categoria ENUM('perfis', 'vidros', 'acessorios', 'perdas', 'outros') DEFAULT 'outros',
         fornecedor VARCHAR(255) NOT NULL,
         descricao TEXT NOT NULL,
         valor_total DECIMAL(15, 2) NULL,
+        valor_categoria_perfis DECIMAL(15, 2) DEFAULT 0,
+        valor_categoria_vidros DECIMAL(15, 2) DEFAULT 0,
+        valor_categoria_acessorios DECIMAL(15, 2) DEFAULT 0,
+        valor_categoria_perdas DECIMAL(15, 2) DEFAULT 0,
+        valor_categoria_outros DECIMAL(15, 2) DEFAULT 0,
         numero_pedido VARCHAR(100) NULL,
         status ENUM('cotacao', 'em_analise', 'retificacao', 'pedido_autorizado') DEFAULT 'cotacao',
         status_entrega ENUM('pendente', 'entregue') DEFAULT 'pendente',
+        etapa_autorizacao ENUM('nenhuma', 'solicitada', 'liberada') DEFAULT 'nenhuma',
         previsao_entrega DATE NULL,
         data_envio_fornecedor DATE NULL,
         data_entrega_real DATE NULL,
@@ -1653,9 +1807,20 @@ async function setupMySQLDatabase() {
     await addColumnIfMissing(connection, 'propostas', 'custo_perdas', 'DECIMAL(15, 2) DEFAULT 0')
     await addColumnIfMissing(connection, 'propostas', 'arquivado', 'BOOLEAN DEFAULT FALSE')
     await addColumnIfMissing(connection, 'compras', 'cliente_id', 'INT NULL')
-    await addColumnIfMissing(connection, 'compras', 'categoria', "ENUM('perfis', 'vidros', 'acessorios', 'perdas') DEFAULT 'perdas'")
+    await addColumnIfMissing(connection, 'compras', 'categoria', "ENUM('perfis', 'vidros', 'acessorios', 'perdas', 'outros') DEFAULT 'outros'")
     await addColumnIfMissing(connection, 'compras', 'valor_total', 'DECIMAL(15, 2) NULL')
+    await addColumnIfMissing(connection, 'compras', 'valor_categoria_perfis', 'DECIMAL(15, 2) DEFAULT 0')
+    await addColumnIfMissing(connection, 'compras', 'valor_categoria_vidros', 'DECIMAL(15, 2) DEFAULT 0')
+    await addColumnIfMissing(connection, 'compras', 'valor_categoria_acessorios', 'DECIMAL(15, 2) DEFAULT 0')
+    await addColumnIfMissing(connection, 'compras', 'valor_categoria_perdas', 'DECIMAL(15, 2) DEFAULT 0')
+    await addColumnIfMissing(connection, 'compras', 'valor_categoria_outros', 'DECIMAL(15, 2) DEFAULT 0')
     await addColumnIfMissing(connection, 'compras', 'status_entrega', "ENUM('pendente', 'entregue') DEFAULT 'pendente'")
+    await addColumnIfMissing(
+      connection,
+      'compras',
+      'etapa_autorizacao',
+      "ENUM('nenhuma', 'solicitada', 'liberada') DEFAULT 'nenhuma'",
+    )
     await addColumnIfMissing(connection, 'compras', 'previsao_entrega', 'DATE NULL')
     await addColumnIfMissing(connection, 'compras', 'data_envio_fornecedor', 'DATE NULL')
     await addColumnIfMissing(connection, 'compras', 'data_entrega_real', 'DATE NULL')
@@ -1697,8 +1862,64 @@ async function setupMySQLDatabase() {
 
     await connection.execute(`
       UPDATE compras
-      SET categoria = 'perdas'
-      WHERE categoria = 'outros' OR categoria IS NULL OR categoria = ''
+      SET categoria = 'outros'
+      WHERE categoria IS NULL OR categoria = ''
+    `)
+
+    await connection.execute(`
+      UPDATE compras
+      SET
+        valor_categoria_perfis = CASE
+          WHEN COALESCE(valor_categoria_perfis, 0) = 0
+            AND COALESCE(valor_categoria_vidros, 0) = 0
+            AND COALESCE(valor_categoria_acessorios, 0) = 0
+            AND COALESCE(valor_categoria_perdas, 0) = 0
+            AND COALESCE(valor_categoria_outros, 0) = 0
+            AND categoria = 'perfis'
+          THEN COALESCE(valor_total, 0)
+          ELSE COALESCE(valor_categoria_perfis, 0)
+        END,
+        valor_categoria_vidros = CASE
+          WHEN COALESCE(valor_categoria_perfis, 0) = 0
+            AND COALESCE(valor_categoria_vidros, 0) = 0
+            AND COALESCE(valor_categoria_acessorios, 0) = 0
+            AND COALESCE(valor_categoria_perdas, 0) = 0
+            AND COALESCE(valor_categoria_outros, 0) = 0
+            AND categoria = 'vidros'
+          THEN COALESCE(valor_total, 0)
+          ELSE COALESCE(valor_categoria_vidros, 0)
+        END,
+        valor_categoria_acessorios = CASE
+          WHEN COALESCE(valor_categoria_perfis, 0) = 0
+            AND COALESCE(valor_categoria_vidros, 0) = 0
+            AND COALESCE(valor_categoria_acessorios, 0) = 0
+            AND COALESCE(valor_categoria_perdas, 0) = 0
+            AND COALESCE(valor_categoria_outros, 0) = 0
+            AND categoria = 'acessorios'
+          THEN COALESCE(valor_total, 0)
+          ELSE COALESCE(valor_categoria_acessorios, 0)
+        END,
+        valor_categoria_perdas = CASE
+          WHEN COALESCE(valor_categoria_perfis, 0) = 0
+            AND COALESCE(valor_categoria_vidros, 0) = 0
+            AND COALESCE(valor_categoria_acessorios, 0) = 0
+            AND COALESCE(valor_categoria_perdas, 0) = 0
+            AND COALESCE(valor_categoria_outros, 0) = 0
+            AND categoria = 'perdas'
+          THEN COALESCE(valor_total, 0)
+          ELSE COALESCE(valor_categoria_perdas, 0)
+        END,
+        valor_categoria_outros = CASE
+          WHEN COALESCE(valor_categoria_perfis, 0) = 0
+            AND COALESCE(valor_categoria_vidros, 0) = 0
+            AND COALESCE(valor_categoria_acessorios, 0) = 0
+            AND COALESCE(valor_categoria_perdas, 0) = 0
+            AND COALESCE(valor_categoria_outros, 0) = 0
+            AND categoria = 'outros'
+          THEN COALESCE(valor_total, 0)
+          ELSE COALESCE(valor_categoria_outros, 0)
+        END
+      WHERE valor_total IS NOT NULL
     `)
 
     await connection.execute(`
@@ -1718,10 +1939,17 @@ async function setupMySQLDatabase() {
     `)
 
     await connection.execute(`
+      UPDATE compras
+      SET etapa_autorizacao = 'nenhuma'
+      WHERE etapa_autorizacao IS NULL OR etapa_autorizacao = ''
+    `)
+
+    await connection.execute(`
       ALTER TABLE compras
       MODIFY COLUMN status ENUM('cotacao', 'em_analise', 'retificacao', 'pedido_autorizado') DEFAULT 'cotacao',
       MODIFY COLUMN status_entrega ENUM('pendente', 'entregue') DEFAULT 'pendente',
-      MODIFY COLUMN categoria ENUM('perfis', 'vidros', 'acessorios', 'perdas') DEFAULT 'perdas'
+      MODIFY COLUMN etapa_autorizacao ENUM('nenhuma', 'solicitada', 'liberada') DEFAULT 'nenhuma',
+      MODIFY COLUMN categoria ENUM('perfis', 'vidros', 'acessorios', 'perdas', 'outros') DEFAULT 'outros'
     `)
 
     if (await hasTable(connection, 'compras_historico')) {
@@ -1878,9 +2106,15 @@ function normalizeCompra(row: Row): Compra {
     fornecedor: String(row.fornecedor ?? ''),
     descricao: String(row.descricao ?? ''),
     valor_total: nullableNumber(row.valor_total),
+    valor_categoria_perfis: toNumber(row.valor_categoria_perfis),
+    valor_categoria_vidros: toNumber(row.valor_categoria_vidros),
+    valor_categoria_acessorios: toNumber(row.valor_categoria_acessorios),
+    valor_categoria_perdas: toNumber(row.valor_categoria_perdas),
+    valor_categoria_outros: toNumber(row.valor_categoria_outros),
     numero_pedido: nullableString(row.numero_pedido),
     status: normalizeStatusPedido(row.status),
     status_entrega: normalizeStatusEntrega(row.status_entrega),
+    etapa_autorizacao: normalizeEtapaAutorizacao(row.etapa_autorizacao),
     previsao_entrega: toDateOnlyString(row.previsao_entrega),
     data_envio_fornecedor: toDateOnlyString(row.data_envio_fornecedor),
     data_entrega_real: toDateOnlyString(row.data_entrega_real),
@@ -2112,8 +2346,10 @@ function categoriaLabel(categoria: Compra['categoria']) {
       return 'Vidros'
     case 'acessorios':
       return 'Acessórios'
+    case 'perdas':
+      return 'Perdas/Reposição'
     default:
-      return 'Perdas'
+      return 'Outros'
   }
 }
 

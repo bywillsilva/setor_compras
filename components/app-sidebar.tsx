@@ -158,7 +158,13 @@ function getNavigation(perfil: "admin" | "comprador" | "orcamentista"): Navigati
   ]
 
   if (perfil === "admin" || perfil === "comprador") {
-    baseNavigation.push({ name: "Autorizacoes", href: "/autorizacoes", icon: CheckCircle2 })
+    if (perfil === "admin") {
+      baseNavigation.push({ name: "Solicitacoes", href: "/solicitacoes-autorizacao", icon: CheckCircle2 })
+    }
+
+    if (perfil === "comprador") {
+      baseNavigation.push({ name: "Autorizacoes", href: "/autorizacoes", icon: CheckCircle2 })
+    }
   }
 
   baseNavigation.push({ name: "Entregas", href: "/entregas", icon: Truck })

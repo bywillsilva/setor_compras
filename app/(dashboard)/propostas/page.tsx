@@ -175,7 +175,7 @@ export default function PropostasPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Propostas</h1>
-          <p className="text-muted-foreground">Controle de obras, orcamento por categoria e perdas</p>
+          <p className="text-muted-foreground">Controle de obras, orcamento por categoria e reserva de perdas/reposicao.</p>
         </div>
 
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -242,7 +242,7 @@ export default function PropostasPage() {
               <div className="space-y-3 rounded-lg border p-4">
                 <div>
                   <h3 className="font-medium">Materiais previstos</h3>
-                  <p className="text-sm text-muted-foreground">Preencha por categoria para acompanhar o orcamento da obra.</p>
+                  <p className="text-sm text-muted-foreground">Preencha as categorias principais da obra e mantenha perdas/reposicao como reserva separada.</p>
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
@@ -279,7 +279,7 @@ export default function PropostasPage() {
                     />
                   </Field>
 
-                  <Field label="Perdas">
+                  <Field label="Outros">
                     <Input
                       type="number"
                       step="0.01"
@@ -298,8 +298,8 @@ export default function PropostasPage() {
                   value={formatCurrency(totalCategorias)}
                   hint="Calculado automaticamente pela soma das categorias."
                 />
-                <Field label="Custo de perdas/reposicao">
-                  <Input
+                  <Field label="Custo de perdas/reposicao">
+                    <Input
                     type="number"
                     step="0.01"
                     value={formData.custo_perdas}
@@ -414,7 +414,7 @@ export default function PropostasPage() {
                   <TableHead>Cliente</TableHead>
                   <TableHead>Periodo</TableHead>
                   <TableHead>Previsto</TableHead>
-                  <TableHead>Perdas</TableHead>
+                  <TableHead>Perdas/reposicao</TableHead>
                   <TableHead className="text-right">Acoes</TableHead>
                 </TableRow>
               </TableHeader>

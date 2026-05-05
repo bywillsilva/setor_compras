@@ -42,13 +42,19 @@ CREATE TABLE IF NOT EXISTS compras (
   id INT AUTO_INCREMENT PRIMARY KEY,
   cliente_id INT NOT NULL,
   proposta_id INT NOT NULL,
-  categoria ENUM('perfis', 'vidros', 'acessorios', 'perdas') DEFAULT 'perdas',
+  categoria ENUM('perfis', 'vidros', 'acessorios', 'perdas', 'outros') DEFAULT 'outros',
   fornecedor VARCHAR(255) NOT NULL,
   descricao TEXT NOT NULL,
   valor_total DECIMAL(15, 2) NULL,
+  valor_categoria_perfis DECIMAL(15, 2) DEFAULT 0,
+  valor_categoria_vidros DECIMAL(15, 2) DEFAULT 0,
+  valor_categoria_acessorios DECIMAL(15, 2) DEFAULT 0,
+  valor_categoria_perdas DECIMAL(15, 2) DEFAULT 0,
+  valor_categoria_outros DECIMAL(15, 2) DEFAULT 0,
   numero_pedido VARCHAR(100) NULL,
   status ENUM('cotacao', 'em_analise', 'retificacao', 'pedido_autorizado') DEFAULT 'cotacao',
   status_entrega ENUM('pendente', 'entregue') DEFAULT 'pendente',
+  etapa_autorizacao ENUM('nenhuma', 'solicitada', 'liberada') DEFAULT 'nenhuma',
   previsao_entrega DATE NULL,
   data_envio_fornecedor DATE NULL,
   data_entrega_real DATE NULL,
@@ -81,6 +87,12 @@ CREATE TABLE IF NOT EXISTS anexos (
 ALTER TABLE clientes ADD COLUMN IF NOT EXISTS arquivado BOOLEAN DEFAULT FALSE;
 ALTER TABLE propostas ADD COLUMN IF NOT EXISTS arquivado BOOLEAN DEFAULT FALSE;
 ALTER TABLE compras ADD COLUMN IF NOT EXISTS arquivado BOOLEAN DEFAULT FALSE;
+ALTER TABLE compras ADD COLUMN IF NOT EXISTS valor_categoria_perfis DECIMAL(15, 2) DEFAULT 0;
+ALTER TABLE compras ADD COLUMN IF NOT EXISTS valor_categoria_vidros DECIMAL(15, 2) DEFAULT 0;
+ALTER TABLE compras ADD COLUMN IF NOT EXISTS valor_categoria_acessorios DECIMAL(15, 2) DEFAULT 0;
+ALTER TABLE compras ADD COLUMN IF NOT EXISTS valor_categoria_perdas DECIMAL(15, 2) DEFAULT 0;
+ALTER TABLE compras ADD COLUMN IF NOT EXISTS valor_categoria_outros DECIMAL(15, 2) DEFAULT 0;
+ALTER TABLE compras ADD COLUMN IF NOT EXISTS etapa_autorizacao ENUM('nenhuma', 'solicitada', 'liberada') DEFAULT 'nenhuma';
 ALTER TABLE anexos ADD COLUMN IF NOT EXISTS nome_arquivo VARCHAR(255) NULL;
 ALTER TABLE anexos ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
 
@@ -92,8 +104,19 @@ UPDATE anexos
 SET created_at = CURRENT_TIMESTAMP
 WHERE created_at IS NULL;
 
-ALTER TABLE compras MODIFY COLUMN categoria ENUM('perfis', 'vidros', 'acessorios', 'outros', 'perdas') DEFAULT 'perdas';
+ALTER TABLE compras MODIFY COLUMN categoria ENUM('perfis', 'vidros', 'acessorios', 'perdas', 'outros') DEFAULT 'outros';
 UPDATE compras
-SET categoria = 'perdas'
-WHERE categoria = 'outros' OR categoria IS NULL OR categoria = '';
-ALTER TABLE compras MODIFY COLUMN categoria ENUM('perfis', 'vidros', 'acessorios', 'perdas') DEFAULT 'perdas';
+SET categoria = 'outros'
+WHERE categoria IS NULL OR categoria = '';
+UPDATE compras
+SET
+  valor_categoria_perfis = CASE WHEN categoria = 'perfis' AND COALESCE(valor_categoria_perfis, 0) = 0 AND COALESCE(valor_categoria_vidros, 0) = 0 AND COALESCE(valor_categoria_acessorios, 0) = 0 AND COALESCE(valor_categoria_perdas, 0) = 0 AND COALESCE(valor_categoria_outros, 0) = 0 THEN COALESCE(valor_total, 0) ELSE COALESCE(valor_categoria_perfis, 0) END,
+  valor_categoria_vidros = CASE WHEN categoria = 'vidros' AND COALESCE(valor_categoria_perfis, 0) = 0 AND COALESCE(valor_categoria_vidros, 0) = 0 AND COALESCE(valor_categoria_acessorios, 0) = 0 AND COALESCE(valor_categoria_perdas, 0) = 0 AND COALESCE(valor_categoria_outros, 0) = 0 THEN COALESCE(valor_total, 0) ELSE COALESCE(valor_categoria_vidros, 0) END,
+  valor_categoria_acessorios = CASE WHEN categoria = 'acessorios' AND COALESCE(valor_categoria_perfis, 0) = 0 AND COALESCE(valor_categoria_vidros, 0) = 0 AND COALESCE(valor_categoria_acessorios, 0) = 0 AND COALESCE(valor_categoria_perdas, 0) = 0 AND COALESCE(valor_categoria_outros, 0) = 0 THEN COALESCE(valor_total, 0) ELSE COALESCE(valor_categoria_acessorios, 0) END,
+  valor_categoria_perdas = CASE WHEN categoria = 'perdas' AND COALESCE(valor_categoria_perfis, 0) = 0 AND COALESCE(valor_categoria_vidros, 0) = 0 AND COALESCE(valor_categoria_acessorios, 0) = 0 AND COALESCE(valor_categoria_perdas, 0) = 0 AND COALESCE(valor_categoria_outros, 0) = 0 THEN COALESCE(valor_total, 0) ELSE COALESCE(valor_categoria_perdas, 0) END,
+  valor_categoria_outros = CASE WHEN categoria = 'outros' AND COALESCE(valor_categoria_perfis, 0) = 0 AND COALESCE(valor_categoria_vidros, 0) = 0 AND COALESCE(valor_categoria_acessorios, 0) = 0 AND COALESCE(valor_categoria_perdas, 0) = 0 AND COALESCE(valor_categoria_outros, 0) = 0 THEN COALESCE(valor_total, 0) ELSE COALESCE(valor_categoria_outros, 0) END;
+UPDATE compras
+SET etapa_autorizacao = 'nenhuma'
+WHERE etapa_autorizacao IS NULL OR etapa_autorizacao = '';
+ALTER TABLE compras MODIFY COLUMN etapa_autorizacao ENUM('nenhuma', 'solicitada', 'liberada') DEFAULT 'nenhuma';
+ALTER TABLE compras MODIFY COLUMN categoria ENUM('perfis', 'vidros', 'acessorios', 'perdas', 'outros') DEFAULT 'outros';

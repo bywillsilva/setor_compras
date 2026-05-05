@@ -49,7 +49,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { CATEGORIA_LABELS, STATUS_BADGE_CLASSES, STATUS_LABELS } from "@/lib/domain"
+import { CATEGORIA_LABELS, getCompraCategoriaDistribuicao, STATUS_BADGE_CLASSES, STATUS_LABELS } from "@/lib/domain"
 import type { Cliente, Compra, Proposta } from "@/lib/types"
 
 type PropostaFormState = {
@@ -114,10 +114,16 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
       vidros: 0,
       acessorios: 0,
       perdas: 0,
+      outros: 0,
     }
 
     for (const compra of compras) {
-      realizadoPorCategoria[compra.categoria] += Number(compra.valor_total ?? 0)
+      const distribuicao = getCompraCategoriaDistribuicao(compra)
+      realizadoPorCategoria.perfis += distribuicao.valor_categoria_perfis
+      realizadoPorCategoria.vidros += distribuicao.valor_categoria_vidros
+      realizadoPorCategoria.acessorios += distribuicao.valor_categoria_acessorios
+      realizadoPorCategoria.perdas += distribuicao.valor_categoria_perdas
+      realizadoPorCategoria.outros += distribuicao.valor_categoria_outros
     }
 
     const valorRealizado = Object.values(realizadoPorCategoria).reduce((sum, current) => sum + current, 0)
@@ -434,7 +440,7 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
                     }
                   />
                 </Field>
-                <Field label="Perdas">
+                <Field label="Outros">
                   <Input
                     type="number"
                     step="0.01"
@@ -550,7 +556,8 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
               <CategoryCard title="Perfis" previsto={proposta.valor_previsto_perfis} realizado={resumo.realizadoPorCategoria.perfis} />
               <CategoryCard title="Vidros" previsto={proposta.valor_previsto_vidros} realizado={resumo.realizadoPorCategoria.vidros} />
               <CategoryCard title="Acessorios" previsto={proposta.valor_previsto_acessorios} realizado={resumo.realizadoPorCategoria.acessorios} />
-              <CategoryCard title="Perdas" previsto={proposta.valor_previsto_outros} realizado={resumo.realizadoPorCategoria.perdas} />
+              <CategoryCard title="Outros" previsto={proposta.valor_previsto_outros} realizado={resumo.realizadoPorCategoria.outros} />
+              <CategoryCard title="Perdas/reposicao" previsto={proposta.custo_perdas} realizado={resumo.realizadoPorCategoria.perdas} />
             </div>
           </CardContent>
         </Card>

@@ -4,19 +4,13 @@ import { Suspense, useEffect, useState, type FormEvent } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { ArrowLeft, Loader2, Paperclip, Save } from "lucide-react"
+import { CompraRateioFields, type CompraRateioFormState } from "@/components/compras/compra-rateio-fields"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { CATEGORIA_LABELS, CATEGORIA_OPTIONS } from "@/lib/domain"
 import type { Cliente, Proposta } from "@/lib/types"
 
 export default function NovaCompraPage() {
@@ -25,6 +19,11 @@ export default function NovaCompraPage() {
       <NovaCompraContent />
     </Suspense>
   )
+}
+
+function toNumber(value: string) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : 0
 }
 
 function NovaCompraContent() {
@@ -37,13 +36,23 @@ function NovaCompraContent() {
   const [selectedCliente, setSelectedCliente] = useState(searchParams.get("cliente_id") ?? "")
   const [errors, setErrors] = useState<Record<string, string>>({})
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    cliente_id: string
+    proposta_id: string
+    fornecedor: string
+    descricao: string
+    data_envio_fornecedor: string
+  } & CompraRateioFormState>({
     cliente_id: searchParams.get("cliente_id") ?? "",
     proposta_id: searchParams.get("proposta_id") ?? "",
-    categoria: "perdas",
     fornecedor: "",
     descricao: "",
     data_envio_fornecedor: "",
+    valor_categoria_perfis: "",
+    valor_categoria_vidros: "",
+    valor_categoria_acessorios: "",
+    valor_categoria_perdas: "",
+    valor_categoria_outros: "",
   })
 
   useEffect(() => {
@@ -133,10 +142,14 @@ function NovaCompraContent() {
         body: JSON.stringify({
           cliente_id: Number(formData.cliente_id),
           proposta_id: Number(formData.proposta_id),
-          categoria: formData.categoria,
           fornecedor: formData.fornecedor.trim(),
           descricao: formData.descricao.trim(),
           data_envio_fornecedor: formData.data_envio_fornecedor || null,
+          valor_categoria_perfis: toNumber(formData.valor_categoria_perfis),
+          valor_categoria_vidros: toNumber(formData.valor_categoria_vidros),
+          valor_categoria_acessorios: toNumber(formData.valor_categoria_acessorios),
+          valor_categoria_perdas: toNumber(formData.valor_categoria_perdas),
+          valor_categoria_outros: toNumber(formData.valor_categoria_outros),
         }),
       })
 
@@ -242,22 +255,6 @@ function NovaCompraContent() {
 
             <div className="grid gap-6 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Categoria do material *</Label>
-                <Select value={formData.categoria} onValueChange={(value) => handleChange("categoria", value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione a categoria" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CATEGORIA_OPTIONS.map((categoria) => (
-                      <SelectItem key={categoria} value={categoria}>
-                        {CATEGORIA_LABELS[categoria]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
                 <Label htmlFor="data_envio">Data de envio ao fornecedor</Label>
                 <Input
                   id="data_envio"
@@ -290,11 +287,17 @@ function NovaCompraContent() {
                 placeholder="Descreva os itens, quantidades, referências e contexto da compra"
                 className={errors.descricao ? "border-destructive" : ""}
               />
-              {errors.descricao && <p className="text-sm text-destructive">{errors.descricao}</p>}
-            </div>
+                {errors.descricao && <p className="text-sm text-destructive">{errors.descricao}</p>}
+              </div>
 
-            <div className="space-y-3 rounded-lg border border-dashed border-primary/30 bg-primary/5 p-4">
-              <div className="flex items-center gap-2">
+              <CompraRateioFields
+                values={formData}
+                onChange={handleChange}
+                description="Distribua o valor desta compra entre perfis, vidros, acessorios, perdas/reposicao e outros sempre que esse detalhamento ja estiver definido."
+              />
+
+              <div className="space-y-3 rounded-lg border border-dashed border-primary/30 bg-primary/5 p-4">
+                <div className="flex items-center gap-2">
                 <Paperclip className="h-4 w-4 text-primary" />
                 <Label htmlFor="cotacao_files" className="text-sm font-medium">
                   Anexos da cotação

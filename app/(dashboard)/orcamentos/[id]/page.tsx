@@ -90,9 +90,9 @@ export default function OrcamentoDetailPage({ params }: { params: Promise<{ id: 
       color: "bg-amber-500",
     },
     {
-      label: "Perdas",
+      label: "Outros",
       value: toNumber(formData.valor_previsto_outros),
-      color: "bg-red-500",
+      color: "bg-slate-500",
     },
   ]
 
@@ -189,7 +189,7 @@ export default function OrcamentoDetailPage({ params }: { params: Promise<{ id: 
           <CardHeader>
             <CardTitle>Valores previstos da obra</CardTitle>
             <CardDescription>
-              Preencha as categorias da proposta. O total previsto e calculado automaticamente.
+              Preencha as categorias principais da proposta. Perdas e reposicao ficam separadas como reserva eventual.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
@@ -213,8 +213,8 @@ export default function OrcamentoDetailPage({ params }: { params: Promise<{ id: 
                 onChange={(value) => setFormData((current) => ({ ...current, valor_previsto_acessorios: value }))}
               />
               <BudgetField
-                label="Perdas"
-                hint="Reserva prevista para perdas e reposicoes."
+                label="Outros"
+                hint="Itens complementares fora das categorias principais."
                 value={formData.valor_previsto_outros}
                 onChange={(value) => setFormData((current) => ({ ...current, valor_previsto_outros: value }))}
               />
@@ -244,7 +244,7 @@ export default function OrcamentoDetailPage({ params }: { params: Promise<{ id: 
           <Card>
             <CardHeader>
               <CardTitle>Resumo do lancamento</CardTitle>
-              <CardDescription>Conferencia rapida do previsto e da reserva de perdas.</CardDescription>
+              <CardDescription>Conferencia rapida do previsto principal e da reserva eventual de perdas.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 text-sm">
               <div className="rounded-lg border bg-muted/30 p-4">
@@ -266,7 +266,7 @@ export default function OrcamentoDetailPage({ params }: { params: Promise<{ id: 
           <Card>
             <CardHeader>
               <CardTitle>Distribuicao prevista</CardTitle>
-              <CardDescription>Leitura simples da concentracao do previsto por categoria.</CardDescription>
+              <CardDescription>Leitura simples da concentracao do previsto entre as categorias principais.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {distribuicao.map((item) => {

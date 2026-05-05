@@ -9,11 +9,9 @@ import {
   AlertTriangle,
   ArrowLeft,
   Building2,
-  Calendar,
   CheckCircle2,
   Clock,
   DollarSign,
-  FileText,
   Loader2,
   MoreHorizontal,
   Package,
@@ -24,6 +22,7 @@ import {
   Upload,
 } from "lucide-react"
 import { useCurrentSession } from "@/components/auth-provider"
+import { CompraRateioFields, type CompraRateioFormState } from "@/components/compras/compra-rateio-fields"
 import { DeliveryStatusBadge } from "@/components/compras/delivery-status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -48,8 +47,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import {
   CATEGORIA_LABELS,
-  CATEGORIA_OPTIONS,
+  ETAPA_AUTORIZACAO_BADGE_CLASSES,
+  ETAPA_AUTORIZACAO_LABELS,
   getDeliverySituation,
+  getCompraCategoriasAtivas,
   STATUS_BADGE_CLASSES,
   STATUS_ENTREGA_LABELS,
   STATUS_LABELS,
@@ -80,11 +81,19 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
   const [uploadingAttachments, setUploadingAttachments] = useState(false)
   const [deletingAttachmentId, setDeletingAttachmentId] = useState<number | null>(null)
   const [requestingAuthorization, setRequestingAuthorization] = useState(false)
-  const [formData, setFormData] = useState({
-    categoria: "perdas",
+  const [formData, setFormData] = useState<{
+    fornecedor: string
+    descricao: string
+    data_envio_fornecedor: string
+  } & CompraRateioFormState>({
     fornecedor: "",
     descricao: "",
     data_envio_fornecedor: "",
+    valor_categoria_perfis: "",
+    valor_categoria_vidros: "",
+    valor_categoria_acessorios: "",
+    valor_categoria_perdas: "",
+    valor_categoria_outros: "",
   })
 
   useEffect(() => {
@@ -101,10 +110,14 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
       const payload = await response.json()
       setCompra(payload)
       setFormData({
-        categoria: payload.categoria,
         fornecedor: payload.fornecedor ?? "",
         descricao: payload.descricao ?? "",
         data_envio_fornecedor: payload.data_envio_fornecedor ?? "",
+        valor_categoria_perfis: payload.valor_categoria_perfis?.toString() ?? "",
+        valor_categoria_vidros: payload.valor_categoria_vidros?.toString() ?? "",
+        valor_categoria_acessorios: payload.valor_categoria_acessorios?.toString() ?? "",
+        valor_categoria_perdas: payload.valor_categoria_perdas?.toString() ?? "",
+        valor_categoria_outros: payload.valor_categoria_outros?.toString() ?? "",
       })
     } catch (error) {
       console.error(error)
@@ -117,16 +130,20 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
     setSaving(true)
 
     try {
-      const response = await fetch(`/api/compras/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          categoria: formData.categoria,
-          fornecedor: formData.fornecedor,
-          descricao: formData.descricao,
-          data_envio_fornecedor: formData.data_envio_fornecedor || null,
-        }),
-      })
+        const response = await fetch(`/api/compras/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fornecedor: formData.fornecedor,
+            descricao: formData.descricao,
+            data_envio_fornecedor: formData.data_envio_fornecedor || null,
+            valor_categoria_perfis: toNumber(formData.valor_categoria_perfis),
+            valor_categoria_vidros: toNumber(formData.valor_categoria_vidros),
+            valor_categoria_acessorios: toNumber(formData.valor_categoria_acessorios),
+            valor_categoria_perdas: toNumber(formData.valor_categoria_perdas),
+            valor_categoria_outros: toNumber(formData.valor_categoria_outros),
+          }),
+        })
 
       const payload = await response.json()
 
@@ -225,7 +242,7 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
         throw new Error(payload?.error || "Erro ao solicitar autorizacao.")
       }
 
-      alert("Solicitacao registrada no historico do pedido.")
+      alert("Solicitacao enviada ao administrador.")
       await fetchCompra()
     } catch (error) {
       alert(error instanceof Error ? error.message : "Erro ao solicitar autorizacao.")
@@ -301,10 +318,14 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
 
     setEditing(false)
     setFormData({
-      categoria: compra.categoria,
       fornecedor: compra.fornecedor ?? "",
       descricao: compra.descricao ?? "",
       data_envio_fornecedor: compra.data_envio_fornecedor ?? "",
+      valor_categoria_perfis: compra.valor_categoria_perfis?.toString() ?? "",
+      valor_categoria_vidros: compra.valor_categoria_vidros?.toString() ?? "",
+      valor_categoria_acessorios: compra.valor_categoria_acessorios?.toString() ?? "",
+      valor_categoria_perdas: compra.valor_categoria_perdas?.toString() ?? "",
+      valor_categoria_outros: compra.valor_categoria_outros?.toString() ?? "",
     })
   }
 
@@ -331,6 +352,18 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
   const deliverySituation = getDeliverySituation(compra)
   const deliveryLabel =
     compra.status === "pedido_autorizado" ? STATUS_ENTREGA_LABELS[compra.status_entrega] : "Aguardando autorizacao"
+  const categoriasAtivas = getCompraCategoriasAtivas(compra)
+  const categoriasAtivasLabel =
+    categoriasAtivas.length > 0
+      ? categoriasAtivas.map((categoria) => CATEGORIA_LABELS[categoria]).join(", ")
+      : "Sem rateio informado"
+  const rateioItems = [
+    { label: "Perfis", value: compra.valor_categoria_perfis },
+    { label: "Vidros", value: compra.valor_categoria_vidros },
+    { label: "Acessorios", value: compra.valor_categoria_acessorios },
+    { label: "Perdas/Reposicao", value: compra.valor_categoria_perdas },
+    { label: "Outros", value: compra.valor_categoria_outros },
+  ]
 
   return (
     <div className="space-y-6 p-6">
@@ -346,6 +379,11 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-bold text-foreground">Pedido #{compra.id}</h1>
               <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
+              {compra.etapa_autorizacao !== "nenhuma" && (
+                <Badge className={ETAPA_AUTORIZACAO_BADGE_CLASSES[compra.etapa_autorizacao]}>
+                  {ETAPA_AUTORIZACAO_LABELS[compra.etapa_autorizacao]}
+                </Badge>
+              )}
               {compra.arquivado && <Badge variant="outline">Arquivado</Badge>}
               {compra.status === "pedido_autorizado" && <DeliveryStatusBadge compra={compra} />}
             </div>
@@ -356,23 +394,28 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {compra.status !== "pedido_autorizado" && session?.perfil === "admin" ? (
+          {compra.status !== "pedido_autorizado" && session?.perfil === "comprador" && compra.etapa_autorizacao === "liberada" ? (
             <Link href={`/autorizacoes/${compra.id}`}>
               <Button variant="outline">
                 <CheckCircle2 className="mr-2 h-4 w-4" />
-                Autorizar pedido
+                Preencher autorizacao
               </Button>
             </Link>
-          ) : compra.status !== "pedido_autorizado" ? (
+          ) : compra.status !== "pedido_autorizado" && session?.perfil === "comprador" && compra.etapa_autorizacao === "solicitada" ? (
+            <Button variant="outline" disabled>
+              <CheckCircle2 className="mr-2 h-4 w-4" />
+              Aguardando administrador
+            </Button>
+          ) : compra.status !== "pedido_autorizado" && session?.perfil === "comprador" ? (
             <Button variant="outline" onClick={handleRequestAuthorization} disabled={requestingAuthorization}>
               <CheckCircle2 className="mr-2 h-4 w-4" />
               {requestingAuthorization ? "Solicitando..." : "Solicitar autorizacao"}
             </Button>
-          ) : session?.perfil === "admin" ? (
-            <Link href={`/autorizacoes/${compra.id}`}>
+          ) : compra.status !== "pedido_autorizado" && session?.perfil === "admin" && compra.etapa_autorizacao === "solicitada" ? (
+            <Link href="/solicitacoes-autorizacao">
               <Button variant="outline">
                 <CheckCircle2 className="mr-2 h-4 w-4" />
-                Revisar autorizacao
+                Ver solicitacoes
               </Button>
             </Link>
           ) : null}
@@ -467,7 +510,7 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
           title="Financeiro"
           icon={<DollarSign className="h-4 w-4 text-muted-foreground" />}
           primary={compra.valor_total ? formatCurrency(compra.valor_total) : "A definir"}
-          secondary={`Categoria ${CATEGORIA_LABELS[compra.categoria]}`}
+          secondary={categoriasAtivas.length > 0 ? categoriasAtivasLabel : "Rateio ainda nao informado"}
         />
         <SummaryCard
           title="Entrega"
@@ -500,7 +543,11 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <Info label="Cliente">{compra.cliente_nome}</Info>
                 <Info label="Proposta">{compra.proposta_nome}</Info>
-                <Info label="Categoria">{CATEGORIA_LABELS[compra.categoria]}</Info>
+                <Info label="Categoria principal">{CATEGORIA_LABELS[compra.categoria]}</Info>
+                <Info label="Categorias ativas">{categoriasAtivasLabel}</Info>
+                <Info label="Etapa da autorizacao">
+                  {compra.etapa_autorizacao === "nenhuma" ? "-" : ETAPA_AUTORIZACAO_LABELS[compra.etapa_autorizacao]}
+                </Info>
                 <Info label="Status da entrega">{deliveryLabel}</Info>
                 <Info label="Criado em">{formatDateTime(compra.data_criacao)}</Info>
                 <Info label="Ultima atualizacao">{formatDateTime(compra.updated_at)}</Info>
@@ -516,6 +563,17 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
                 </div>
               </div>
 
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">Rateio da compra</p>
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                  {rateioItems.map((item) => (
+                    <Info key={item.label} label={item.label}>
+                      {formatCurrency(item.value ?? 0)}
+                    </Info>
+                  ))}
+                </div>
+              </div>
+
               {editing && (
                 <div className="space-y-4 rounded-xl border border-dashed border-primary/30 bg-primary/5 p-5">
                   <div>
@@ -526,24 +584,6 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
-                    <Field label="Categoria">
-                      <Select
-                        value={formData.categoria}
-                        onValueChange={(value) => setFormData((current) => ({ ...current, categoria: value }))}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {CATEGORIA_OPTIONS.map((categoria) => (
-                            <SelectItem key={categoria} value={categoria}>
-                              {CATEGORIA_LABELS[categoria]}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </Field>
-
                     <Field label="Data de envio ao fornecedor">
                       <Input
                         type="date"
@@ -569,6 +609,12 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
                       onChange={(event) => setFormData((current) => ({ ...current, descricao: event.target.value }))}
                     />
                   </Field>
+
+                  <CompraRateioFields
+                    values={formData}
+                    onChange={(field, value) => setFormData((current) => ({ ...current, [field]: value }))}
+                    description="Atualize o rateio desta compra entre perfis, vidros, acessorios, perdas/reposicao e outros."
+                  />
                 </div>
               )}
             </CardContent>
@@ -838,6 +884,11 @@ function formatCurrency(value: number) {
   }).format(Number(value || 0))
 }
 
+function toNumber(value: string) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : 0
+}
+
 function formatDate(value: string | null | undefined) {
   if (!value) {
     return "-"
@@ -855,6 +906,14 @@ function formatDateTime(value: string | null | undefined) {
 }
 
 function getOperationalNote(compra: Compra) {
+  if (compra.etapa_autorizacao === "solicitada") {
+    return "Solicitacao enviada e aguardando aprovacao do administrador."
+  }
+
+  if (compra.etapa_autorizacao === "liberada") {
+    return "Pedido liberado para o comprador concluir a autorizacao."
+  }
+
   if (compra.status === "cotacao") {
     return "Pedido em preparacao para analise."
   }

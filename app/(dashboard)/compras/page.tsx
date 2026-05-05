@@ -30,7 +30,13 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { matchesDateRange } from "@/lib/date-range"
-import { CATEGORIA_LABELS, STATUS_BADGE_CLASSES, STATUS_LABELS } from "@/lib/domain"
+import {
+  CATEGORIA_LABELS,
+  ETAPA_AUTORIZACAO_BADGE_CLASSES,
+  ETAPA_AUTORIZACAO_LABELS,
+  STATUS_BADGE_CLASSES,
+  STATUS_LABELS,
+} from "@/lib/domain"
 import type { Cliente, Compra } from "@/lib/types"
 
 const ARCHIVE_FILTER_LABELS = {
@@ -52,21 +58,21 @@ export default function ComprasPage() {
   const [dateFrom, setDateFrom] = useState("")
   const [dateTo, setDateTo] = useState("")
 
-  useEffect(() => {
-    async function fetchCompras() {
-      try {
-        setLoading(true)
-        const query = archiveFilter === "ativos" ? "" : `?arquivados=${archiveFilter}`
-        const comprasResponse = await fetch(`/api/compras${query}`)
+  async function fetchCompras(selectedArchiveFilter = archiveFilter) {
+    try {
+      setLoading(true)
+      const query = selectedArchiveFilter === "ativos" ? "" : `?arquivados=${selectedArchiveFilter}`
+      const comprasResponse = await fetch(`/api/compras${query}`)
 
-        if (comprasResponse.ok) {
-          setCompras(await comprasResponse.json())
-        }
-      } finally {
-        setLoading(false)
+      if (comprasResponse.ok) {
+        setCompras(await comprasResponse.json())
       }
+    } finally {
+      setLoading(false)
     }
+  }
 
+  useEffect(() => {
     fetchCompras()
   }, [archiveFilter])
 
@@ -110,7 +116,8 @@ export default function ComprasPage() {
         throw new Error(payload?.error || "Erro ao solicitar autorizacao.")
       }
 
-      alert("Solicitacao registrada no historico do pedido.")
+      alert("Solicitacao enviada ao administrador.")
+      await fetchCompras()
     } catch (error) {
       alert(error instanceof Error ? error.message : "Erro ao solicitar autorizacao.")
     } finally {
@@ -240,8 +247,12 @@ export default function ComprasPage() {
                     <TableHead className="text-right">Acoes</TableHead>
                   </TableRow>
                 </TableHeader>
-                <TableBody>
-                  {filteredCompras.map((compra) => (
+                  <TableBody>
+                  {filteredCompras.map((compra) => {
+                    const aguardandoAdministrador = compra.etapa_autorizacao === "solicitada"
+                    const liberadaParaConclusao = compra.etapa_autorizacao === "liberada"
+
+                    return (
                     <TableRow key={compra.id}>
                       <TableCell>
                         <div className="space-y-1">
@@ -269,6 +280,11 @@ export default function ComprasPage() {
                       <TableCell>
                         <div className="space-y-1">
                           <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
+                          {compra.etapa_autorizacao !== "nenhuma" && (
+                            <Badge className={ETAPA_AUTORIZACAO_BADGE_CLASSES[compra.etapa_autorizacao]}>
+                              {ETAPA_AUTORIZACAO_LABELS[compra.etapa_autorizacao]}
+                            </Badge>
+                          )}
                           <div className="text-xs text-muted-foreground">
                             <DeliveryStatusBadge compra={compra} />
                           </div>
@@ -307,14 +323,19 @@ export default function ComprasPage() {
                                     Informar entrega
                                   </Link>
                                 </DropdownMenuItem>
-                              ) : session?.perfil === "admin" ? (
+                              ) : session?.perfil === "comprador" && liberadaParaConclusao ? (
                                 <DropdownMenuItem asChild>
                                   <Link href={`/autorizacoes/${compra.id}`}>
                                     <CheckCircle2 className="h-4 w-4" />
-                                    Autorizar pedido
+                                    Preencher autorizacao
                                   </Link>
                                 </DropdownMenuItem>
-                              ) : (
+                              ) : session?.perfil === "comprador" && aguardandoAdministrador ? (
+                                <DropdownMenuItem disabled>
+                                  <CheckCircle2 className="h-4 w-4" />
+                                  Aguardando administrador
+                                </DropdownMenuItem>
+                              ) : session?.perfil === "comprador" ? (
                                 <DropdownMenuItem
                                   disabled={requestingId === compra.id}
                                   onClick={() => handleRequestAuthorization(compra.id)}
@@ -322,13 +343,27 @@ export default function ComprasPage() {
                                   <CheckCircle2 className="h-4 w-4" />
                                   {requestingId === compra.id ? "Solicitando..." : "Solicitar autorizacao"}
                                 </DropdownMenuItem>
-                              )}
+                              ) : aguardandoAdministrador ? (
+                                <DropdownMenuItem asChild>
+                                  <Link href="/solicitacoes-autorizacao">
+                                    <CheckCircle2 className="h-4 w-4" />
+                                    Ver solicitacoes
+                                  </Link>
+                                </DropdownMenuItem>
+                              ) : null}
+                              {session?.perfil === "admin" && liberadaParaConclusao ? (
+                                <DropdownMenuItem disabled>
+                                  <CheckCircle2 className="h-4 w-4" />
+                                  Liberado para comprador
+                                </DropdownMenuItem>
+                              ) : null}
                             </>
                           )}
                         </RowActionsMenu>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    )
+                  })}
                 </TableBody>
               </Table>
             </div>

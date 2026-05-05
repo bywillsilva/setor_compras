@@ -6,6 +6,7 @@ export type AppFeature =
   | "propostas"
   | "compras"
   | "autorizacoes"
+  | "solicitacoes_autorizacao"
   | "entregas"
   | "orcamentos"
   | "configuracoes"
@@ -27,7 +28,7 @@ const FEATURE_MATRIX: Record<PerfilUsuario, AppFeature[]> = {
     "clientes",
     "propostas",
     "compras",
-    "autorizacoes",
+    "solicitacoes_autorizacao",
     "entregas",
     "orcamentos",
     "configuracoes",
@@ -35,7 +36,6 @@ const FEATURE_MATRIX: Record<PerfilUsuario, AppFeature[]> = {
     "editar_compra",
     "editar_proposta",
     "revisar_entrega",
-    "solicitar_autorizacao",
   ],
   comprador: [
     "dashboard",
@@ -83,6 +83,10 @@ export function getFeatureForPath(pathname: string): AppFeature | null {
 
   if (pathname.startsWith("/autorizacoes")) {
     return "autorizacoes"
+  }
+
+  if (pathname.startsWith("/solicitacoes-autorizacao")) {
+    return "solicitacoes_autorizacao"
   }
 
   if (pathname.startsWith("/entregas")) {

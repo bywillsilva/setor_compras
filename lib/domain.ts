@@ -2,6 +2,7 @@ import { differenceInCalendarDays, parseISO, startOfDay } from "date-fns"
 import type {
   CategoriaCompra,
   Compra,
+  EtapaAutorizacao,
   FinanceiroReportItem,
   PropostaFormData,
   SituacaoEntrega,
@@ -36,13 +37,27 @@ export const STATUS_ENTREGA_LABELS: Record<StatusEntrega, string> = {
   entregue: "Entregue",
 }
 
-export const CATEGORIA_OPTIONS: CategoriaCompra[] = ["perfis", "vidros", "acessorios", "perdas"]
+export const ETAPA_AUTORIZACAO_LABELS: Record<EtapaAutorizacao, string> = {
+  nenhuma: "Sem solicitacao",
+  solicitada: "Solicitada",
+  liberada: "Liberada",
+}
+
+export const ETAPA_AUTORIZACAO_BADGE_CLASSES: Record<EtapaAutorizacao, string> = {
+  nenhuma: "bg-slate-100 text-slate-700",
+  solicitada: "bg-amber-100 text-amber-800",
+  liberada: "bg-blue-100 text-blue-800",
+}
+
+export const CATEGORIA_OPTIONS: CategoriaCompra[] = ["perfis", "vidros", "acessorios", "perdas", "outros"]
+export const COMPRA_RATEIO_OPTIONS: CategoriaCompra[] = ["perfis", "vidros", "acessorios", "perdas", "outros"]
 
 export const CATEGORIA_LABELS: Record<CategoriaCompra, string> = {
   perfis: "Perfis",
   vidros: "Vidros",
   acessorios: "Acessorios",
-  perdas: "Perdas",
+  perdas: "Perdas/Reposicao",
+  outros: "Outros",
 }
 
 export const TIPO_ANEXO_LABELS: Record<TipoAnexo, string> = {
@@ -74,6 +89,20 @@ export function normalizeStatusEntrega(value: unknown): StatusEntrega {
   return normalizeKey(value) === "entregue" ? "entregue" : "pendente"
 }
 
+export function normalizeEtapaAutorizacao(value: unknown): EtapaAutorizacao {
+  const normalized = normalizeKey(value)
+
+  if (normalized === "solicitada") {
+    return "solicitada"
+  }
+
+  if (normalized === "liberada") {
+    return "liberada"
+  }
+
+  return "nenhuma"
+}
+
 export function normalizeCategoriaCompra(value: unknown): CategoriaCompra {
   const normalized = normalizeKey(value)
 
@@ -89,7 +118,11 @@ export function normalizeCategoriaCompra(value: unknown): CategoriaCompra {
     return "acessorios"
   }
 
-  return "perdas"
+  if (normalized === "perdas" || normalized === "reposicao") {
+    return "perdas"
+  }
+
+  return "outros"
 }
 
 export function getDeliverySituation(compra: Pick<Compra, "status" | "status_entrega" | "previsao_entrega">): SituacaoEntrega {
@@ -149,6 +182,120 @@ export function resolvePropostaValues(input: Partial<PropostaFormData>) {
     valor_previsto_outros: valorPrevistoOutros,
     custo_perdas: toNumber(input.custo_perdas),
     valor_previsto: totalCategorias,
+  }
+}
+
+export function resolveCompraCategoriaValues(
+  input: Partial<
+    Record<
+      | "valor_categoria_perfis"
+      | "valor_categoria_vidros"
+      | "valor_categoria_acessorios"
+      | "valor_categoria_perdas"
+      | "valor_categoria_outros",
+      number | null | undefined
+    >
+  >,
+) {
+  return {
+    valor_categoria_perfis: toNumber(input.valor_categoria_perfis),
+    valor_categoria_vidros: toNumber(input.valor_categoria_vidros),
+    valor_categoria_acessorios: toNumber(input.valor_categoria_acessorios),
+    valor_categoria_perdas: toNumber(input.valor_categoria_perdas),
+    valor_categoria_outros: toNumber(input.valor_categoria_outros),
+  }
+}
+
+export function getCompraCategoriaTotal(
+  values: ReturnType<typeof resolveCompraCategoriaValues> | Pick<
+    Compra,
+    | "valor_categoria_perfis"
+    | "valor_categoria_vidros"
+    | "valor_categoria_acessorios"
+    | "valor_categoria_perdas"
+    | "valor_categoria_outros"
+  >,
+) {
+  return (
+    Number(values.valor_categoria_perfis ?? 0) +
+    Number(values.valor_categoria_vidros ?? 0) +
+    Number(values.valor_categoria_acessorios ?? 0) +
+    Number(values.valor_categoria_perdas ?? 0) +
+    Number(values.valor_categoria_outros ?? 0)
+  )
+}
+
+export function getCompraCategoriaDistribuicao(compra: Pick<
+  Compra,
+  | "categoria"
+  | "valor_total"
+  | "valor_categoria_perfis"
+  | "valor_categoria_vidros"
+  | "valor_categoria_acessorios"
+  | "valor_categoria_perdas"
+  | "valor_categoria_outros"
+>) {
+  const values = resolveCompraCategoriaValues(compra)
+  const total = getCompraCategoriaTotal(values)
+
+  if (total > 0) {
+    return values
+  }
+
+  const fallbackValues = resolveCompraCategoriaValues({})
+  if (compra.valor_total) {
+    fallbackValues[getCompraCategoriaFieldName(compra.categoria)] = Number(compra.valor_total)
+  }
+  return fallbackValues
+}
+
+export function getCompraCategoriaPrincipal(compra: Pick<
+  Compra,
+  | "categoria"
+  | "valor_total"
+  | "valor_categoria_perfis"
+  | "valor_categoria_vidros"
+  | "valor_categoria_acessorios"
+  | "valor_categoria_perdas"
+  | "valor_categoria_outros"
+>) {
+  const distribuicao = getCompraCategoriaDistribuicao(compra)
+  const active = COMPRA_RATEIO_OPTIONS
+    .map((categoria) => ({
+      categoria,
+      value: distribuicao[getCompraCategoriaFieldName(categoria)],
+    }))
+    .sort((left, right) => right.value - left.value)
+
+  return active[0]?.value > 0 ? active[0].categoria : compra.categoria
+}
+
+export function getCompraCategoriasAtivas(compra: Pick<
+  Compra,
+  | "categoria"
+  | "valor_total"
+  | "valor_categoria_perfis"
+  | "valor_categoria_vidros"
+  | "valor_categoria_acessorios"
+  | "valor_categoria_perdas"
+  | "valor_categoria_outros"
+>) {
+  const distribuicao = getCompraCategoriaDistribuicao(compra)
+  return COMPRA_RATEIO_OPTIONS.filter((categoria) => distribuicao[getCompraCategoriaFieldName(categoria)] > 0)
+}
+
+function getCompraCategoriaFieldName(categoria: CategoriaCompra) {
+  switch (categoria) {
+    case "perfis":
+      return "valor_categoria_perfis" as const
+    case "vidros":
+      return "valor_categoria_vidros" as const
+    case "acessorios":
+      return "valor_categoria_acessorios" as const
+    case "perdas":
+      return "valor_categoria_perdas" as const
+    default:
+      return "valor_categoria_outros" as const
   }
 }
 
