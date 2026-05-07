@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { getDefaultPathForPerfil, getFeatureForPath, hasFeatureAccess } from "@/lib/auth/permissions"
+import { getDefaultPathForPerfil } from "@/lib/auth/permissions"
 import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session"
+import type { AppFeature, PerfilUsuario } from "@/lib/types"
 
 const PUBLIC_PAGE_PATHS = new Set(["/auth/login"])
 const PUBLIC_API_PATHS = new Set(["/api/auth/login", "/api/auth/logout", "/api/setup"])
@@ -15,75 +16,83 @@ export async function proxy(request: NextRequest) {
   }
 
   const session = await verifySessionToken(token)
+  const invalidSessionCookie = hasSessionCookie && !session
 
   if (pathname === "/auth/login") {
     if (!session) {
-      return NextResponse.next()
+      const response = NextResponse.next()
+      if (invalidSessionCookie) {
+        clearSessionCookie(response)
+      }
+      return response
     }
 
-    return redirectToDefaultPath(request, session.perfil)
+    return redirectToDefaultPath(request, session.perfil, session.features)
   }
 
-  if (pathname === "/configuracoes") {
-    if (!session) {
-      return NextResponse.next()
+  if (!session && PUBLIC_PAGE_PATHS.has(pathname)) {
+    const response = NextResponse.next()
+    if (invalidSessionCookie) {
+      clearSessionCookie(response)
     }
-
-    if (hasFeatureAccess(session.perfil, "configuracoes")) {
-      return NextResponse.next()
-    }
-
-    return redirectToDefaultPath(request, session.perfil)
+    return response
   }
 
-  if (!session && (PUBLIC_PAGE_PATHS.has(pathname) || PUBLIC_API_PATHS.has(pathname))) {
+  if (!session && PUBLIC_API_PATHS.has(pathname)) {
     return NextResponse.next()
   }
 
-  if (session && pathname === "/" && session.perfil === "orcamentista") {
-    const url = request.nextUrl.clone()
-    url.pathname = "/orcamentos"
-    url.search = ""
-    return NextResponse.redirect(url)
+  if (session && pathname === "/") {
+    const defaultPath = getDefaultPathForPerfil(session.perfil, session.features)
+    if (defaultPath !== "/") {
+      const url = request.nextUrl.clone()
+      url.pathname = defaultPath
+      url.search = ""
+      return NextResponse.redirect(url)
+    }
   }
 
   if (session) {
-    const feature = getFeatureForPath(pathname)
-
-    if (feature && !hasFeatureAccess(session.perfil, feature)) {
-      if (pathname.startsWith("/api/")) {
-        return NextResponse.json({ error: "Voce nao tem permissao para acessar este recurso." }, { status: 403 })
-      }
-
-      return redirectToDefaultPath(request, session.perfil)
-    }
-
-    return NextResponse.next()
-  }
-
-  if (hasSessionCookie) {
     return NextResponse.next()
   }
 
   if (pathname.startsWith("/api/")) {
-    return NextResponse.json({ error: "Sessao expirada. Faca login novamente." }, { status: 401 })
+    const response = NextResponse.json({ error: "Sessao expirada. Faca login novamente." }, { status: 401 })
+    if (invalidSessionCookie) {
+      clearSessionCookie(response)
+    }
+    return response
   }
 
   const url = request.nextUrl.clone()
   url.pathname = "/auth/login"
   url.searchParams.set("next", pathname)
-  return NextResponse.redirect(url)
+  const response = NextResponse.redirect(url)
+  if (invalidSessionCookie) {
+    clearSessionCookie(response)
+  }
+  return response
 }
 
-function redirectToDefaultPath(request: NextRequest, perfil: "admin" | "comprador" | "orcamentista") {
+function redirectToDefaultPath(request: NextRequest, perfil: PerfilUsuario, features?: AppFeature[]) {
   const url = request.nextUrl.clone()
-  url.pathname = getDefaultPathForPerfil(perfil)
+  url.pathname = getDefaultPathForPerfil(perfil, features)
   url.search = ""
   return NextResponse.redirect(url)
 }
 
 function isStaticAsset(pathname: string) {
   return pathname.startsWith("/_next") || pathname.startsWith("/uploads/") || /\.[a-zA-Z0-9]+$/.test(pathname)
+}
+
+function clearSessionCookie(response: NextResponse) {
+  response.cookies.set(SESSION_COOKIE_NAME, "", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 0,
+  })
 }
 
 export const config = {

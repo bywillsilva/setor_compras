@@ -5,6 +5,8 @@ import { createClient } from '@supabase/supabase-js'
 const bucketName = 'compras-anexos'
 
 async function main() {
+  await loadLocalEnvFiles()
+
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
   const secretKey = process.env.SUPABASE_SECRET_KEY?.trim()
 
@@ -76,6 +78,45 @@ async function main() {
   }
 
   console.log(JSON.stringify({ migrated, missing, skipped }))
+}
+
+async function loadLocalEnvFiles() {
+  for (const fileName of ['.env.local', '.env']) {
+    const envPath = path.resolve(process.cwd(), fileName)
+    const fileContents = await fs.readFile(envPath, 'utf8').catch(() => null)
+
+    if (!fileContents) {
+      continue
+    }
+
+    for (const rawLine of fileContents.split(/\r?\n/)) {
+      const line = rawLine.trim()
+
+      if (!line || line.startsWith('#')) {
+        continue
+      }
+
+      const separatorIndex = line.indexOf('=')
+      if (separatorIndex <= 0) {
+        continue
+      }
+
+      const key = line.slice(0, separatorIndex).trim()
+      if (!key || process.env[key]) {
+        continue
+      }
+
+      let value = line.slice(separatorIndex + 1).trim()
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1)
+      }
+
+      process.env[key] = value
+    }
+  }
 }
 
 async function ensureBucket(client) {

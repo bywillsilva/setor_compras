@@ -13,7 +13,13 @@ export async function POST(
     }
 
     const { id } = await params
-    await approveCompraAuthorizationRequest(Number(id), guard.session.nome)
+    const body = await request.json()
+    await approveCompraAuthorizationRequest(
+      Number(id),
+      guard.session.nome,
+      String(body.numero_pedido ?? "").trim(),
+      Number(body.valor_total ?? 0),
+    )
 
     return NextResponse.json({ message: "Solicitacao aprovada com sucesso." })
   } catch (error) {

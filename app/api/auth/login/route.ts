@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getDefaultFeaturesForPerfil } from '@/lib/auth/permissions'
 import { verifyPassword } from '@/lib/auth/password'
 import { createSessionToken, SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS } from '@/lib/auth/session'
-import { ensureDefaultAdminUser, getUsuarioByEmail } from '@/lib/repositories'
+import { ensureDefaultAdminUser, getUsuarioByEmail, listFeaturesByPerfil } from '@/lib/repositories'
 
 export const runtime = 'nodejs'
 
@@ -19,7 +20,17 @@ export async function POST(request: NextRequest) {
     const usuario = await getUsuarioByEmail(email)
 
     if (!usuario || !usuario.ativo || !verifyPassword(senha, usuario.senha_hash)) {
-      return NextResponse.json({ error: 'Email ou senha inválidos.' }, { status: 401 })
+      return NextResponse.json({ error: 'Email ou senha invalidos.' }, { status: 401 })
+    }
+
+    let features = getDefaultFeaturesForPerfil(usuario.perfil)
+    try {
+      features = await listFeaturesByPerfil(usuario.perfil)
+    } catch (permissionError) {
+      console.warn(
+        'Falha ao carregar permissoes por perfil no login. Aplicando permissoes padrao temporariamente.',
+        permissionError,
+      )
     }
 
     const token = await createSessionToken({
@@ -27,6 +38,7 @@ export async function POST(request: NextRequest) {
       nome: usuario.nome,
       email: usuario.email,
       perfil: usuario.perfil,
+      features,
     })
 
     const response = NextResponse.json({
@@ -36,6 +48,7 @@ export async function POST(request: NextRequest) {
         nome: usuario.nome,
         email: usuario.email,
         perfil: usuario.perfil,
+        features,
       },
     })
 

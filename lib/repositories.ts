@@ -1,14 +1,29 @@
 import { access } from 'fs/promises'
+import path from 'path'
 import { format, isAfter, isBefore, parseISO, subMonths } from 'date-fns'
 import type { PoolConnection, ResultSetHeader } from 'mysql2/promise'
-import { isExternalAttachmentUrl, isSupabaseAttachmentUrl, resolveLocalAttachmentPath } from '@/lib/attachments'
+import {
+  isExternalAttachmentUrl,
+  isSupabaseAttachmentUrl,
+  parseSupabaseAttachmentUrl,
+  resolveLocalAttachmentPath,
+} from '@/lib/attachments'
 import { hashPassword } from '@/lib/auth/password'
+import {
+  ALL_APP_FEATURES,
+  buildFeatureMatrix,
+  getDefaultFeatureMatrix,
+  getDefaultFeaturesForPerfil,
+  normalizeFeatureList,
+  PERFIL_LABELS,
+} from '@/lib/auth/permissions'
 import { getDatabaseType, getMySQLPool, getSupabaseClient, queryMySQL, type DatabaseType } from '@/lib/db'
 import {
   calculateFinanceDifference,
   getCompraCategoriaTotal,
   getDeliverySituation,
   getCompraCategoriaPrincipal,
+  normalizeEtapaFluxoCompra,
   normalizeCategoriaCompra,
   normalizeEtapaAutorizacao,
   normalizeStatusEntrega,
@@ -19,15 +34,18 @@ import {
 } from '@/lib/domain'
 import type {
   Anexo,
+  AppFeature,
   Cliente,
   Compra,
   CompraFormData,
   DashboardData,
   DeliveryMetrics,
+  EtapaFluxoCompra,
   EtapaAutorizacao,
   FinanceiroReportItem,
   HistoricoCompra,
   HistoricoReportItem,
+  PerfilPermissao,
   PerfilUsuario,
   Proposta,
   PropostaFormData,
@@ -82,6 +100,8 @@ const REQUIRED_SCHEMA_COLUMNS: Record<(typeof REQUIRED_TABLES)[number], string[]
     'id',
     'cliente_id',
     'proposta_id',
+    'solicitante_id',
+    'solicitado_por',
     'categoria',
     'fornecedor',
     'descricao',
@@ -95,8 +115,22 @@ const REQUIRED_SCHEMA_COLUMNS: Record<(typeof REQUIRED_TABLES)[number], string[]
     'status',
     'status_entrega',
     'etapa_autorizacao',
+    'etapa_fluxo',
     'previsao_entrega',
     'data_envio_fornecedor',
+    'cotacao_enviada_por',
+    'cotacao_recebida_em',
+    'cotacao_recebida_por',
+    'aprovado_solicitante_em',
+    'aprovado_solicitante_por',
+    'aprovado_admin_em',
+    'aprovado_admin_por',
+    'aprovado_financeiro_em',
+    'aprovado_financeiro_por',
+    'documentos_financeiro_confirmados_em',
+    'documentos_financeiro_confirmados_por',
+    'confirmado_fornecedor_em',
+    'confirmado_fornecedor_por',
     'data_entrega_real',
     'data_criacao',
     'updated_at',
@@ -106,12 +140,39 @@ const REQUIRED_SCHEMA_COLUMNS: Record<(typeof REQUIRED_TABLES)[number], string[]
   anexos: ['id', 'compra_id', 'tipo', 'arquivo_url', 'nome_arquivo', 'created_at'],
 }
 
+type PerfilFeatureMatrix = Record<PerfilUsuario, AppFeature[]>
+
+const REQUIRED_TABLES_WITH_PERMISSIONS = [...REQUIRED_TABLES, 'perfil_permissoes'] as const
+const REQUIRED_SCHEMA_COLUMNS_WITH_PERMISSIONS: Record<(typeof REQUIRED_TABLES_WITH_PERMISSIONS)[number], string[]> = {
+  ...REQUIRED_SCHEMA_COLUMNS,
+  perfil_permissoes: ['id', 'perfil', 'feature', 'permitido', 'created_at', 'updated_at'],
+}
+
+let perfilFeatureMatrixCache:
+  | {
+      expiresAt: number
+      matrix: PerfilFeatureMatrix
+    }
+  | null = null
+
 const REQUIRED_MYSQL_ENUM_VALUES = {
-  'usuarios.perfil': ['admin', 'comprador', 'orcamentista'],
+  'usuarios.perfil': ['admin', 'comprador', 'orcamentista', 'solicitante', 'financeiro'],
   'compras.categoria': ['perfis', 'vidros', 'acessorios', 'perdas', 'outros'],
   'compras.status': ['cotacao', 'em_analise', 'retificacao', 'pedido_autorizado'],
   'compras.status_entrega': ['pendente', 'entregue'],
   'compras.etapa_autorizacao': ['nenhuma', 'solicitada', 'liberada'],
+  'compras.etapa_fluxo': [
+    'solicitacao_registrada',
+    'cotacao_em_andamento',
+    'analise_solicitante',
+    'retificacao',
+    'aprovada_solicitante',
+    'aguardando_admin',
+    'aprovada_admin',
+    'aguardando_financeiro',
+    'liberada_para_fornecedor',
+    'pedido_autorizado',
+  ],
   'anexos.tipo': ['cotacao', 'nf', 'boleto', 'outro'],
 } as const
 
@@ -130,7 +191,7 @@ export async function getSetupStatus(): Promise<SetupStatus> {
     configured: false,
     dbType: 'none',
     existingTables: [],
-    missingTables: [...REQUIRED_TABLES],
+    missingTables: [...REQUIRED_TABLES_WITH_PERMISSIONS],
     setupScript: null,
   }
 }
@@ -213,6 +274,118 @@ export async function ensureDefaultAdminUser() {
     perfil: 'admin',
     ativo: true,
   })
+}
+
+export async function listPerfilFeatureMatrix(): Promise<PerfilFeatureMatrix> {
+  if (perfilFeatureMatrixCache && perfilFeatureMatrixCache.expiresAt > Date.now()) {
+    return cloneFeatureMatrix(perfilFeatureMatrixCache.matrix)
+  }
+
+  const defaultMatrix = getDefaultFeatureMatrix()
+  const records = await listPerfilPermissoesInternal()
+
+  if (!records) {
+    perfilFeatureMatrixCache = {
+      expiresAt: Date.now() + 30_000,
+      matrix: defaultMatrix,
+    }
+    return cloneFeatureMatrix(defaultMatrix)
+  }
+
+  if (records.length === 0) {
+    await ensureDefaultPerfilPermissoes()
+    const seeded = await listPerfilPermissoesInternal()
+    const matrix = seeded && seeded.length > 0 ? buildFeatureMatrix(seeded) : defaultMatrix
+    perfilFeatureMatrixCache = {
+      expiresAt: Date.now() + 30_000,
+      matrix,
+    }
+    return cloneFeatureMatrix(matrix)
+  }
+
+  const matrix = buildFeatureMatrix(records)
+  perfilFeatureMatrixCache = {
+    expiresAt: Date.now() + 30_000,
+    matrix,
+  }
+  return cloneFeatureMatrix(matrix)
+}
+
+export async function listFeaturesByPerfil(perfil: PerfilUsuario) {
+  try {
+    const matrix = await listPerfilFeatureMatrix()
+    return [...matrix[perfil]]
+  } catch (error) {
+    console.warn(
+      'Falha ao consultar permissoes por perfil no banco. Aplicando matriz padrao temporariamente.',
+      error,
+    )
+    return getDefaultFeaturesForPerfil(perfil)
+  }
+}
+
+export async function savePerfilFeatureMatrix(input: PerfilFeatureMatrix) {
+  const dbType = getDatabaseType()
+
+  if (dbType === 'none') {
+    throw new Error('Nenhum banco de dados configurado para salvar permissoes.')
+  }
+
+  const matrix = Object.fromEntries(
+    (Object.keys(PERFIL_LABELS) as PerfilUsuario[]).map((perfil) => [
+      perfil,
+      normalizeFeatureList(input[perfil], perfil),
+    ]),
+  ) as PerfilFeatureMatrix
+
+  if (dbType === 'mysql') {
+    const pool = getMySQLPool()
+    if (!pool) {
+      throw new Error('MySQL nao configurado para salvar permissoes.')
+    }
+
+    const connection = await pool.getConnection()
+    try {
+      await connection.beginTransaction()
+      await connection.execute('DELETE FROM perfil_permissoes')
+
+      for (const [perfil, features] of Object.entries(matrix) as Array<[PerfilUsuario, AppFeature[]]>) {
+        for (const feature of features) {
+          await connection.execute(
+            'INSERT INTO perfil_permissoes (perfil, feature, permitido) VALUES (?, ?, 1)',
+            [perfil, feature],
+          )
+        }
+      }
+
+      await connection.commit()
+    } catch (error) {
+      await connection.rollback()
+      throw error
+    } finally {
+      connection.release()
+    }
+  } else {
+    const client = getSupabaseOrThrow()
+    const { error: deleteError } = await client.from('perfil_permissoes').delete().neq('id', 0)
+    throwIfSupabaseError(deleteError)
+
+    const rows = (Object.entries(matrix) as Array<[PerfilUsuario, AppFeature[]]>).flatMap(([perfil, features]) =>
+      features.map((feature) => ({
+        perfil,
+        feature,
+        permitido: true,
+      })),
+    )
+
+    if (rows.length > 0) {
+      const { error: insertError } = await client.from('perfil_permissoes').insert(rows)
+      throwIfSupabaseError(insertError)
+    }
+  }
+
+  resetPerfilFeatureMatrixCache()
+  return matrix
 }
 
 async function createUsuarioInternal(input: {
@@ -640,11 +813,14 @@ export async function listCompras(filters: PurchaseFilters = {}): Promise<Compra
 
   const clientesById = new Map(clientes.map((cliente) => [cliente.id, cliente.nome]))
   const propostasById = new Map(propostas.map((proposta) => [proposta.id, proposta.nome]))
+  const anexosByCompraId = await getAnexoSummaryByCompraIds(compras.map((compra) => compra.id))
 
   return compras.map((compra) => ({
     ...compra,
     cliente_nome: clientesById.get(compra.cliente_id) ?? 'Cliente não identificado',
     proposta_nome: propostasById.get(compra.proposta_id) ?? 'Proposta não identificada',
+    possui_nf: anexosByCompraId.get(compra.id)?.possui_nf ?? false,
+    possui_boleto: anexosByCompraId.get(compra.id)?.possui_boleto ?? false,
   }))
 }
 
@@ -664,8 +840,20 @@ export async function getCompraDetail(id: number) {
     return null
   }
 
+  const proposta = await getPropostaById(compra.proposta_id)
+
   return {
     ...compra,
+    proposta_orcamento: proposta
+      ? {
+          valor_previsto: proposta.valor_previsto,
+          valor_previsto_perfis: proposta.valor_previsto_perfis,
+          valor_previsto_vidros: proposta.valor_previsto_vidros,
+          valor_previsto_acessorios: proposta.valor_previsto_acessorios,
+          valor_previsto_outros: proposta.valor_previsto_outros,
+          custo_perdas: proposta.custo_perdas,
+        }
+      : null,
     historico,
     anexos,
   }
@@ -675,6 +863,8 @@ export async function createCompra(input: CompraFormData) {
   const distribuicaoCategoria = resolveCompraCategoriaValues(input)
   const totalRateado = getCompraCategoriaTotal(distribuicaoCategoria)
   const valorTotal = nullableNumber(input.valor_total) ?? (totalRateado > 0 ? totalRateado : null)
+  const solicitanteId = nullableNumber(input.solicitante_id)
+  const solicitadoPor = nullableString(input.solicitado_por)
   const categoria = normalizeCategoriaCompra(
     input.categoria ??
       getCompraCategoriaPrincipal({
@@ -691,6 +881,8 @@ export async function createCompra(input: CompraFormData) {
       `INSERT INTO compras (
         cliente_id,
         proposta_id,
+        solicitante_id,
+        solicitado_por,
         categoria,
         fornecedor,
         descricao,
@@ -704,14 +896,17 @@ export async function createCompra(input: CompraFormData) {
         status,
         status_entrega,
         etapa_autorizacao,
+        etapa_fluxo,
         previsao_entrega,
         data_envio_fornecedor,
         data_entrega_real,
         arquivado
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'cotacao', 'pendente', 'nenhuma', ?, ?, ?, 0)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'cotacao', 'pendente', 'nenhuma', 'solicitacao_registrada', ?, ?, ?, 0)`,
       [
         input.cliente_id,
         input.proposta_id,
+        solicitanteId,
+        solicitadoPor,
         serializeCategoriaCompra(categoria),
         input.fornecedor,
         input.descricao,
@@ -738,12 +933,15 @@ export async function createCompra(input: CompraFormData) {
         categoria: serializeCategoriaCompra(categoria),
         fornecedor: input.fornecedor,
         descricao: input.descricao,
+        solicitante_id: solicitanteId,
+        solicitado_por: solicitadoPor,
         valor_total: valorTotal,
         ...distribuicaoCategoria,
         numero_pedido: nullableString(input.numero_pedido),
         status: 'cotacao',
         status_entrega: 'pendente',
         etapa_autorizacao: 'nenhuma',
+        etapa_fluxo: 'solicitacao_registrada',
         previsao_entrega: nullableString(input.previsao_entrega),
         data_envio_fornecedor: nullableString(input.data_envio_fornecedor),
         data_entrega_real: null,
@@ -756,6 +954,9 @@ export async function createCompra(input: CompraFormData) {
   }
 
   await addHistoricoEvento(compraId, `Pedido de compra criado na categoria ${categoriaLabel(categoria)} com status ${STATUS_LABELS.cotacao}`)
+  if (solicitadoPor) {
+    await addHistoricoEvento(compraId, `Solicitacao registrada por ${solicitadoPor}`, solicitadoPor)
+  }
   return compraId
 }
 
@@ -860,6 +1061,7 @@ export async function updateCompra(
     status: proximoStatus,
     status_entrega: statusEntrega,
     etapa_autorizacao: proximoStatus === 'pedido_autorizado' ? 'nenhuma' : atual.etapa_autorizacao,
+    etapa_fluxo: proximoStatus === 'pedido_autorizado' ? 'pedido_autorizado' : atual.etapa_fluxo,
     previsao_entrega: proximaPrevisao,
     data_envio_fornecedor: proximaDataEnvio,
     data_entrega_real: dataEntregaReal,
@@ -882,6 +1084,7 @@ export async function updateCompra(
         status = ?,
         status_entrega = ?,
         etapa_autorizacao = ?,
+        etapa_fluxo = ?,
         previsao_entrega = ?,
         data_envio_fornecedor = ?,
         data_entrega_real = ?
@@ -900,6 +1103,7 @@ export async function updateCompra(
         payload.status,
         payload.status_entrega,
         payload.etapa_autorizacao,
+        payload.etapa_fluxo,
         payload.previsao_entrega,
         payload.data_envio_fornecedor,
         payload.data_entrega_real,
@@ -1065,6 +1269,10 @@ export async function requestCompraAuthorization(id: number, usuario: string) {
     throw new Error('Este pedido ja foi autorizado.')
   }
 
+  if (compra.etapa_fluxo !== 'aprovada_solicitante') {
+    throw new Error('Este pedido ainda nao foi aprovado pelo solicitante para seguir para autorizacao administrativa.')
+  }
+
   if (compra.etapa_autorizacao === 'solicitada') {
     throw new Error('Este pedido ja possui uma solicitacao de autorizacao em andamento.')
   }
@@ -1073,12 +1281,16 @@ export async function requestCompraAuthorization(id: number, usuario: string) {
     throw new Error('Este pedido ja foi liberado pelo administrador para conclusao da autorizacao.')
   }
 
-  await updateCompraAuthorizationStage(id, 'solicitada')
+  await updateCompraWorkflowFields(id, {
+    status: 'em_analise',
+    etapa_autorizacao: 'solicitada',
+    etapa_fluxo: 'aguardando_admin',
+  })
   await addHistoricoEvento(id, 'Solicitacao de autorizacao enviada ao administrador', usuario)
   return { requested: true }
 }
 
-export async function approveCompraAuthorizationRequest(id: number, usuario: string) {
+export async function approveCompraAuthorizationRequest(id: number, usuario: string, numeroPedido: string, valorTotal: number) {
   const compra = await getCompraById(id)
 
   if (!compra) {
@@ -1089,13 +1301,328 @@ export async function approveCompraAuthorizationRequest(id: number, usuario: str
     throw new Error('Este pedido ja foi autorizado.')
   }
 
-  if (compra.etapa_autorizacao !== 'solicitada') {
+  if (compra.etapa_fluxo !== 'aguardando_admin' || compra.etapa_autorizacao !== 'solicitada') {
     throw new Error('Este pedido nao possui solicitacao pendente para aprovacao.')
   }
 
-  await updateCompraAuthorizationStage(id, 'liberada')
+  if (!nullableString(numeroPedido) || !Number.isFinite(valorTotal) || valorTotal <= 0) {
+    throw new Error('Numero do pedido e valor autorizado sao obrigatorios para a aprovacao administrativa.')
+  }
+
+  const approvedAt = format(new Date(), 'yyyy-MM-dd')
+
+  await updateCompraWorkflowFields(id, {
+    status: 'em_analise',
+    etapa_autorizacao: 'liberada',
+    etapa_fluxo: 'aprovada_admin',
+    numero_pedido: nullableString(numeroPedido),
+    valor_total: valorTotal,
+    aprovado_admin_em: approvedAt,
+    aprovado_admin_por: usuario,
+  })
   await addHistoricoEvento(id, 'Solicitacao de autorizacao aprovada pelo administrador', usuario)
+  await addHistoricoEvento(id, `Numero do pedido definido: ${numeroPedido.trim()}`, usuario)
+  await addHistoricoEvento(id, `Valor autorizado registrado em ${formatCurrency(valorTotal)}`, usuario)
   return { approved: true }
+}
+
+export async function rejectCompraAuthorizationRequest(id: number, usuario: string, motivo?: string | null) {
+  const compra = await getCompraById(id)
+
+  if (!compra) {
+    throw new Error('Compra nao encontrada.')
+  }
+
+  if (compra.etapa_fluxo !== 'aguardando_admin' || compra.etapa_autorizacao !== 'solicitada') {
+    throw new Error('Este pedido nao possui solicitacao administrativa pendente para recusa.')
+  }
+
+  const motivoNormalizado = nullableString(motivo)
+
+  await updateCompraWorkflowFields(id, {
+    status: 'em_analise',
+    etapa_autorizacao: 'nenhuma',
+    etapa_fluxo: 'aprovada_solicitante',
+    aprovado_admin_em: null,
+    aprovado_admin_por: null,
+  })
+
+  await addHistoricoEvento(
+    id,
+    motivoNormalizado
+      ? `Administrador recusou a solicitacao e devolveu ao comprador: ${motivoNormalizado}`
+      : 'Administrador recusou a solicitacao e devolveu o pedido ao comprador',
+    usuario,
+  )
+
+  return { rejected: true }
+}
+
+export async function requestCompraFinanceApproval(id: number, usuario: string) {
+  const compra = await getCompraById(id)
+
+  if (!compra) {
+    throw new Error('Compra nao encontrada.')
+  }
+
+  if (compra.status === 'pedido_autorizado') {
+    throw new Error('Este pedido ja foi autorizado.')
+  }
+
+  if (compra.etapa_fluxo !== 'aprovada_admin' || compra.etapa_autorizacao !== 'liberada') {
+    throw new Error('Este pedido ainda nao foi liberado pelo administrativo para seguir ao financeiro.')
+  }
+
+  if (!compra.numero_pedido || !compra.valor_total || compra.valor_total <= 0) {
+    throw new Error('O pedido precisa ter numero e valor autorizados antes de seguir para o financeiro.')
+  }
+
+  await updateCompraWorkflowFields(id, {
+    status: 'em_analise',
+    etapa_fluxo: 'aguardando_financeiro',
+  })
+
+  await addHistoricoEvento(id, 'Solicitacao de aprovacao financeira enviada pelo comprador', usuario)
+  return { requested: true }
+}
+
+export async function markCompraQuotationSent(
+  id: number,
+  usuario: string,
+  options: { data_envio_fornecedor?: string | null } = {},
+) {
+  const compra = await getCompraById(id)
+
+  if (!compra) {
+    throw new Error('Compra nao encontrada.')
+  }
+
+  if (compra.status === 'pedido_autorizado') {
+    throw new Error('Este pedido ja foi autorizado e nao pode voltar para cotacao.')
+  }
+
+  const dataEnvio = nullableString(options.data_envio_fornecedor) ?? format(new Date(), 'yyyy-MM-dd')
+
+  await updateCompraWorkflowFields(id, {
+    status: 'cotacao',
+    etapa_fluxo: 'cotacao_em_andamento',
+    data_envio_fornecedor: dataEnvio,
+    cotacao_enviada_por: usuario,
+  })
+
+  await addHistoricoEvento(id, `Solicitacao enviada ao fornecedor em ${formatDateBr(dataEnvio)}`, usuario)
+  return { sent: true }
+}
+
+export async function markCompraQuotationReceived(id: number, usuario: string) {
+  const compra = await getCompraById(id)
+
+  if (!compra) {
+    throw new Error('Compra nao encontrada.')
+  }
+
+  if (compra.status === 'pedido_autorizado') {
+    throw new Error('Este pedido ja foi autorizado.')
+  }
+
+  if (compra.etapa_fluxo !== 'cotacao_em_andamento' && compra.etapa_fluxo !== 'retificacao') {
+    throw new Error('A cotacao so pode ser registrada depois do envio ao fornecedor.')
+  }
+
+  const anexos = await listAnexosByCompraId(id)
+  const possuiCotacao = anexos.some((anexo) => anexo.tipo === 'cotacao')
+
+  if (!possuiCotacao) {
+    throw new Error('Anexe ao menos um arquivo de cotacao antes de solicitar a aprovacao do solicitante.')
+  }
+
+  const receivedAt = format(new Date(), 'yyyy-MM-dd')
+
+  await updateCompraWorkflowFields(id, {
+    status: 'em_analise',
+    etapa_fluxo: 'analise_solicitante',
+    cotacao_recebida_em: receivedAt,
+    cotacao_recebida_por: usuario,
+  })
+
+  await addHistoricoEvento(id, 'Cotacao recebida e encaminhada para aprovacao do solicitante', usuario)
+  return { received: true }
+}
+
+export async function approveCompraByRequester(id: number, usuario: string) {
+  const compra = await getCompraById(id)
+
+  if (!compra) {
+    throw new Error('Compra nao encontrada.')
+  }
+
+  if (compra.etapa_fluxo !== 'analise_solicitante') {
+    throw new Error('Este pedido nao esta aguardando aprovacao do solicitante.')
+  }
+
+  const approvedAt = format(new Date(), 'yyyy-MM-dd')
+
+  await updateCompraWorkflowFields(id, {
+    status: 'em_analise',
+    etapa_fluxo: 'aprovada_solicitante',
+    aprovado_solicitante_em: approvedAt,
+    aprovado_solicitante_por: usuario,
+  })
+
+  await addHistoricoEvento(id, 'Solicitante aprovou a cotacao para seguir com a autorizacao', usuario)
+  return { approved: true }
+}
+
+export async function requestCompraRetification(id: number, usuario: string, motivo: string) {
+  const compra = await getCompraById(id)
+
+  if (!compra) {
+    throw new Error('Compra nao encontrada.')
+  }
+
+  const motivoNormalizado = nullableString(motivo)
+
+  if (!motivoNormalizado) {
+    throw new Error('Informe o motivo da retificacao.')
+  }
+
+  if (compra.etapa_fluxo !== 'analise_solicitante' && compra.etapa_fluxo !== 'aprovada_solicitante') {
+    throw new Error('Este pedido nao esta em etapa de analise para retificacao.')
+  }
+
+  await updateCompraWorkflowFields(id, {
+    status: 'retificacao',
+    etapa_autorizacao: 'nenhuma',
+    etapa_fluxo: 'retificacao',
+  })
+
+  await addHistoricoEvento(id, `Solicitante pediu retificacao: ${motivoNormalizado}`, usuario)
+  return { retified: true }
+}
+
+export async function rejectCompraFinanceiro(id: number, usuario: string, motivo?: string | null) {
+  const compra = await getCompraById(id)
+
+  if (!compra) {
+    throw new Error('Compra nao encontrada.')
+  }
+
+  if (compra.etapa_fluxo !== 'aguardando_financeiro') {
+    throw new Error('Este pedido nao esta aguardando aprovacao financeira.')
+  }
+
+  const motivoNormalizado = nullableString(motivo)
+
+  await updateCompraWorkflowFields(id, {
+    status: 'em_analise',
+    etapa_autorizacao: 'liberada',
+    etapa_fluxo: 'aprovada_admin',
+    aprovado_financeiro_em: null,
+    aprovado_financeiro_por: null,
+  })
+
+  await addHistoricoEvento(
+    id,
+    motivoNormalizado
+      ? `Financeiro recusou a liberacao e devolveu ao comprador: ${motivoNormalizado}`
+      : 'Financeiro recusou a liberacao e devolveu o pedido ao comprador',
+    usuario,
+  )
+
+  return { rejected: true }
+}
+
+export async function approveCompraFinanceiro(id: number, usuario: string) {
+  const compra = await getCompraById(id)
+
+  if (!compra) {
+    throw new Error('Compra nao encontrada.')
+  }
+
+  if (compra.etapa_fluxo !== 'aguardando_financeiro') {
+    throw new Error('Este pedido nao esta aguardando aprovacao financeira.')
+  }
+
+  const approvedAt = format(new Date(), 'yyyy-MM-dd')
+
+  await updateCompraWorkflowFields(id, {
+    status: 'em_analise',
+    etapa_autorizacao: 'liberada',
+    etapa_fluxo: 'liberada_para_fornecedor',
+    aprovado_financeiro_em: approvedAt,
+    aprovado_financeiro_por: usuario,
+  })
+
+  await addHistoricoEvento(id, 'Financeiro registrou ciencia e liberou o pedido para fechamento com fornecedor', usuario)
+  return { approved: true }
+}
+
+export async function confirmCompraFinanceDocuments(id: number, usuario: string) {
+  const compra = await getCompraById(id)
+
+  if (!compra) {
+    throw new Error('Compra nao encontrada.')
+  }
+
+  if (compra.status !== 'pedido_autorizado') {
+    throw new Error('Os documentos so podem ser conciliados no financeiro apos o pedido ser autorizado.')
+  }
+
+  if (!compra.possui_nf || !compra.possui_boleto) {
+    throw new Error('Ainda faltam nota fiscal e/ou boleto para concluir o registro financeiro.')
+  }
+
+  if (compra.documentos_financeiro_confirmados_em) {
+    return { confirmed: true }
+  }
+
+  const confirmedAt = format(new Date(), 'yyyy-MM-dd')
+
+  await updateCompraWorkflowFields(id, {
+    documentos_financeiro_confirmados_em: confirmedAt,
+    documentos_financeiro_confirmados_por: usuario,
+  })
+
+  await addHistoricoEvento(id, 'Financeiro confirmou o registro da nota fiscal e do boleto no sistema financeiro', usuario)
+  return { confirmed: true }
+}
+
+export async function confirmCompraWithSupplier(id: number, usuario: string, previsaoEntrega: string) {
+  const compra = await getCompraById(id)
+
+  if (!compra) {
+    throw new Error('Compra nao encontrada.')
+  }
+
+  if (compra.etapa_fluxo !== 'liberada_para_fornecedor' || compra.etapa_autorizacao !== 'liberada') {
+    throw new Error('Este pedido ainda nao foi liberado para fechamento com o fornecedor.')
+  }
+
+  const previsaoNormalizada = nullableString(previsaoEntrega)
+
+  if (!previsaoNormalizada) {
+    throw new Error('Informe a previsao de entrega para concluir o fechamento do pedido.')
+  }
+
+  if (!compra.numero_pedido || !compra.valor_total || compra.valor_total <= 0) {
+    throw new Error('O numero do pedido e o valor autorizado precisam estar registrados antes do fechamento com o fornecedor.')
+  }
+
+  const confirmedAt = format(new Date(), 'yyyy-MM-dd')
+
+  await updateCompraWorkflowFields(id, {
+    status: 'pedido_autorizado',
+    status_entrega: 'pendente',
+    etapa_autorizacao: 'nenhuma',
+    etapa_fluxo: 'pedido_autorizado',
+    previsao_entrega: previsaoNormalizada,
+    confirmado_fornecedor_em: confirmedAt,
+    confirmado_fornecedor_por: usuario,
+  })
+
+  await addHistoricoEvento(id, 'Comprador confirmou o fechamento do pedido com o fornecedor', usuario)
+  await addHistoricoEvento(id, `Previsao de entrega definida para ${formatDateBr(previsaoNormalizada)}`, usuario)
+  return { confirmed: true }
 }
 
 export async function listHistoricoByCompraId(compraId: number): Promise<HistoricoCompra[]> {
@@ -1128,6 +1655,55 @@ export async function listAnexosByCompraId(compraId: number): Promise<Anexo[]> {
     .order('created_at', { ascending: false })
   throwIfSupabaseError(error)
   return annotateAnexoAvailability((data ?? []).map((row: Row) => normalizeAnexo(row)))
+}
+
+async function getAnexoSummaryByCompraIds(compraIds: number[]) {
+  const summary = new Map<number, { possui_cotacao: boolean; possui_nf: boolean; possui_boleto: boolean }>()
+
+  if (compraIds.length === 0) {
+    return summary
+  }
+
+  const rows =
+    getDatabaseType() === 'mysql'
+      ? await mysqlSelect(
+          `SELECT compra_id, tipo FROM anexos WHERE compra_id IN (${compraIds.map(() => '?').join(', ')})`,
+          compraIds,
+        )
+      : await listAnexoSummaryRowsSupabase(compraIds)
+
+  for (const row of rows) {
+    const compraId = toNumber(row.compra_id)
+    if (!compraId) {
+      continue
+    }
+
+    const current = summary.get(compraId) ?? { possui_cotacao: false, possui_nf: false, possui_boleto: false }
+    const tipo = normalizeTipoAnexo(row.tipo)
+
+    if (tipo === 'cotacao') {
+      current.possui_cotacao = true
+    }
+
+    if (tipo === 'nf') {
+      current.possui_nf = true
+    }
+
+    if (tipo === 'boleto') {
+      current.possui_boleto = true
+    }
+
+    summary.set(compraId, current)
+  }
+
+  return summary
+}
+
+async function listAnexoSummaryRowsSupabase(compraIds: number[]) {
+  const client = getSupabaseOrThrow()
+  const { data, error } = await client.from('anexos').select('compra_id,tipo').in('compra_id', compraIds)
+  throwIfSupabaseError(error)
+  return (data ?? []) as Row[]
 }
 
 export async function getAnexoById(compraId: number, anexoId: number): Promise<Anexo | null> {
@@ -1471,6 +2047,11 @@ async function listComprasRaw(filters: PurchaseFilters = {}): Promise<Compra[]> 
       params.push(filters.propostaId)
     }
 
+    if (filters.solicitanteId) {
+      sql += ' AND solicitante_id = ?'
+      params.push(filters.solicitanteId)
+    }
+
     if (filters.status) {
       sql += ' AND status = ?'
       params.push(filters.status)
@@ -1479,6 +2060,11 @@ async function listComprasRaw(filters: PurchaseFilters = {}): Promise<Compra[]> 
     if (filters.etapaAutorizacao) {
       sql += ' AND etapa_autorizacao = ?'
       params.push(filters.etapaAutorizacao)
+    }
+
+    if (filters.etapaFluxo) {
+      sql += ' AND etapa_fluxo = ?'
+      params.push(filters.etapaFluxo)
     }
 
     sql += ' ORDER BY updated_at DESC'
@@ -1507,6 +2093,10 @@ async function listComprasRaw(filters: PurchaseFilters = {}): Promise<Compra[]> 
     query = query.eq('proposta_id', filters.propostaId)
   }
 
+  if (filters.solicitanteId) {
+    query = query.eq('solicitante_id', filters.solicitanteId)
+  }
+
   if (filters.status) {
     query = query.eq('status', filters.status)
   }
@@ -1515,19 +2105,40 @@ async function listComprasRaw(filters: PurchaseFilters = {}): Promise<Compra[]> 
     query = query.eq('etapa_autorizacao', filters.etapaAutorizacao)
   }
 
+  if (filters.etapaFluxo) {
+    query = query.eq('etapa_fluxo', filters.etapaFluxo)
+  }
+
   const { data, error } = await query
   throwIfSupabaseError(error)
   return (data ?? []).map((row: Row) => normalizeCompra(row))
 }
 
 async function updateCompraAuthorizationStage(id: number, etapaAutorizacao: EtapaAutorizacao) {
+  await updateCompraWorkflowFields(id, { etapa_autorizacao: etapaAutorizacao })
+}
+
+async function updateCompraWorkflowFields(id: number, payload: Record<string, unknown>) {
+  const entries = Object.entries(payload).filter(([, value]) => value !== undefined)
+
+  if (entries.length === 0) {
+    return
+  }
+
   if (getDatabaseType() === 'mysql') {
-    await mysqlExecute('UPDATE compras SET etapa_autorizacao = ? WHERE id = ?', [etapaAutorizacao, id])
+    const assignments = entries.map(([column]) => `${column} = ?`).join(', ')
+    const values = entries.map(([column, value]) =>
+      column === 'categoria' ? serializeCategoriaCompra(value as Compra['categoria']) : value,
+    )
+    await mysqlExecute(`UPDATE compras SET ${assignments} WHERE id = ?`, [...values, id])
     return
   }
 
   const client = getSupabaseOrThrow()
-  const { error } = await client.from('compras').update({ etapa_autorizacao: etapaAutorizacao }).eq('id', id)
+  const data = Object.fromEntries(
+    entries.map(([column, value]) => [column, column === 'categoria' ? serializeCategoriaCompra(value as Compra['categoria']) : value]),
+  )
+  const { error } = await client.from('compras').update(data).eq('id', id)
   throwIfSupabaseError(error)
 }
 
@@ -1588,17 +2199,117 @@ async function countRows(table: string, filter: Record<string, unknown>) {
   return Number(count ?? 0)
 }
 
+async function ensureDefaultPerfilPermissoes() {
+  const current = await listPerfilPermissoesInternal()
+
+  if (!current || current.length > 0) {
+    return
+  }
+
+  const matrix = getDefaultFeatureMatrix()
+
+  if (getDatabaseType() === 'mysql') {
+    const pool = getMySQLPool()
+    if (!pool) {
+      return
+    }
+
+    const connection = await pool.getConnection()
+    try {
+      for (const [perfil, features] of Object.entries(matrix) as Array<[PerfilUsuario, AppFeature[]]>) {
+        for (const feature of features) {
+          await connection.execute(
+            'INSERT INTO perfil_permissoes (perfil, feature, permitido) VALUES (?, ?, 1)',
+            [perfil, feature],
+          )
+        }
+      }
+    } finally {
+      connection.release()
+    }
+  } else if (getDatabaseType() === 'supabase') {
+    const client = getSupabaseOrThrow()
+    const rows = (Object.entries(matrix) as Array<[PerfilUsuario, AppFeature[]]>).flatMap(([perfil, features]) =>
+      features.map((feature) => ({
+        perfil,
+        feature,
+        permitido: true,
+      })),
+    )
+
+    if (rows.length > 0) {
+      const { error } = await client.from('perfil_permissoes').insert(rows)
+      throwIfSupabaseError(error)
+    }
+  }
+}
+
+async function listPerfilPermissoesInternal(): Promise<PerfilPermissao[] | null> {
+  try {
+    if (getDatabaseType() === 'mysql') {
+      const rows = await mysqlSelect('SELECT * FROM perfil_permissoes WHERE permitido = 1')
+      return rows.map(normalizePerfilPermissao)
+    }
+
+    if (getDatabaseType() === 'supabase') {
+      const client = getSupabaseOrThrow()
+      const { data, error } = await client.from('perfil_permissoes').select('*').eq('permitido', true)
+      if (error) {
+        if (error.code === '42P01' || error.message.toLowerCase().includes('does not exist')) {
+          return null
+        }
+
+        throw new Error(error.message)
+      }
+
+      return (data ?? []).map((row: Row) => normalizePerfilPermissao(row))
+    }
+
+    return null
+  } catch (error) {
+    const message = error instanceof Error ? error.message.toLowerCase() : ''
+    if (message.includes('perfil_permissoes') && (message.includes('does not exist') || message.includes('doesn\'t exist'))) {
+      return null
+    }
+
+    throw error
+  }
+}
+
+function normalizePerfilPermissao(row: Row): PerfilPermissao {
+  return {
+    perfil: normalizePerfilUsuario(row.perfil),
+    feature: normalizeAppFeature(row.feature),
+    permitido: normalizeBoolean(row.permitido),
+  }
+}
+
+function normalizeAppFeature(value: unknown): AppFeature {
+  const current = String(value ?? '') as AppFeature
+  return ALL_APP_FEATURES.includes(current) ? current : 'dashboard'
+}
+
+function cloneFeatureMatrix(matrix: PerfilFeatureMatrix): PerfilFeatureMatrix {
+  return Object.fromEntries(
+    (Object.keys(matrix) as PerfilUsuario[]).map((perfil) => [perfil, [...matrix[perfil]]]),
+  ) as PerfilFeatureMatrix
+}
+
+function resetPerfilFeatureMatrixCache() {
+  perfilFeatureMatrixCache = null
+}
+
 async function checkMySQLSetup(): Promise<SetupStatus> {
   const rows = await mysqlSelect(
     `SELECT TABLE_NAME
      FROM information_schema.TABLES
      WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME IN (${REQUIRED_TABLES.map(() => '?').join(', ')})`,
-    [...REQUIRED_TABLES],
+       AND TABLE_NAME IN (${REQUIRED_TABLES_WITH_PERMISSIONS.map(() => '?').join(', ')})`,
+    [...REQUIRED_TABLES_WITH_PERMISSIONS],
   )
 
   const existingTables = rows.map((row) => String(row.TABLE_NAME))
-  const missingTables = REQUIRED_TABLES.filter((table) => !existingTables.includes(table))
+  const missingTables = REQUIRED_TABLES_WITH_PERMISSIONS.filter((table) => !existingTables.includes(table))
   const missingColumns = missingTables.length === 0 ? await getMissingCurrentSchemaItemsMySQL() : []
   const missingRules = missingTables.length === 0 ? await getMissingCurrentSchemaRulesMySQL() : []
   const missingItems = [...missingTables, ...missingColumns, ...missingRules]
@@ -1611,7 +2322,7 @@ async function checkMySQLSetup(): Promise<SetupStatus> {
     setupScript:
       missingTables.length > 0
         ? 'scripts/setup-database.sql'
-        : 'scripts/migrations/mysql/2026-04-29-upgrade-current-schema.sql',
+        : 'scripts/migrations/mysql/2026-05-07-workflow-signatures.sql',
   }
 }
 
@@ -1620,7 +2331,7 @@ async function checkSupabaseSetup(): Promise<SetupStatus> {
   const existingTables: string[] = []
   const missingTables: string[] = []
 
-  for (const table of REQUIRED_TABLES) {
+  for (const table of REQUIRED_TABLES_WITH_PERMISSIONS) {
     const { error } = await client.from(table).select('id').limit(1)
 
     if (error) {
@@ -1649,7 +2360,7 @@ async function checkSupabaseSetup(): Promise<SetupStatus> {
     setupScript:
       missingTables.length > 0
         ? 'scripts/setup-database-supabase.sql'
-        : 'scripts/migrations/supabase/2026-04-29-upgrade-current-schema.sql',
+        : 'scripts/migrations/supabase/2026-05-07-workflow-signatures.sql',
   }
 }
 
@@ -1665,8 +2376,8 @@ async function getMissingCurrentSchemaItemsMySQL() {
   try {
     const missingItems: string[] = []
 
-    for (const [table, columns] of Object.entries(REQUIRED_SCHEMA_COLUMNS) as Array<
-      [keyof typeof REQUIRED_SCHEMA_COLUMNS, string[]]
+    for (const [table, columns] of Object.entries(REQUIRED_SCHEMA_COLUMNS_WITH_PERMISSIONS) as Array<
+      [keyof typeof REQUIRED_SCHEMA_COLUMNS_WITH_PERMISSIONS, string[]]
     >) {
       for (const column of columns) {
         if (!(await hasColumn(connection, table, column))) {
@@ -1723,8 +2434,8 @@ async function getMissingCurrentSchemaItemsSupabase() {
   const client = getSupabaseOrThrow()
   const missingItems: string[] = []
 
-  for (const [table, columns] of Object.entries(REQUIRED_SCHEMA_COLUMNS) as Array<
-    [keyof typeof REQUIRED_SCHEMA_COLUMNS, string[]]
+  for (const [table, columns] of Object.entries(REQUIRED_SCHEMA_COLUMNS_WITH_PERMISSIONS) as Array<
+    [keyof typeof REQUIRED_SCHEMA_COLUMNS_WITH_PERMISSIONS, string[]]
   >) {
     for (const column of columns) {
       const { error } = await client.from(table).select(column).limit(1)
@@ -1804,7 +2515,7 @@ async function setupMySQLDatabase() {
         nome VARCHAR(255) NOT NULL,
         email VARCHAR(255) NOT NULL UNIQUE,
         senha_hash VARCHAR(255) NOT NULL,
-        perfil ENUM('admin', 'comprador', 'orcamentista') DEFAULT 'comprador',
+        perfil ENUM('admin', 'comprador', 'orcamentista', 'solicitante', 'financeiro') DEFAULT 'comprador',
         ativo BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -1836,6 +2547,8 @@ async function setupMySQLDatabase() {
         id INT AUTO_INCREMENT PRIMARY KEY,
         cliente_id INT NOT NULL,
         proposta_id INT NOT NULL,
+        solicitante_id INT NULL,
+        solicitado_por VARCHAR(255) NULL,
         categoria ENUM('perfis', 'vidros', 'acessorios', 'perdas', 'outros') DEFAULT 'outros',
         fornecedor VARCHAR(255) NOT NULL,
         descricao TEXT NOT NULL,
@@ -1849,8 +2562,31 @@ async function setupMySQLDatabase() {
         status ENUM('cotacao', 'em_analise', 'retificacao', 'pedido_autorizado') DEFAULT 'cotacao',
         status_entrega ENUM('pendente', 'entregue') DEFAULT 'pendente',
         etapa_autorizacao ENUM('nenhuma', 'solicitada', 'liberada') DEFAULT 'nenhuma',
+        etapa_fluxo ENUM(
+          'solicitacao_registrada',
+          'cotacao_em_andamento',
+          'analise_solicitante',
+          'retificacao',
+          'aprovada_solicitante',
+          'aguardando_admin',
+          'aprovada_admin',
+          'aguardando_financeiro',
+          'liberada_para_fornecedor',
+          'pedido_autorizado'
+        ) DEFAULT 'solicitacao_registrada',
         previsao_entrega DATE NULL,
         data_envio_fornecedor DATE NULL,
+        cotacao_enviada_por VARCHAR(255) NULL,
+        cotacao_recebida_em DATE NULL,
+        cotacao_recebida_por VARCHAR(255) NULL,
+        aprovado_solicitante_em DATE NULL,
+        aprovado_solicitante_por VARCHAR(255) NULL,
+        aprovado_admin_em DATE NULL,
+        aprovado_admin_por VARCHAR(255) NULL,
+        aprovado_financeiro_em DATE NULL,
+        aprovado_financeiro_por VARCHAR(255) NULL,
+        confirmado_fornecedor_em DATE NULL,
+        confirmado_fornecedor_por VARCHAR(255) NULL,
         data_entrega_real DATE NULL,
         data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -1883,11 +2619,28 @@ async function setupMySQLDatabase() {
       )
     `)
 
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS perfil_permissoes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        perfil VARCHAR(40) NOT NULL,
+        feature VARCHAR(80) NOT NULL,
+        permitido BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_perfil_feature (perfil, feature)
+      )
+    `)
+
     await addColumnIfMissing(connection, 'clientes', 'documento', 'VARCHAR(20) NULL')
     await addColumnIfMissing(connection, 'clientes', 'contato', 'VARCHAR(100) NULL')
     await addColumnIfMissing(connection, 'clientes', 'arquivado', 'BOOLEAN DEFAULT FALSE')
     await addColumnIfMissing(connection, 'usuarios', 'senha_hash', 'VARCHAR(255) NOT NULL')
-    await addColumnIfMissing(connection, 'usuarios', 'perfil', "ENUM('admin', 'comprador', 'orcamentista') DEFAULT 'comprador'")
+    await addColumnIfMissing(
+      connection,
+      'usuarios',
+      'perfil',
+      "ENUM('admin', 'comprador', 'orcamentista', 'solicitante', 'financeiro') DEFAULT 'comprador'",
+    )
     await addColumnIfMissing(connection, 'usuarios', 'ativo', 'BOOLEAN DEFAULT TRUE')
     await addColumnIfMissing(connection, 'propostas', 'data_fim', 'DATE NULL')
     await addColumnIfMissing(connection, 'propostas', 'valor_previsto_perfis', 'DECIMAL(15, 2) DEFAULT 0')
@@ -1897,6 +2650,8 @@ async function setupMySQLDatabase() {
     await addColumnIfMissing(connection, 'propostas', 'custo_perdas', 'DECIMAL(15, 2) DEFAULT 0')
     await addColumnIfMissing(connection, 'propostas', 'arquivado', 'BOOLEAN DEFAULT FALSE')
     await addColumnIfMissing(connection, 'compras', 'cliente_id', 'INT NULL')
+    await addColumnIfMissing(connection, 'compras', 'solicitante_id', 'INT NULL')
+    await addColumnIfMissing(connection, 'compras', 'solicitado_por', 'VARCHAR(255) NULL')
     await addColumnIfMissing(connection, 'compras', 'categoria', "ENUM('perfis', 'vidros', 'acessorios', 'perdas', 'outros') DEFAULT 'outros'")
     await addColumnIfMissing(connection, 'compras', 'valor_total', 'DECIMAL(15, 2) NULL')
     await addColumnIfMissing(connection, 'compras', 'valor_categoria_perfis', 'DECIMAL(15, 2) DEFAULT 0')
@@ -1911,13 +2666,35 @@ async function setupMySQLDatabase() {
       'etapa_autorizacao',
       "ENUM('nenhuma', 'solicitada', 'liberada') DEFAULT 'nenhuma'",
     )
+    await addColumnIfMissing(
+      connection,
+      'compras',
+      'etapa_fluxo',
+      "ENUM('solicitacao_registrada', 'cotacao_em_andamento', 'analise_solicitante', 'retificacao', 'aprovada_solicitante', 'aguardando_admin', 'aprovada_admin', 'aguardando_financeiro', 'liberada_para_fornecedor', 'pedido_autorizado') DEFAULT 'solicitacao_registrada'",
+    )
     await addColumnIfMissing(connection, 'compras', 'previsao_entrega', 'DATE NULL')
     await addColumnIfMissing(connection, 'compras', 'data_envio_fornecedor', 'DATE NULL')
+    await addColumnIfMissing(connection, 'compras', 'cotacao_enviada_por', 'VARCHAR(255) NULL')
+    await addColumnIfMissing(connection, 'compras', 'cotacao_recebida_em', 'DATE NULL')
+    await addColumnIfMissing(connection, 'compras', 'cotacao_recebida_por', 'VARCHAR(255) NULL')
+    await addColumnIfMissing(connection, 'compras', 'aprovado_solicitante_em', 'DATE NULL')
+    await addColumnIfMissing(connection, 'compras', 'aprovado_solicitante_por', 'VARCHAR(255) NULL')
+    await addColumnIfMissing(connection, 'compras', 'aprovado_admin_em', 'DATE NULL')
+    await addColumnIfMissing(connection, 'compras', 'aprovado_admin_por', 'VARCHAR(255) NULL')
+    await addColumnIfMissing(connection, 'compras', 'aprovado_financeiro_em', 'DATE NULL')
+    await addColumnIfMissing(connection, 'compras', 'aprovado_financeiro_por', 'VARCHAR(255) NULL')
+    await addColumnIfMissing(connection, 'compras', 'documentos_financeiro_confirmados_em', 'DATE NULL')
+    await addColumnIfMissing(connection, 'compras', 'documentos_financeiro_confirmados_por', 'VARCHAR(255) NULL')
+    await addColumnIfMissing(connection, 'compras', 'confirmado_fornecedor_em', 'DATE NULL')
+    await addColumnIfMissing(connection, 'compras', 'confirmado_fornecedor_por', 'VARCHAR(255) NULL')
     await addColumnIfMissing(connection, 'compras', 'data_entrega_real', 'DATE NULL')
     await addColumnIfMissing(connection, 'compras', 'data_criacao', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
     await addColumnIfMissing(connection, 'compras', 'arquivado', 'BOOLEAN DEFAULT FALSE')
     await addColumnIfMissing(connection, 'anexos', 'nome_arquivo', 'VARCHAR(255) NULL')
     await addColumnIfMissing(connection, 'anexos', 'created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+    await addColumnIfMissing(connection, 'perfil_permissoes', 'permitido', 'BOOLEAN DEFAULT TRUE')
+    await addColumnIfMissing(connection, 'perfil_permissoes', 'created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+    await addColumnIfMissing(connection, 'perfil_permissoes', 'updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP')
 
     if (await hasColumn(connection, 'clientes', 'cnpj')) {
       await connection.execute('UPDATE clientes SET documento = COALESCE(documento, cnpj) WHERE documento IS NULL')
@@ -2035,16 +2812,30 @@ async function setupMySQLDatabase() {
     `)
 
     await connection.execute(`
+      UPDATE compras
+      SET etapa_fluxo = CASE
+        WHEN status = 'pedido_autorizado' THEN 'pedido_autorizado'
+        WHEN etapa_autorizacao = 'liberada' THEN 'liberada_para_fornecedor'
+        WHEN etapa_autorizacao = 'solicitada' THEN 'aguardando_admin'
+        WHEN status = 'retificacao' THEN 'retificacao'
+        WHEN data_envio_fornecedor IS NOT NULL THEN 'cotacao_em_andamento'
+        ELSE 'solicitacao_registrada'
+      END
+      WHERE etapa_fluxo IS NULL OR etapa_fluxo = ''
+    `)
+
+    await connection.execute(`
       ALTER TABLE usuarios
-      MODIFY COLUMN perfil ENUM('admin', 'comprador', 'orcamentista') DEFAULT 'comprador'
+      MODIFY COLUMN perfil ENUM('admin', 'comprador', 'orcamentista', 'solicitante', 'financeiro') DEFAULT 'comprador'
     `)
 
     await connection.execute(`
       ALTER TABLE compras
-      MODIFY COLUMN status ENUM('cotacao', 'em_analise', 'retificacao', 'pedido_autorizado') DEFAULT 'cotacao',
-      MODIFY COLUMN status_entrega ENUM('pendente', 'entregue') DEFAULT 'pendente',
-      MODIFY COLUMN etapa_autorizacao ENUM('nenhuma', 'solicitada', 'liberada') DEFAULT 'nenhuma',
-      MODIFY COLUMN categoria ENUM('perfis', 'vidros', 'acessorios', 'perdas', 'outros') DEFAULT 'outros'
+        MODIFY COLUMN status ENUM('cotacao', 'em_analise', 'retificacao', 'pedido_autorizado') DEFAULT 'cotacao',
+        MODIFY COLUMN status_entrega ENUM('pendente', 'entregue') DEFAULT 'pendente',
+        MODIFY COLUMN etapa_autorizacao ENUM('nenhuma', 'solicitada', 'liberada') DEFAULT 'nenhuma',
+        MODIFY COLUMN etapa_fluxo ENUM('solicitacao_registrada', 'cotacao_em_andamento', 'analise_solicitante', 'retificacao', 'aprovada_solicitante', 'aguardando_admin', 'aprovada_admin', 'aguardando_financeiro', 'liberada_para_fornecedor', 'pedido_autorizado') DEFAULT 'solicitacao_registrada',
+        MODIFY COLUMN categoria ENUM('perfis', 'vidros', 'acessorios', 'perdas', 'outros') DEFAULT 'outros'
     `)
 
     if (await hasTable(connection, 'compras_historico')) {
@@ -2147,37 +2938,43 @@ function throwIfSupabaseError(error: { message: string } | null) {
 
     if (message.includes("usuarios_perfil_check")) {
       throw new Error(
-        "O banco Supabase ainda esta com a constraint antiga de perfis de usuario. Execute scripts/migrations/supabase/2026-04-29-upgrade-current-schema.sql e tente novamente.",
+        "O banco Supabase ainda esta com a constraint antiga de perfis de usuario. Execute scripts/migrations/supabase/2026-05-07-workflow-signatures.sql e tente novamente.",
       )
     }
 
     if (message.includes("compras_categoria_check")) {
       throw new Error(
-        "O banco Supabase ainda esta com a constraint antiga de categorias de compra. Execute scripts/migrations/supabase/2026-04-29-upgrade-current-schema.sql e tente novamente.",
+        "O banco Supabase ainda esta com a constraint antiga de categorias de compra. Execute scripts/migrations/supabase/2026-05-07-workflow-signatures.sql e tente novamente.",
       )
     }
 
     if (message.includes("compras_etapa_autorizacao_check")) {
       throw new Error(
-        "O banco Supabase ainda esta com a constraint antiga do fluxo de autorizacao. Execute scripts/migrations/supabase/2026-04-29-upgrade-current-schema.sql e tente novamente.",
+        "O banco Supabase ainda esta com a constraint antiga do fluxo de autorizacao. Execute scripts/migrations/supabase/2026-05-07-workflow-signatures.sql e tente novamente.",
+      )
+    }
+
+    if (message.includes("compras_etapa_fluxo_check")) {
+      throw new Error(
+        "O banco Supabase ainda esta com a constraint antiga das etapas do fluxo de compras. Execute scripts/migrations/supabase/2026-05-07-workflow-signatures.sql e tente novamente.",
       )
     }
 
     if (message.includes("compras_status_check")) {
       throw new Error(
-        "O banco Supabase ainda esta com a constraint antiga de status do pedido. Execute scripts/migrations/supabase/2026-04-29-upgrade-current-schema.sql e tente novamente.",
+        "O banco Supabase ainda esta com a constraint antiga de status do pedido. Execute scripts/migrations/supabase/2026-05-07-workflow-signatures.sql e tente novamente.",
       )
     }
 
     if (message.includes("compras_status_entrega_check")) {
       throw new Error(
-        "O banco Supabase ainda esta com a constraint antiga de status de entrega. Execute scripts/migrations/supabase/2026-04-29-upgrade-current-schema.sql e tente novamente.",
+        "O banco Supabase ainda esta com a constraint antiga de status de entrega. Execute scripts/migrations/supabase/2026-05-07-workflow-signatures.sql e tente novamente.",
       )
     }
 
     if (message.includes("anexos_tipo_check")) {
       throw new Error(
-        "O banco Supabase ainda esta com a constraint antiga de tipos de anexo. Execute scripts/migrations/supabase/2026-04-29-upgrade-current-schema.sql e tente novamente.",
+        "O banco Supabase ainda esta com a constraint antiga de tipos de anexo. Execute scripts/migrations/supabase/2026-05-07-workflow-signatures.sql e tente novamente.",
       )
     }
 
@@ -2230,11 +3027,114 @@ function normalizeProposta(row: Row): Proposta {
   }
 }
 
+function resolveCompraEtapaFluxo(
+  row: Row,
+  rawStatus: StatusPedido,
+  rawEtapaAutorizacao: EtapaAutorizacao,
+  rawEtapaFluxo: EtapaFluxoCompra,
+): EtapaFluxoCompra {
+  const hasQuoteSent = Boolean(nullableString(row.cotacao_enviada_por) || toDateOnlyString(row.data_envio_fornecedor))
+  const hasQuoteReceived = Boolean(nullableString(row.cotacao_recebida_por) || toDateOnlyString(row.cotacao_recebida_em))
+  const hasRequesterApproval = Boolean(
+    nullableString(row.aprovado_solicitante_por) || toDateOnlyString(row.aprovado_solicitante_em),
+  )
+  const hasAdminApproval = Boolean(nullableString(row.aprovado_admin_por) || toDateOnlyString(row.aprovado_admin_em))
+  const hasFinanceApproval = Boolean(
+    nullableString(row.aprovado_financeiro_por) || toDateOnlyString(row.aprovado_financeiro_em),
+  )
+  const hasSupplierConfirmation = Boolean(
+    nullableString(row.confirmado_fornecedor_por) || toDateOnlyString(row.confirmado_fornecedor_em),
+  )
+
+  if (rawStatus === 'pedido_autorizado' || hasSupplierConfirmation || rawEtapaFluxo === 'pedido_autorizado') {
+    return 'pedido_autorizado'
+  }
+
+  if (hasFinanceApproval) {
+    return 'liberada_para_fornecedor'
+  }
+
+  if (rawEtapaFluxo === 'aguardando_financeiro') {
+    return 'aguardando_financeiro'
+  }
+
+  if (hasAdminApproval) {
+    return 'aprovada_admin'
+  }
+
+  if (rawEtapaAutorizacao === 'liberada' || rawEtapaFluxo === 'aprovada_admin') {
+    return 'aprovada_admin'
+  }
+
+  if (rawEtapaAutorizacao === 'solicitada' || rawEtapaFluxo === 'aguardando_admin') {
+    return 'aguardando_admin'
+  }
+
+  if (rawStatus === 'retificacao' || rawEtapaFluxo === 'retificacao') {
+    return 'retificacao'
+  }
+
+  if (hasRequesterApproval || rawEtapaFluxo === 'aprovada_solicitante') {
+    return 'aprovada_solicitante'
+  }
+
+  if (rawEtapaFluxo === 'analise_solicitante' || hasQuoteReceived) {
+    return 'analise_solicitante'
+  }
+
+  if (rawEtapaFluxo === 'cotacao_em_andamento' || hasQuoteSent) {
+    return 'cotacao_em_andamento'
+  }
+
+  return 'solicitacao_registrada'
+}
+
+function resolveCompraStatus(row: Row, etapaFluxo: EtapaFluxoCompra, rawStatus: StatusPedido): StatusPedido {
+  if (etapaFluxo === 'pedido_autorizado') {
+    return 'pedido_autorizado'
+  }
+
+  if (etapaFluxo === 'retificacao') {
+    return 'retificacao'
+  }
+
+  if (etapaFluxo === 'solicitacao_registrada' || etapaFluxo === 'cotacao_em_andamento') {
+    return 'cotacao'
+  }
+
+  if (rawStatus === 'pedido_autorizado') {
+    return 'pedido_autorizado'
+  }
+
+  return 'em_analise'
+}
+
+function resolveCompraEtapaAutorizacao(etapaFluxo: EtapaFluxoCompra): EtapaAutorizacao {
+  if (etapaFluxo === 'aguardando_admin') {
+    return 'solicitada'
+  }
+
+  if (etapaFluxo === 'aprovada_admin' || etapaFluxo === 'aguardando_financeiro' || etapaFluxo === 'liberada_para_fornecedor') {
+    return 'liberada'
+  }
+
+  return 'nenhuma'
+}
+
 function normalizeCompra(row: Row): Compra {
+  const rawStatus = normalizeStatusPedido(row.status)
+  const rawEtapaAutorizacao = normalizeEtapaAutorizacao(row.etapa_autorizacao)
+  const rawEtapaFluxo = normalizeEtapaFluxoCompra(row.etapa_fluxo)
+  const etapa_fluxo = resolveCompraEtapaFluxo(row, rawStatus, rawEtapaAutorizacao, rawEtapaFluxo)
+  const status = resolveCompraStatus(row, etapa_fluxo, rawStatus)
+  const etapa_autorizacao = resolveCompraEtapaAutorizacao(etapa_fluxo)
+
   return {
     id: toNumber(row.id),
     cliente_id: toNumber(row.cliente_id),
     proposta_id: toNumber(row.proposta_id),
+    solicitante_id: nullableNumber(row.solicitante_id),
+    solicitado_por: nullableString(row.solicitado_por),
     categoria: normalizeCategoriaCompra(row.categoria),
     fornecedor: String(row.fornecedor ?? ''),
     descricao: String(row.descricao ?? ''),
@@ -2245,11 +3145,25 @@ function normalizeCompra(row: Row): Compra {
     valor_categoria_perdas: toNumber(row.valor_categoria_perdas),
     valor_categoria_outros: toNumber(row.valor_categoria_outros),
     numero_pedido: nullableString(row.numero_pedido),
-    status: normalizeStatusPedido(row.status),
+    status,
     status_entrega: normalizeStatusEntrega(row.status_entrega),
-    etapa_autorizacao: normalizeEtapaAutorizacao(row.etapa_autorizacao),
+    etapa_autorizacao,
+    etapa_fluxo,
     previsao_entrega: toDateOnlyString(row.previsao_entrega),
     data_envio_fornecedor: toDateOnlyString(row.data_envio_fornecedor),
+    cotacao_enviada_por: nullableString(row.cotacao_enviada_por),
+    cotacao_recebida_em: toDateOnlyString(row.cotacao_recebida_em),
+    cotacao_recebida_por: nullableString(row.cotacao_recebida_por),
+    aprovado_solicitante_em: toDateOnlyString(row.aprovado_solicitante_em),
+    aprovado_solicitante_por: nullableString(row.aprovado_solicitante_por),
+    aprovado_admin_em: toDateOnlyString(row.aprovado_admin_em),
+    aprovado_admin_por: nullableString(row.aprovado_admin_por),
+    aprovado_financeiro_em: toDateOnlyString(row.aprovado_financeiro_em),
+    aprovado_financeiro_por: nullableString(row.aprovado_financeiro_por),
+    documentos_financeiro_confirmados_em: toDateOnlyString(row.documentos_financeiro_confirmados_em),
+    documentos_financeiro_confirmados_por: nullableString(row.documentos_financeiro_confirmados_por),
+    confirmado_fornecedor_em: toDateOnlyString(row.confirmado_fornecedor_em),
+    confirmado_fornecedor_por: nullableString(row.confirmado_fornecedor_por),
     data_entrega_real: toDateOnlyString(row.data_entrega_real),
     data_criacao: toDateTimeString(row.data_criacao),
     updated_at: toDateTimeString(row.updated_at),
@@ -2288,8 +3202,31 @@ async function annotateAnexoAvailability(anexos: Anexo[]) {
 }
 
 async function isAnexoAvailable(arquivoUrl: string) {
-  if (isSupabaseAttachmentUrl(arquivoUrl) || isExternalAttachmentUrl(arquivoUrl)) {
+  if (isExternalAttachmentUrl(arquivoUrl)) {
     return true
+  }
+
+  if (isSupabaseAttachmentUrl(arquivoUrl)) {
+    const parsed = parseSupabaseAttachmentUrl(arquivoUrl)
+    const client = getSupabaseClient()
+
+    if (!parsed || !client) {
+      return false
+    }
+
+    const directoryPath = path.posix.dirname(parsed.objectPath)
+    const fileName = path.posix.basename(parsed.objectPath)
+    const listPath = directoryPath === '.' ? '' : directoryPath
+    const { data, error } = await client.storage.from(parsed.bucket).list(listPath, {
+      limit: 100,
+      search: fileName,
+    })
+
+    if (error) {
+      return false
+    }
+
+    return (data ?? []).some((entry) => entry.name === fileName)
   }
 
   const localPath = resolveLocalAttachmentPath(arquivoUrl)
@@ -2333,6 +3270,14 @@ function normalizePerfilUsuario(value: unknown): PerfilUsuario {
 
   if (perfil === 'orcamentista') {
     return 'orcamentista'
+  }
+
+  if (perfil === 'solicitante') {
+    return 'solicitante'
+  }
+
+  if (perfil === 'financeiro') {
+    return 'financeiro'
   }
 
   return 'comprador'

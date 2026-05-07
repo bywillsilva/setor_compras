@@ -51,7 +51,12 @@ export async function POST(request: NextRequest) {
 }
 
 function normalizePerfil(value: unknown): PerfilUsuario {
-  return value === "admin" || value === "orcamentista" ? value : "comprador"
+  return value === "admin" ||
+    value === "orcamentista" ||
+    value === "solicitante" ||
+    value === "financeiro"
+    ? value
+    : "comprador"
 }
 
 function serializeUsuario(usuario: {

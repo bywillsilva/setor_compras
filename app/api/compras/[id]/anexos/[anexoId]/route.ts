@@ -1,9 +1,10 @@
 import { rm } from 'fs/promises'
 import { NextRequest, NextResponse } from 'next/server'
 import { deleteSupabaseAttachmentObject } from '@/lib/attachment-storage'
-import { requireFeature } from '@/lib/auth/api'
+import { getRequestSession } from '@/lib/auth/api'
+import { hasFeatureAccess } from '@/lib/auth/permissions'
 import { parseSupabaseAttachmentUrl, resolveLocalAttachmentPath } from '@/lib/attachments'
-import { deleteAnexo, getAnexoById } from '@/lib/repositories'
+import { deleteAnexo, getAnexoById, getCompraById } from '@/lib/repositories'
 
 export const runtime = 'nodejs'
 
@@ -12,13 +13,12 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string; anexoId: string }> },
 ) {
   try {
-    const guard = await requireFeature(request, 'compras')
-    if ('response' in guard) {
-      return guard.response
-    }
-
     const { id, anexoId } = await params
     const compraId = Number(id)
+    const accessError = await validateAttachmentAccess(request, compraId)
+    if (accessError) {
+      return accessError
+    }
     const attachmentId = Number(anexoId)
     const anexo = await getAnexoById(compraId, attachmentId)
 
@@ -46,4 +46,27 @@ export async function DELETE(
       { status: 400 },
     )
   }
+}
+
+async function validateAttachmentAccess(request: NextRequest, compraId: number) {
+  const session = await getRequestSession(request)
+
+  if (!session) {
+    return NextResponse.json({ error: 'Sessao expirada. Faca login novamente.' }, { status: 401 })
+  }
+
+  if (hasFeatureAccess(session.perfil, 'compras')) {
+    return null
+  }
+
+  if (!hasFeatureAccess(session.perfil, 'solicitacoes')) {
+    return NextResponse.json({ error: 'Voce nao tem permissao para esta acao.' }, { status: 403 })
+  }
+
+  const compra = await getCompraById(compraId)
+  if (!compra || compra.solicitante_id !== session.userId) {
+    return NextResponse.json({ error: 'Voce nao tem acesso a esta solicitacao.' }, { status: 403 })
+  }
+
+  return null
 }

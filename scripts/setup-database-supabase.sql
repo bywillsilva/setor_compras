@@ -20,6 +20,18 @@ CREATE TABLE IF NOT EXISTS usuarios (
   updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS perfil_permissoes (
+  id BIGSERIAL PRIMARY KEY,
+  perfil TEXT NOT NULL,
+  feature TEXT NOT NULL,
+  permitido BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_perfil_permissoes_unique
+  ON perfil_permissoes (perfil, feature);
+
 CREATE TABLE IF NOT EXISTS propostas (
   id BIGSERIAL PRIMARY KEY,
   cliente_id BIGINT NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
@@ -207,3 +219,79 @@ CREATE TRIGGER update_compras_updated_at
 BEFORE UPDATE ON compras
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_at_column();
+-- Upgrade do fluxo por etapas e assinaturas (2026-05-07)
+ALTER TABLE public.compras
+  ADD COLUMN IF NOT EXISTS solicitante_id BIGINT NULL,
+  ADD COLUMN IF NOT EXISTS solicitado_por TEXT NULL,
+  ADD COLUMN IF NOT EXISTS etapa_fluxo TEXT DEFAULT 'solicitacao_registrada',
+  ADD COLUMN IF NOT EXISTS cotacao_enviada_por TEXT NULL,
+  ADD COLUMN IF NOT EXISTS cotacao_recebida_em DATE NULL,
+  ADD COLUMN IF NOT EXISTS cotacao_recebida_por TEXT NULL,
+  ADD COLUMN IF NOT EXISTS aprovado_solicitante_em DATE NULL,
+  ADD COLUMN IF NOT EXISTS aprovado_solicitante_por TEXT NULL,
+  ADD COLUMN IF NOT EXISTS aprovado_admin_em DATE NULL,
+  ADD COLUMN IF NOT EXISTS aprovado_admin_por TEXT NULL,
+  ADD COLUMN IF NOT EXISTS aprovado_financeiro_em DATE NULL,
+  ADD COLUMN IF NOT EXISTS aprovado_financeiro_por TEXT NULL,
+  ADD COLUMN IF NOT EXISTS documentos_financeiro_confirmados_em DATE NULL,
+  ADD COLUMN IF NOT EXISTS documentos_financeiro_confirmados_por TEXT NULL,
+  ADD COLUMN IF NOT EXISTS confirmado_fornecedor_em DATE NULL,
+  ADD COLUMN IF NOT EXISTS confirmado_fornecedor_por TEXT NULL;
+
+UPDATE public.compras
+SET etapa_fluxo = CASE
+  WHEN status = 'pedido_autorizado' THEN 'pedido_autorizado'
+  WHEN etapa_autorizacao = 'liberada' THEN 'liberada_para_fornecedor'
+  WHEN etapa_autorizacao = 'solicitada' THEN 'aguardando_admin'
+  WHEN status = 'retificacao' THEN 'retificacao'
+  WHEN data_envio_fornecedor IS NOT NULL THEN 'cotacao_em_andamento'
+  ELSE 'solicitacao_registrada'
+END
+WHERE etapa_fluxo IS NULL OR etapa_fluxo = '';
+
+ALTER TABLE public.usuarios DROP CONSTRAINT IF EXISTS usuarios_perfil_check;
+ALTER TABLE public.usuarios
+  ADD CONSTRAINT usuarios_perfil_check
+  CHECK (perfil IN ('admin', 'comprador', 'orcamentista', 'solicitante', 'financeiro'));
+
+ALTER TABLE public.compras DROP CONSTRAINT IF EXISTS compras_etapa_fluxo_check;
+ALTER TABLE public.compras
+  ADD CONSTRAINT compras_etapa_fluxo_check
+  CHECK (etapa_fluxo IN (
+    'solicitacao_registrada',
+    'cotacao_em_andamento',
+    'analise_solicitante',
+    'retificacao',
+    'aprovada_solicitante',
+    'aguardando_admin',
+    'aprovada_admin',
+    'aguardando_financeiro',
+    'liberada_para_fornecedor',
+    'pedido_autorizado'
+  ));
+
+CREATE OR REPLACE FUNCTION public.validate_setor_compras_schema()
+RETURNS JSONB AS $$
+DECLARE
+  issues TEXT[] := ARRAY[]::TEXT[];
+  usuarios_perfil_def TEXT;
+  compras_etapa_fluxo_def TEXT;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'compras' AND column_name = 'etapa_fluxo') THEN
+    issues := array_append(issues, 'compras.etapa_fluxo');
+  END IF;
+
+  SELECT pg_get_constraintdef(oid) INTO usuarios_perfil_def FROM pg_constraint WHERE conname = 'usuarios_perfil_check' LIMIT 1;
+  SELECT pg_get_constraintdef(oid) INTO compras_etapa_fluxo_def FROM pg_constraint WHERE conname = 'compras_etapa_fluxo_check' LIMIT 1;
+
+  IF usuarios_perfil_def IS NULL OR usuarios_perfil_def NOT ILIKE '%solicitante%' OR usuarios_perfil_def NOT ILIKE '%financeiro%' THEN
+    issues := array_append(issues, 'usuarios.perfil:constraint');
+  END IF;
+
+  IF compras_etapa_fluxo_def IS NULL OR compras_etapa_fluxo_def NOT ILIKE '%aprovada_admin%' OR compras_etapa_fluxo_def NOT ILIKE '%aguardando_financeiro%' OR compras_etapa_fluxo_def NOT ILIKE '%liberada_para_fornecedor%' THEN
+    issues := array_append(issues, 'compras.etapa_fluxo:constraint');
+  END IF;
+
+  RETURN jsonb_build_object('missing_items', issues);
+END;
+$$ LANGUAGE plpgsql;

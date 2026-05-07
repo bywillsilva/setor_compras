@@ -8,7 +8,9 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
   FileText,
+  Landmark,
   LayoutDashboard,
   LogOut,
   Package,
@@ -18,14 +20,28 @@ import {
   Users,
 } from "lucide-react"
 import { useCurrentSession } from "@/components/auth-provider"
-import { PERFIL_LABELS } from "@/lib/auth/permissions"
+import { hasFeatureAccess, PERFIL_LABELS } from "@/lib/auth/permissions"
+import type { AppFeature, PerfilUsuario } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 type NavigationItem = {
   name: string
   href: string
   icon: typeof LayoutDashboard
+  feature: AppFeature
 }
+
+const NAVIGATION_ITEMS: NavigationItem[] = [
+  { name: "Dashboard", href: "/", icon: LayoutDashboard, feature: "dashboard" },
+  { name: "Clientes", href: "/clientes", icon: Users, feature: "clientes" },
+  { name: "Propostas", href: "/propostas", icon: FileText, feature: "propostas" },
+  { name: "Solicitacoes", href: "/solicitacoes", icon: ClipboardList, feature: "solicitacoes" },
+  { name: "Compras", href: "/compras", icon: ShoppingCart, feature: "compras" },
+  { name: "Aprovacao ADM", href: "/solicitacoes-autorizacao", icon: CheckCircle2, feature: "solicitacoes_autorizacao" },
+  { name: "Financeiro", href: "/financeiro", icon: Landmark, feature: "financeiro" },
+  { name: "Entregas", href: "/entregas", icon: Truck, feature: "entregas" },
+  { name: "Orcamentos", href: "/orcamentos", icon: Calculator, feature: "orcamentos" },
+]
 
 export function AppSidebar({
   collapsed,
@@ -42,7 +58,7 @@ export function AppSidebar({
     return null
   }
 
-  const navigation = getNavigation(session.perfil)
+  const navigation = getNavigation(session.perfil, session.features)
 
   async function handleLogout() {
     setLoggingOut(true)
@@ -89,7 +105,7 @@ export function AppSidebar({
 
         <nav className="flex-1 space-y-1 px-3 py-4">
           {navigation.map((item) => {
-            const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href))
+            const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(`${item.href}/`))
 
             return (
               <Link
@@ -112,7 +128,7 @@ export function AppSidebar({
         </nav>
 
         <div className="border-t border-sidebar-border p-3">
-          {session.perfil === "admin" && (
+          {hasFeatureAccess(session.perfil, "configuracoes", session.features) && (
             <Link
               href="/configuracoes"
               title={collapsed ? "Configuracoes" : undefined}
@@ -145,33 +161,6 @@ export function AppSidebar({
   )
 }
 
-function getNavigation(perfil: "admin" | "comprador" | "orcamentista"): NavigationItem[] {
-  if (perfil === "orcamentista") {
-    return [{ name: "Orcamentos", href: "/orcamentos", icon: Calculator }]
-  }
-
-  const baseNavigation: NavigationItem[] = [
-    { name: "Dashboard", href: "/", icon: LayoutDashboard },
-    { name: "Clientes", href: "/clientes", icon: Users },
-    { name: "Propostas", href: "/propostas", icon: FileText },
-    { name: "Compras", href: "/compras", icon: ShoppingCart },
-  ]
-
-  if (perfil === "admin" || perfil === "comprador") {
-    if (perfil === "admin") {
-      baseNavigation.push({ name: "Solicitacoes", href: "/solicitacoes-autorizacao", icon: CheckCircle2 })
-    }
-
-    if (perfil === "comprador") {
-      baseNavigation.push({ name: "Autorizacoes", href: "/autorizacoes", icon: CheckCircle2 })
-    }
-  }
-
-  baseNavigation.push({ name: "Entregas", href: "/entregas", icon: Truck })
-
-  if (perfil === "admin") {
-    baseNavigation.push({ name: "Orcamentos", href: "/orcamentos", icon: Calculator })
-  }
-
-  return baseNavigation
+function getNavigation(perfil: PerfilUsuario, features: AppFeature[]) {
+  return NAVIGATION_ITEMS.filter((item) => hasFeatureAccess(perfil, item.feature, features))
 }

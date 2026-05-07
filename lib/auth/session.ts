@@ -1,4 +1,4 @@
-import type { PerfilUsuario } from '@/lib/types'
+import type { AppFeature, PerfilUsuario } from '@/lib/types'
 
 export const SESSION_COOKIE_NAME = 'setor_compras_session'
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7
@@ -8,6 +8,7 @@ export interface SessionPayload {
   nome: string
   email: string
   perfil: PerfilUsuario
+  features: AppFeature[]
   exp: number
 }
 

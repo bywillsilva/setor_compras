@@ -56,6 +56,15 @@ const EMPTY_FORM = {
   custo_perdas: "",
 }
 
+const SORT_OPTIONS = {
+  proposta_az: "Proposta A-Z",
+  cliente_az: "Cliente A-Z",
+  cadastro_desc: "Cadastro mais recente",
+  cadastro_asc: "Cadastro mais antigo",
+} as const
+
+type SortOption = keyof typeof SORT_OPTIONS
+
 export default function PropostasPage() {
   const [propostas, setPropostas] = useState<Proposta[]>([])
   const [clientes, setClientes] = useState<Cliente[]>([])
@@ -66,6 +75,7 @@ export default function PropostasPage() {
   const [archiveFilter, setArchiveFilter] = useState<keyof typeof ARCHIVE_FILTER_LABELS>("ativos")
   const [dateFrom, setDateFrom] = useState("")
   const [dateTo, setDateTo] = useState("")
+  const [sortBy, setSortBy] = useState<SortOption>("proposta_az")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [formData, setFormData] = useState(EMPTY_FORM)
 
@@ -153,14 +163,21 @@ export default function PropostasPage() {
     ],
   )
 
-  const filteredPropostas = propostas.filter((proposta) => {
-    const matchSearch =
-      proposta.nome.toLowerCase().includes(search.toLowerCase()) ||
-      proposta.cliente_nome?.toLowerCase().includes(search.toLowerCase())
+  const filteredPropostas = useMemo(
+    () =>
+      [...propostas]
+        .filter((proposta) => {
+          const matchSearch =
+            proposta.nome.toLowerCase().includes(search.toLowerCase()) ||
+            proposta.cliente_nome?.toLowerCase().includes(search.toLowerCase())
 
-    const matchCliente = clienteFilter === "todos" || proposta.cliente_id.toString() === clienteFilter
-    return matchSearch && matchCliente
-  }).filter((proposta) => matchesDateRange(proposta.created_at, dateFrom, dateTo))
+          const matchCliente = clienteFilter === "todos" || proposta.cliente_id.toString() === clienteFilter
+          return matchSearch && matchCliente
+        })
+        .filter((proposta) => matchesDateRange(proposta.created_at, dateFrom, dateTo))
+        .sort((left, right) => sortPropostas(left, right, sortBy)),
+    [clienteFilter, dateFrom, dateTo, propostas, search, sortBy],
+  )
 
   if (loading) {
     return (
@@ -370,6 +387,18 @@ export default function PropostasPage() {
                   <SelectItem value="todos">Todos</SelectItem>
                 </SelectContent>
               </Select>
+              <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortOption)}>
+                <SelectTrigger className="w-full md:w-[220px]">
+                  <SelectValue placeholder="Ordenacao" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(SORT_OPTIONS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <DateRangeFilter
@@ -500,4 +529,18 @@ function formatCurrency(value: number) {
     style: "currency",
     currency: "BRL",
   }).format(Number(value || 0))
+}
+
+function sortPropostas(left: Proposta, right: Proposta, sortBy: SortOption) {
+  switch (sortBy) {
+    case "cliente_az":
+      return (left.cliente_nome ?? "").localeCompare(right.cliente_nome ?? "", "pt-BR")
+    case "cadastro_desc":
+      return new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
+    case "cadastro_asc":
+      return new Date(left.created_at).getTime() - new Date(right.created_at).getTime()
+    case "proposta_az":
+    default:
+      return left.nome.localeCompare(right.nome, "pt-BR")
+  }
 }

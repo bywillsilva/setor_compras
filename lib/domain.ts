@@ -2,6 +2,7 @@ import { differenceInCalendarDays, parseISO, startOfDay } from "date-fns"
 import type {
   CategoriaCompra,
   Compra,
+  EtapaFluxoCompra,
   EtapaAutorizacao,
   FinanceiroReportItem,
   PropostaFormData,
@@ -47,6 +48,32 @@ export const ETAPA_AUTORIZACAO_BADGE_CLASSES: Record<EtapaAutorizacao, string> =
   nenhuma: "bg-slate-100 text-slate-700",
   solicitada: "bg-amber-100 text-amber-800",
   liberada: "bg-blue-100 text-blue-800",
+}
+
+export const ETAPA_FLUXO_LABELS: Record<EtapaFluxoCompra, string> = {
+  solicitacao_registrada: "Solicitacao registrada",
+  cotacao_em_andamento: "Cotacao em andamento",
+  analise_solicitante: "Em analise do solicitante",
+  retificacao: "Em retificacao",
+  aprovada_solicitante: "Aprovada pelo solicitante",
+  aguardando_admin: "Aguardando aprovacao ADM",
+  aprovada_admin: "Aprovada pelo ADM",
+  aguardando_financeiro: "Aguardando ciencia financeira",
+  liberada_para_fornecedor: "Liberada para fornecedor",
+  pedido_autorizado: "Pedido autorizado",
+}
+
+export const ETAPA_FLUXO_BADGE_CLASSES: Record<EtapaFluxoCompra, string> = {
+  solicitacao_registrada: "bg-slate-100 text-slate-700",
+  cotacao_em_andamento: "bg-blue-100 text-blue-800",
+  analise_solicitante: "bg-violet-100 text-violet-800",
+  retificacao: "bg-orange-100 text-orange-800",
+  aprovada_solicitante: "bg-emerald-100 text-emerald-800",
+  aguardando_admin: "bg-amber-100 text-amber-800",
+  aprovada_admin: "bg-sky-100 text-sky-800",
+  aguardando_financeiro: "bg-yellow-100 text-yellow-800",
+  liberada_para_fornecedor: "bg-cyan-100 text-cyan-800",
+  pedido_autorizado: "bg-emerald-100 text-emerald-800",
 }
 
 export const CATEGORIA_OPTIONS: CategoriaCompra[] = ["perfis", "vidros", "acessorios", "perdas", "outros"]
@@ -101,6 +128,48 @@ export function normalizeEtapaAutorizacao(value: unknown): EtapaAutorizacao {
   }
 
   return "nenhuma"
+}
+
+export function normalizeEtapaFluxoCompra(value: unknown): EtapaFluxoCompra {
+  const normalized = normalizeKey(value)
+
+  if (normalized === "cotacao_em_andamento") {
+    return "cotacao_em_andamento"
+  }
+
+  if (normalized === "analise_solicitante") {
+    return "analise_solicitante"
+  }
+
+  if (normalized === "retificacao") {
+    return "retificacao"
+  }
+
+  if (normalized === "aprovada_solicitante") {
+    return "aprovada_solicitante"
+  }
+
+  if (normalized === "aguardando_admin") {
+    return "aguardando_admin"
+  }
+
+  if (normalized === "aprovada_admin") {
+    return "aprovada_admin"
+  }
+
+  if (normalized === "aguardando_financeiro") {
+    return "aguardando_financeiro"
+  }
+
+  if (normalized === "liberada_para_fornecedor") {
+    return "liberada_para_fornecedor"
+  }
+
+  if (normalized === "pedido_autorizado") {
+    return "pedido_autorizado"
+  }
+
+  return "solicitacao_registrada"
 }
 
 export function normalizeCategoriaCompra(value: unknown): CategoriaCompra {

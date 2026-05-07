@@ -14,6 +14,7 @@ import {
 import { useCurrentSession } from "@/components/auth-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
@@ -41,8 +42,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { PERFIL_LABELS } from "@/lib/auth/permissions"
-import type { PerfilUsuario } from "@/lib/types"
+import {
+  FEATURE_DESCRIPTIONS,
+  FEATURE_GROUPS,
+  FEATURE_LABELS,
+  LOCKED_ADMIN_FEATURES,
+  PERFIL_LABELS,
+} from "@/lib/auth/permissions"
+import type { AppFeature, PerfilUsuario } from "@/lib/types"
 
 type DatabaseStatus = {
   configured: boolean
@@ -64,6 +71,10 @@ type UsuarioResumo = {
   updated_at: string
 }
 
+type PerfilFeatureMatrix = Record<PerfilUsuario, AppFeature[]>
+
+const PERFIS_ORDENADOS: PerfilUsuario[] = ["admin", "comprador", "orcamentista", "solicitante", "financeiro"]
+
 const EMPTY_USER_FORM = {
   nome: "",
   email: "",
@@ -78,8 +89,11 @@ export default function ConfiguracoesPage() {
   const [setting, setSetting] = useState(false)
   const [dbStatus, setDbStatus] = useState<DatabaseStatus | null>(null)
   const [usuarios, setUsuarios] = useState<UsuarioResumo[]>([])
+  const [perfilPermissoes, setPerfilPermissoes] = useState<PerfilFeatureMatrix | null>(null)
   const [loadingUsuarios, setLoadingUsuarios] = useState(false)
+  const [loadingPermissoes, setLoadingPermissoes] = useState(false)
   const [savingUsuario, setSavingUsuario] = useState(false)
+  const [savingPermissoes, setSavingPermissoes] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingUsuario, setEditingUsuario] = useState<UsuarioResumo | null>(null)
   const [userFormData, setUserFormData] = useState(EMPTY_USER_FORM)
@@ -91,6 +105,7 @@ export default function ConfiguracoesPage() {
   useEffect(() => {
     if (session?.perfil === "admin") {
       fetchUsuarios()
+      fetchPerfilPermissoes()
     }
   }, [session?.perfil])
 
@@ -145,6 +160,74 @@ export default function ConfiguracoesPage() {
       }
     } finally {
       setLoadingUsuarios(false)
+    }
+  }
+
+  async function fetchPerfilPermissoes() {
+    setLoadingPermissoes(true)
+    try {
+      const response = await fetch("/api/configuracoes/permissoes")
+      if (!response.ok) {
+        throw new Error("Erro ao carregar permissoes por perfil.")
+      }
+
+      setPerfilPermissoes(await response.json())
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao carregar permissoes por perfil.")
+    } finally {
+      setLoadingPermissoes(false)
+    }
+  }
+
+  function handleTogglePermissao(perfil: PerfilUsuario, feature: AppFeature, checked: boolean) {
+    setPerfilPermissoes((current) => {
+      if (!current) {
+        return current
+      }
+
+      const currentFeatures = new Set(current[perfil] ?? [])
+      if (checked) {
+        currentFeatures.add(feature)
+      } else {
+        currentFeatures.delete(feature)
+      }
+
+      if (perfil === "admin" && LOCKED_ADMIN_FEATURES.includes(feature)) {
+        currentFeatures.add(feature)
+      }
+
+      return {
+        ...current,
+        [perfil]: Array.from(currentFeatures),
+      }
+    })
+  }
+
+  async function handleSavePermissoes() {
+    if (!perfilPermissoes) {
+      return
+    }
+
+    setSavingPermissoes(true)
+
+    try {
+      const response = await fetch("/api/configuracoes/permissoes", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(perfilPermissoes),
+      })
+      const payload = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "Erro ao salvar permissoes.")
+      }
+
+      setPerfilPermissoes(payload.permissoes)
+      alert("Permissoes atualizadas com sucesso.")
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao salvar permissoes.")
+    } finally {
+      setSavingPermissoes(false)
     }
   }
 
@@ -323,6 +406,14 @@ export default function ConfiguracoesPage() {
                   <code className="block rounded bg-amber-100 p-2 text-xs text-amber-900">
                     scripts/migrations/supabase/2026-04-29-upgrade-current-schema.sql
                   </code>
+                  <p className="mb-2 mt-3 text-sm text-amber-800">Para liberar permissoes por modulo entre perfis:</p>
+                  <code className="block rounded bg-amber-100 p-2 text-xs text-amber-900">
+                    scripts/migrations/supabase/2026-05-07-profile-feature-access.sql
+                  </code>
+                  <p className="mb-2 mt-3 text-sm text-amber-800">Para ativar o fluxo novo de solicitacoes, aprovacao ADM e financeiro:</p>
+                  <code className="block rounded bg-amber-100 p-2 text-xs text-amber-900">
+                    scripts/migrations/supabase/2026-05-07-workflow-signatures.sql
+                  </code>
                   <p className="mb-2 mt-3 text-sm text-amber-800">Se quiser resetar tudo e recriar do zero:</p>
                   <code className="block rounded bg-amber-100 p-2 text-xs text-amber-900">
                     scripts/reset-database-supabase.sql
@@ -383,10 +474,105 @@ APP_ADMIN_PASSWORD="admin123456"`}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
+              <Settings2 className="h-5 w-5" />
+              Modulos por perfil
+            </CardTitle>
+            <CardDescription>
+              O administrador define quais modulos e acoes cada perfil pode acessar. As alteracoes passam a valer nas proximas navegacoes do usuario.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={fetchPerfilPermissoes} disabled={loadingPermissoes || savingPermissoes}>
+                {loadingPermissoes ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Recarregando...
+                  </>
+                ) : (
+                  "Recarregar"
+                )}
+              </Button>
+              <Button onClick={handleSavePermissoes} disabled={!perfilPermissoes || loadingPermissoes || savingPermissoes}>
+                {savingPermissoes ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Salvando...
+                  </>
+                ) : (
+                  "Salvar permissoes"
+                )}
+              </Button>
+            </div>
+
+            {loadingPermissoes || !perfilPermissoes ? (
+              <div className="flex min-h-[180px] items-center justify-center">
+                <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {PERFIS_ORDENADOS.map((perfil) => (
+                  <div key={perfil} className="rounded-xl border p-4">
+                    <div className="mb-4">
+                      <h3 className="font-semibold text-foreground">{PERFIL_LABELS[perfil]}</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Selecione os modulos e as acoes que este perfil podera usar no sistema.
+                      </p>
+                    </div>
+
+                    <div className="space-y-5">
+                      {FEATURE_GROUPS.map((group) => (
+                        <div key={group.id} className="space-y-3">
+                          <div className="text-sm font-medium text-foreground">{group.label}</div>
+                          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                            {group.features.map((feature) => {
+                              const checked = perfilPermissoes[perfil]?.includes(feature) ?? false
+                              const isLocked = perfil === "admin" && LOCKED_ADMIN_FEATURES.includes(feature)
+
+                              return (
+                                <label
+                                  key={`${perfil}-${feature}`}
+                                  className="flex items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/20"
+                                >
+                                  <Checkbox
+                                    checked={checked}
+                                    disabled={isLocked || savingPermissoes}
+                                    onCheckedChange={(value) => handleTogglePermissao(perfil, feature, value === true)}
+                                  />
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-sm font-medium text-foreground">{FEATURE_LABELS[feature]}</span>
+                                      {isLocked && (
+                                        <Badge variant="outline" className="text-[10px]">
+                                          Fixo no ADM
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">{FEATURE_DESCRIPTIONS[feature]}</p>
+                                  </div>
+                                </label>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {session?.perfil === "admin" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
               <Users className="h-5 w-5" />
               Usuarios e perfis
             </CardTitle>
-            <CardDescription>Crie e ajuste acessos para administrador, comprador e orcamentista.</CardDescription>
+            <CardDescription>Crie e ajuste acessos para administrador, comprador, solicitante, financeiro e orcamentista.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex justify-end">
@@ -446,6 +632,8 @@ APP_ADMIN_PASSWORD="admin123456"`}
                             <SelectItem value="admin">Administrador</SelectItem>
                             <SelectItem value="comprador">Comprador</SelectItem>
                             <SelectItem value="orcamentista">Orcamentista</SelectItem>
+                            <SelectItem value="solicitante">Solicitante</SelectItem>
+                            <SelectItem value="financeiro">Financeiro</SelectItem>
                           </SelectContent>
                         </Select>
                       </Field>

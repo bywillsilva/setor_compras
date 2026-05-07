@@ -1,7 +1,7 @@
 import { rm } from 'fs/promises'
 import path from 'path'
 import { NextRequest, NextResponse } from 'next/server'
-import { requireFeature } from '@/lib/auth/api'
+import { requireAnyFeature, requireFeature } from '@/lib/auth/api'
 import { getCompraDetail, permanentlyDeleteCompra, setCompraArchivedState, updateCompra } from '@/lib/repositories'
 
 export const runtime = 'nodejs'
@@ -9,9 +9,9 @@ export const runtime = 'nodejs'
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
-) {
+  ) {
   try {
-    const guard = await requireFeature(request, 'compras')
+    const guard = await requireAnyFeature(request, ['compras', 'autorizacoes', 'solicitacoes_autorizacao', 'financeiro', 'entregas'])
     if ('response' in guard) {
       return guard.response
     }

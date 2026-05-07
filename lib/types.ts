@@ -5,8 +5,36 @@ export type StatusEntrega = 'pendente' | 'entregue'
 export type CategoriaCompra = 'perfis' | 'vidros' | 'acessorios' | 'perdas' | 'outros'
 export type TipoAnexo = 'cotacao' | 'nf' | 'boleto' | 'outro'
 export type SituacaoEntrega = 'pendente' | 'entregue' | 'atrasado' | 'proximo' | 'no_prazo'
-export type PerfilUsuario = 'admin' | 'comprador' | 'orcamentista'
+export type PerfilUsuario = 'admin' | 'comprador' | 'orcamentista' | 'solicitante' | 'financeiro'
+export type AppFeature =
+  | 'dashboard'
+  | 'solicitacoes'
+  | 'clientes'
+  | 'propostas'
+  | 'compras'
+  | 'autorizacoes'
+  | 'solicitacoes_autorizacao'
+  | 'financeiro'
+  | 'entregas'
+  | 'orcamentos'
+  | 'configuracoes'
+  | 'usuarios'
+  | 'editar_compra'
+  | 'editar_proposta'
+  | 'revisar_entrega'
+  | 'solicitar_autorizacao'
 export type EtapaAutorizacao = 'nenhuma' | 'solicitada' | 'liberada'
+export type EtapaFluxoCompra =
+  | 'solicitacao_registrada'
+  | 'cotacao_em_andamento'
+  | 'analise_solicitante'
+  | 'retificacao'
+  | 'aprovada_solicitante'
+  | 'aguardando_admin'
+  | 'aprovada_admin'
+  | 'aguardando_financeiro'
+  | 'liberada_para_fornecedor'
+  | 'pedido_autorizado'
 
 export interface Cliente {
   id: number
@@ -41,6 +69,8 @@ export interface Compra {
   id: number
   cliente_id: number
   proposta_id: number
+  solicitante_id: number | null
+  solicitado_por: string | null
   categoria: CategoriaCompra
   fornecedor: string
   descricao: string
@@ -54,12 +84,29 @@ export interface Compra {
   status: StatusPedido
   status_entrega: StatusEntrega
   etapa_autorizacao: EtapaAutorizacao
+  etapa_fluxo: EtapaFluxoCompra
   previsao_entrega: string | null
   data_envio_fornecedor: string | null
+  cotacao_enviada_por: string | null
+  cotacao_recebida_em: string | null
+  cotacao_recebida_por: string | null
+  aprovado_solicitante_em: string | null
+  aprovado_solicitante_por: string | null
+  aprovado_admin_em: string | null
+  aprovado_admin_por: string | null
+  aprovado_financeiro_em: string | null
+  aprovado_financeiro_por: string | null
+  documentos_financeiro_confirmados_em: string | null
+  documentos_financeiro_confirmados_por: string | null
+  confirmado_fornecedor_em: string | null
+  confirmado_fornecedor_por: string | null
   data_entrega_real: string | null
   data_criacao: string
   updated_at: string
   arquivado: boolean
+  possui_cotacao?: boolean
+  possui_nf?: boolean
+  possui_boleto?: boolean
   cliente_nome?: string
   proposta_nome?: string
 }
@@ -93,6 +140,12 @@ export interface Usuario {
   updated_at: string
 }
 
+export interface PerfilPermissao {
+  perfil: PerfilUsuario
+  feature: AppFeature
+  permitido: boolean
+}
+
 export interface UsuarioFormData {
   nome: string
   email: string
@@ -104,6 +157,8 @@ export interface UsuarioFormData {
 export interface CompraFormData {
   cliente_id: number
   proposta_id: number
+  solicitante_id?: number | null
+  solicitado_por?: string | null
   categoria?: CategoriaCompra
   fornecedor: string
   descricao: string
@@ -179,8 +234,10 @@ export interface PurchaseFilters {
   id?: number
   clienteId?: number
   propostaId?: number
+  solicitanteId?: number
   status?: StatusPedido
   etapaAutorizacao?: EtapaAutorizacao
+  etapaFluxo?: EtapaFluxoCompra
   includeArchived?: boolean
   onlyArchived?: boolean
 }

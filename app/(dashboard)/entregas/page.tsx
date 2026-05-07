@@ -32,6 +32,15 @@ import { matchesDateRange } from "@/lib/date-range"
 import { getDeliverySituation } from "@/lib/domain"
 import type { Cliente, Compra, SituacaoEntrega } from "@/lib/types"
 
+const SORT_OPTIONS = {
+  previsao_desc: "Previsao mais proxima",
+  previsao_asc: "Previsao mais distante",
+  cliente_az: "Cliente A-Z",
+  fornecedor_az: "Fornecedor A-Z",
+} as const
+
+type SortOption = keyof typeof SORT_OPTIONS
+
 export default function EntregasPage() {
   const [compras, setCompras] = useState<Compra[]>([])
   const [clientes, setClientes] = useState<Cliente[]>([])
@@ -41,6 +50,7 @@ export default function EntregasPage() {
   const [clienteFilter, setClienteFilter] = useState<string>("todos")
   const [dateFrom, setDateFrom] = useState("")
   const [dateTo, setDateTo] = useState("")
+  const [sortBy, setSortBy] = useState<SortOption>("previsao_desc")
 
   useEffect(() => {
     async function fetchData() {
@@ -74,21 +84,28 @@ export default function EntregasPage() {
     }
   }, [compras])
 
-  const filteredCompras = compras.filter((compra) => {
-    const situacao = getDeliverySituation(compra)
-    const term = search.toLowerCase()
-    const matchSearch =
-      compra.fornecedor.toLowerCase().includes(term) ||
-      compra.descricao.toLowerCase().includes(term) ||
-      compra.cliente_nome?.toLowerCase().includes(term) ||
-      compra.proposta_nome?.toLowerCase().includes(term) ||
-      compra.numero_pedido?.toLowerCase().includes(term)
+  const filteredCompras = useMemo(
+    () =>
+      [...compras]
+        .filter((compra) => {
+          const situacao = getDeliverySituation(compra)
+          const term = search.toLowerCase()
+          const matchSearch =
+            compra.fornecedor.toLowerCase().includes(term) ||
+            compra.descricao.toLowerCase().includes(term) ||
+            compra.cliente_nome?.toLowerCase().includes(term) ||
+            compra.proposta_nome?.toLowerCase().includes(term) ||
+            compra.numero_pedido?.toLowerCase().includes(term)
 
-    const matchSituation = situationFilter === "todos" || situacao === situationFilter
-    const matchCliente = clienteFilter === "todos" || compra.cliente_id.toString() === clienteFilter
+          const matchSituation = situationFilter === "todos" || situacao === situationFilter
+          const matchCliente = clienteFilter === "todos" || compra.cliente_id.toString() === clienteFilter
 
-    return matchSearch && matchSituation && matchCliente
-  }).filter((compra) => matchesDateRange(compra.previsao_entrega ?? compra.data_criacao, dateFrom, dateTo))
+          return matchSearch && matchSituation && matchCliente
+        })
+        .filter((compra) => matchesDateRange(compra.previsao_entrega ?? compra.data_criacao, dateFrom, dateTo))
+        .sort((left, right) => sortCompras(left, right, sortBy)),
+    [clienteFilter, compras, dateFrom, dateTo, search, situationFilter, sortBy],
+  )
 
   if (loading) {
     return (
@@ -154,6 +171,18 @@ export default function EntregasPage() {
                   {clientes.map((cliente) => (
                     <SelectItem key={cliente.id} value={cliente.id.toString()}>
                       {cliente.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortOption)}>
+                <SelectTrigger className="w-full md:w-[220px]">
+                  <SelectValue placeholder="Ordenacao" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(SORT_OPTIONS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -279,4 +308,18 @@ function SummaryCard({
       </CardContent>
     </Card>
   )
+}
+
+function sortCompras(left: Compra, right: Compra, sortBy: SortOption) {
+  switch (sortBy) {
+    case "previsao_asc":
+      return (right.previsao_entrega ?? "9999-12-31").localeCompare(left.previsao_entrega ?? "9999-12-31")
+    case "cliente_az":
+      return (left.cliente_nome ?? "").localeCompare(right.cliente_nome ?? "", "pt-BR")
+    case "fornecedor_az":
+      return left.fornecedor.localeCompare(right.fornecedor, "pt-BR")
+    case "previsao_desc":
+    default:
+      return (left.previsao_entrega ?? "9999-12-31").localeCompare(right.previsao_entrega ?? "9999-12-31")
+  }
 }

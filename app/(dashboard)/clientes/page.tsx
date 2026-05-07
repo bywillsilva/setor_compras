@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { Eye, Loader2, Plus, Search, Users } from "lucide-react"
 import { DateRangeFilter } from "@/components/shared/date-range-filter"
@@ -42,6 +42,15 @@ const ARCHIVE_FILTER_LABELS = {
   todos: "Todos",
 } as const
 
+const SORT_OPTIONS = {
+  nome_az: "Nome A-Z",
+  documento_asc: "Documento crescente",
+  cadastro_desc: "Cadastro mais recente",
+  cadastro_asc: "Cadastro mais antigo",
+} as const
+
+type SortOption = keyof typeof SORT_OPTIONS
+
 export default function ClientesPage() {
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [loading, setLoading] = useState(true)
@@ -49,6 +58,7 @@ export default function ClientesPage() {
   const [archiveFilter, setArchiveFilter] = useState<keyof typeof ARCHIVE_FILTER_LABELS>("ativos")
   const [dateFrom, setDateFrom] = useState("")
   const [dateTo, setDateTo] = useState("")
+  const [sortBy, setSortBy] = useState<SortOption>("nome_az")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [formData, setFormData] = useState({
@@ -111,15 +121,22 @@ export default function ClientesPage() {
     }
   }
 
-  const filteredClientes = clientes.filter((cliente) => {
-    const normalizedSearch = search.toLowerCase()
+  const filteredClientes = useMemo(
+    () =>
+      [...clientes]
+        .filter((cliente) => {
+          const normalizedSearch = search.toLowerCase()
 
-    return (
-      cliente.nome.toLowerCase().includes(normalizedSearch) ||
-      cliente.documento?.toLowerCase().includes(normalizedSearch) ||
-      cliente.email?.toLowerCase().includes(normalizedSearch)
-    )
-  }).filter((cliente) => matchesDateRange(cliente.created_at, dateFrom, dateTo))
+          return (
+            cliente.nome.toLowerCase().includes(normalizedSearch) ||
+            cliente.documento?.toLowerCase().includes(normalizedSearch) ||
+            cliente.email?.toLowerCase().includes(normalizedSearch)
+          )
+        })
+        .filter((cliente) => matchesDateRange(cliente.created_at, dateFrom, dateTo))
+        .sort((left, right) => sortClientes(left, right, sortBy)),
+    [clientes, dateFrom, dateTo, search, sortBy],
+  )
 
   if (loading) {
     return (
@@ -236,6 +253,18 @@ export default function ClientesPage() {
                   <SelectItem value="todos">Todos</SelectItem>
                 </SelectContent>
               </Select>
+              <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortOption)}>
+                <SelectTrigger className="w-full md:w-[220px]">
+                  <SelectValue placeholder="Ordenacao" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(SORT_OPTIONS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <DateRangeFilter
@@ -311,4 +340,18 @@ export default function ClientesPage() {
       </Card>
     </div>
   )
+}
+
+function sortClientes(left: Cliente, right: Cliente, sortBy: SortOption) {
+  switch (sortBy) {
+    case "documento_asc":
+      return (left.documento ?? "").localeCompare(right.documento ?? "", "pt-BR")
+    case "cadastro_desc":
+      return new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
+    case "cadastro_asc":
+      return new Date(left.created_at).getTime() - new Date(right.created_at).getTime()
+    case "nome_az":
+    default:
+      return left.nome.localeCompare(right.nome, "pt-BR")
+  }
 }

@@ -1,11 +1,12 @@
 import { mkdir, rm, writeFile } from 'fs/promises'
 import path from 'path'
 import { NextRequest, NextResponse } from 'next/server'
-import { requireFeature } from '@/lib/auth/api'
+import { getRequestSession } from '@/lib/auth/api'
+import { hasFeatureAccess } from '@/lib/auth/permissions'
 import { deleteSupabaseAttachmentObject, ensureSupabaseAttachmentBucket, uploadBufferToSupabaseAttachmentStorage } from '@/lib/attachment-storage'
 import { SUPABASE_ATTACHMENT_BUCKET } from '@/lib/attachments'
 import { getDatabaseType } from '@/lib/db'
-import { createAnexo, deleteAnexo, listAnexosByCompraId } from '@/lib/repositories'
+import { createAnexo, deleteAnexo, getCompraById, listAnexosByCompraId } from '@/lib/repositories'
 
 export const runtime = 'nodejs'
 
@@ -14,12 +15,12 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const guard = await requireFeature(request, 'compras')
-    if ('response' in guard) {
-      return guard.response
+    const { id } = await params
+    const accessError = await validateAttachmentAccess(request, Number(id))
+    if (accessError) {
+      return accessError
     }
 
-    const { id } = await params
     const anexos = await listAnexosByCompraId(Number(id))
     return NextResponse.json(anexos)
   } catch (error) {
@@ -35,13 +36,13 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const guard = await requireFeature(request, 'compras')
-    if ('response' in guard) {
-      return guard.response
-    }
-
     const { id } = await params
     const compraId = Number(id)
+    const accessError = await validateAttachmentAccess(request, compraId)
+    if (accessError) {
+      return accessError
+    }
+
     const formData = await request.formData()
     const tipo = normalizeTipo(String(formData.get('tipo') ?? 'outro'))
     const files = formData.getAll('files').filter((item): item is File => item instanceof File)
@@ -136,4 +137,27 @@ async function deleteSupabaseObjects(objectPaths: string[]) {
   }
 
   await Promise.all(objectPaths.map((objectPath) => deleteSupabaseAttachmentObject(SUPABASE_ATTACHMENT_BUCKET, objectPath)))
+}
+
+async function validateAttachmentAccess(request: NextRequest, compraId: number) {
+  const session = await getRequestSession(request)
+
+  if (!session) {
+    return NextResponse.json({ error: 'Sessao expirada. Faca login novamente.' }, { status: 401 })
+  }
+
+  if (hasFeatureAccess(session.perfil, 'compras')) {
+    return null
+  }
+
+  if (!hasFeatureAccess(session.perfil, 'solicitacoes')) {
+    return NextResponse.json({ error: 'Voce nao tem permissao para esta acao.' }, { status: 403 })
+  }
+
+  const compra = await getCompraById(compraId)
+  if (!compra || compra.solicitante_id !== session.userId) {
+    return NextResponse.json({ error: 'Voce nao tem acesso a esta solicitacao.' }, { status: 403 })
+  }
+
+  return null
 }

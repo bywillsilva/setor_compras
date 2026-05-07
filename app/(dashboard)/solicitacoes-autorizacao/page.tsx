@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
-import { CheckCircle2, Eye, Loader2, Search } from "lucide-react"
+import { CheckCircle2, Eye, Search } from "lucide-react"
+import { useCurrentSession } from "@/components/auth-provider"
 import { DateRangeFilter } from "@/components/shared/date-range-filter"
 import { RowActionsMenu } from "@/components/shared/row-actions-menu"
 import { Badge } from "@/components/ui/badge"
@@ -26,25 +27,37 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { hasFeatureAccess } from "@/lib/auth/permissions"
 import { matchesDateRange } from "@/lib/date-range"
 import {
   CATEGORIA_LABELS,
-  ETAPA_AUTORIZACAO_BADGE_CLASSES,
-  ETAPA_AUTORIZACAO_LABELS,
+  ETAPA_FLUXO_BADGE_CLASSES,
+  ETAPA_FLUXO_LABELS,
   STATUS_BADGE_CLASSES,
   STATUS_LABELS,
 } from "@/lib/domain"
 import type { Cliente, Compra } from "@/lib/types"
 
+const SORT_OPTIONS = {
+  atualizacao_desc: "Atualizacao mais recente",
+  atualizacao_asc: "Atualizacao mais antiga",
+  cliente_az: "Cliente A-Z",
+  fornecedor_az: "Fornecedor A-Z",
+} as const
+
+type SortOption = keyof typeof SORT_OPTIONS
+
 export default function SolicitacoesAutorizacaoPage() {
+  const session = useCurrentSession()
   const [compras, setCompras] = useState<Compra[]>([])
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [loading, setLoading] = useState(true)
-  const [processingId, setProcessingId] = useState<number | null>(null)
   const [search, setSearch] = useState("")
   const [clienteFilter, setClienteFilter] = useState("todos")
   const [dateFrom, setDateFrom] = useState("")
   const [dateTo, setDateTo] = useState("")
+  const [sortBy, setSortBy] = useState<SortOption>("atualizacao_desc")
+  const canViewCompras = Boolean(session && hasFeatureAccess(session.perfil, "compras", session.features))
 
   async function fetchData() {
     try {
@@ -73,9 +86,9 @@ export default function SolicitacoesAutorizacaoPage() {
   const comprasPendentes = useMemo(
     () =>
       compras
-        .filter((compra) => compra.status !== "pedido_autorizado")
-        .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()),
-    [compras],
+        .filter((compra) => compra.etapa_fluxo === "aguardando_admin")
+        .sort((left, right) => sortCompras(left, right, sortBy)),
+    [compras, sortBy],
   )
 
   const filteredCompras = comprasPendentes
@@ -95,33 +108,12 @@ export default function SolicitacoesAutorizacaoPage() {
   const resumo = useMemo(
     () => ({
       clientesEnvolvidos: new Set(filteredCompras.map((compra) => compra.cliente_id)).size,
-      semSolicitacao: filteredCompras.filter((compra) => compra.etapa_autorizacao === "nenhuma").length,
-      solicitadas: filteredCompras.filter((compra) => compra.etapa_autorizacao === "solicitada").length,
-      liberadas: filteredCompras.filter((compra) => compra.etapa_autorizacao === "liberada").length,
+      solicitadas: filteredCompras.length,
+      comNumeroPendente: filteredCompras.filter((compra) => !compra.numero_pedido).length,
+      comValorPendente: filteredCompras.filter((compra) => !compra.valor_total).length,
     }),
     [filteredCompras],
   )
-
-  async function handleApprove(compraId: number) {
-    setProcessingId(compraId)
-
-    try {
-      const response = await fetch(`/api/compras/${compraId}/aprovacao-autorizacao`, {
-        method: "POST",
-      })
-      const payload = await response.json().catch(() => null)
-
-      if (!response.ok) {
-        throw new Error(payload?.error || "Erro ao aprovar solicitacao.")
-      }
-
-      await fetchData()
-    } catch (error) {
-      alert(error instanceof Error ? error.message : "Erro ao aprovar solicitacao.")
-    } finally {
-      setProcessingId(null)
-    }
-  }
 
   if (loading) {
     return (
@@ -134,14 +126,14 @@ export default function SolicitacoesAutorizacaoPage() {
   return (
     <div className="space-y-6 p-6">
       <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-bold text-foreground">Solicitacoes de autorizacao</h1>
-        <p className="text-muted-foreground">Visao administrativa de todos os pedidos ainda nao autorizados, inclusive os que continuam em cotacao.</p>
+          <h1 className="text-2xl font-bold text-foreground">Aprovacao ADM</h1>
+        <p className="text-muted-foreground">Pedidos aprovados pelo solicitante e aguardando a liberacao do administrativo.</p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
-        <SummaryCard title="Sem solicitacao" value={resumo.semSolicitacao} description="Pedidos ainda na fila do comprador" />
-        <SummaryCard title="Para aprovar" value={resumo.solicitadas} description="Solicitacoes aguardando aprovacao" />
-        <SummaryCard title="Liberados" value={resumo.liberadas} description="Ja aprovados pelo administrativo" />
+        <SummaryCard title="Na fila ADM" value={resumo.solicitadas} description="Aguardando numero e valor autorizado" />
+        <SummaryCard title="Numero pendente" value={resumo.comNumeroPendente} description="Pedidos sem numero registrado" />
+        <SummaryCard title="Valor pendente" value={resumo.comValorPendente} description="Pedidos sem valor autorizado" />
         <SummaryCard title="Clientes" value={resumo.clientesEnvolvidos} description="Clientes com pedidos na fila" />
       </div>
 
@@ -149,7 +141,7 @@ export default function SolicitacoesAutorizacaoPage() {
         <SummaryCard
           title="Mais recente"
           value={filteredCompras[0] ? format(new Date(filteredCompras[0].updated_at), "dd/MM", { locale: ptBR }) : "--/--"}
-          description="Ultima solicitacao registrada"
+          description="Ultima solicitacao aguardando o ADM"
         />
       </div>
 
@@ -179,6 +171,18 @@ export default function SolicitacoesAutorizacaoPage() {
                   ))}
                 </SelectContent>
               </Select>
+              <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortOption)}>
+                <SelectTrigger className="w-full md:w-[220px]">
+                  <SelectValue placeholder="Ordenacao" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(SORT_OPTIONS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <DateRangeFilter
@@ -200,7 +204,7 @@ export default function SolicitacoesAutorizacaoPage() {
       <Card>
         <CardHeader>
           <CardTitle>Fila do administrador</CardTitle>
-          <CardDescription>{filteredCompras.length} pedido(s) em cotacao ou aguardando autorizacao</CardDescription>
+          <CardDescription>{filteredCompras.length} pedido(s) aguardando aprovacao administrativa</CardDescription>
         </CardHeader>
         <CardContent>
           {filteredCompras.length === 0 ? (
@@ -241,40 +245,30 @@ export default function SolicitacoesAutorizacaoPage() {
                         <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge className={ETAPA_AUTORIZACAO_BADGE_CLASSES[compra.etapa_autorizacao]}>
-                          {ETAPA_AUTORIZACAO_LABELS[compra.etapa_autorizacao]}
+                        <Badge className={ETAPA_FLUXO_BADGE_CLASSES[compra.etapa_fluxo]}>
+                          {ETAPA_FLUXO_LABELS[compra.etapa_fluxo]}
                         </Badge>
                       </TableCell>
                       <TableCell>{format(new Date(compra.updated_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}</TableCell>
                       <TableCell className="text-right">
                         <RowActionsMenu label={`Acoes da solicitacao ${compra.id}`}>
+                          {canViewCompras && (
+                            <>
+                              <DropdownMenuItem asChild>
+                                <Link href={`/compras/${compra.id}`}>
+                                  <Eye className="h-4 w-4" />
+                                  Ver pedido
+                                </Link>
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                            </>
+                          )}
                           <DropdownMenuItem asChild>
-                            <Link href={`/compras/${compra.id}`}>
-                              <Eye className="h-4 w-4" />
-                              Ver pedido
+                            <Link href={`/solicitacoes-autorizacao/${compra.id}`}>
+                              <CheckCircle2 className="h-4 w-4" />
+                              Autorizar pedido
                             </Link>
                           </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          {compra.etapa_autorizacao === "solicitada" ? (
-                            <DropdownMenuItem onClick={() => handleApprove(compra.id)} disabled={processingId === compra.id}>
-                              {processingId === compra.id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <CheckCircle2 className="h-4 w-4" />
-                              )}
-                              {processingId === compra.id ? "Aprovando..." : "Aprovar solicitacao"}
-                            </DropdownMenuItem>
-                          ) : compra.etapa_autorizacao === "liberada" ? (
-                            <DropdownMenuItem disabled>
-                              <CheckCircle2 className="h-4 w-4" />
-                              Ja liberado ao comprador
-                            </DropdownMenuItem>
-                          ) : (
-                            <DropdownMenuItem disabled>
-                              <Loader2 className="h-4 w-4" />
-                              Aguardando solicitacao do comprador
-                            </DropdownMenuItem>
-                          )}
                         </RowActionsMenu>
                       </TableCell>
                     </TableRow>
@@ -287,6 +281,20 @@ export default function SolicitacoesAutorizacaoPage() {
       </Card>
     </div>
   )
+}
+
+function sortCompras(left: Compra, right: Compra, sortBy: SortOption) {
+  switch (sortBy) {
+    case "atualizacao_asc":
+      return new Date(left.updated_at).getTime() - new Date(right.updated_at).getTime()
+    case "cliente_az":
+      return (left.cliente_nome ?? "").localeCompare(right.cliente_nome ?? "", "pt-BR")
+    case "fornecedor_az":
+      return left.fornecedor.localeCompare(right.fornecedor, "pt-BR")
+    case "atualizacao_desc":
+    default:
+      return new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()
+  }
 }
 
 function SummaryCard({

@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireFeature } from '@/lib/auth/api'
+import { requireAnyFeature, requireFeature } from '@/lib/auth/api'
 import { createCliente, listClientes } from '@/lib/repositories'
 
 export async function GET(request: NextRequest) {
   try {
-    const guard = await requireFeature(request, 'clientes')
+    const guard = await requireAnyFeature(request, ['clientes', 'compras', 'solicitacoes_autorizacao'])
     if ('response' in guard) {
       return guard.response
     }

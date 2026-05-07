@@ -17,6 +17,7 @@ import {
   Package,
   Paperclip,
   Save,
+  Send,
   Truck,
   Trash2,
   Upload,
@@ -24,6 +25,7 @@ import {
 import { useCurrentSession } from "@/components/auth-provider"
 import { CompraRateioFields, type CompraRateioFormState } from "@/components/compras/compra-rateio-fields"
 import { DeliveryStatusBadge } from "@/components/compras/delivery-status-badge"
+import { hasFeatureAccess } from "@/lib/auth/permissions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -47,8 +49,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import {
   CATEGORIA_LABELS,
-  ETAPA_AUTORIZACAO_BADGE_CLASSES,
-  ETAPA_AUTORIZACAO_LABELS,
+  ETAPA_FLUXO_BADGE_CLASSES,
+  ETAPA_FLUXO_LABELS,
   getDeliverySituation,
   getCompraCategoriasAtivas,
   STATUS_BADGE_CLASSES,
@@ -80,7 +82,18 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([])
   const [uploadingAttachments, setUploadingAttachments] = useState(false)
   const [deletingAttachmentId, setDeletingAttachmentId] = useState<number | null>(null)
+  const [workflowProcessing, setWorkflowProcessing] = useState<string | null>(null)
   const [requestingAuthorization, setRequestingAuthorization] = useState(false)
+  const [requestingFinance, setRequestingFinance] = useState(false)
+  const canRequestApproval = Boolean(
+    session && hasFeatureAccess(session.perfil, "solicitar_autorizacao", session.features),
+  )
+  const canFinalizeFornecedor = Boolean(
+    session && hasFeatureAccess(session.perfil, "autorizacoes", session.features),
+  )
+  const canApproveAdm = Boolean(
+    session && hasFeatureAccess(session.perfil, "solicitacoes_autorizacao", session.features),
+  )
   const [formData, setFormData] = useState<{
     fornecedor: string
     descricao: string
@@ -251,6 +264,52 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
     }
   }
 
+  async function runWorkflowAction(path: string, successMessage: string, nextState: string) {
+    setWorkflowProcessing(nextState)
+
+    try {
+      const response = await fetch(path, { method: "POST" })
+      const payload = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "Erro ao atualizar o fluxo do pedido.")
+      }
+
+      alert(successMessage)
+      await fetchCompra()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao atualizar o fluxo do pedido.")
+    } finally {
+      setWorkflowProcessing(null)
+    }
+  }
+
+  async function handleRequestFinance() {
+    if (!compra) {
+      return
+    }
+
+    setRequestingFinance(true)
+
+    try {
+      const response = await fetch(`/api/compras/${compra.id}/solicitacao-financeira`, {
+        method: "POST",
+      })
+      const payload = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "Erro ao solicitar aprovacao financeira.")
+      }
+
+      alert("Solicitacao enviada ao financeiro.")
+      await fetchCompra()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao solicitar aprovacao financeira.")
+    } finally {
+      setRequestingFinance(false)
+    }
+  }
+
   async function handleUploadAttachments() {
     if (attachmentFiles.length === 0) {
       alert("Selecione pelo menos um arquivo para enviar.")
@@ -383,11 +442,7 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-bold text-foreground">Pedido #{compra.id}</h1>
               <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
-              {compra.etapa_autorizacao !== "nenhuma" && (
-                <Badge className={ETAPA_AUTORIZACAO_BADGE_CLASSES[compra.etapa_autorizacao]}>
-                  {ETAPA_AUTORIZACAO_LABELS[compra.etapa_autorizacao]}
-                </Badge>
-              )}
+              <Badge className={ETAPA_FLUXO_BADGE_CLASSES[compra.etapa_fluxo]}>{ETAPA_FLUXO_LABELS[compra.etapa_fluxo]}</Badge>
               {compra.arquivado && <Badge variant="outline">Arquivado</Badge>}
               {compra.status === "pedido_autorizado" && <DeliveryStatusBadge compra={compra} />}
             </div>
@@ -398,30 +453,80 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {compra.status !== "pedido_autorizado" && session?.perfil === "comprador" && compra.etapa_autorizacao === "liberada" ? (
+          {compra.status !== "pedido_autorizado" &&
+          (compra.etapa_fluxo === "solicitacao_registrada" || compra.etapa_fluxo === "retificacao") ? (
+            <Button
+              variant="outline"
+              onClick={() =>
+                runWorkflowAction(
+                  `/api/compras/${compra.id}/envio-cotacao`,
+                  "Solicitacao enviada para cotacao.",
+                  "cotacao",
+                )
+              }
+              disabled={workflowProcessing === "cotacao"}
+            >
+              <Send className="mr-2 h-4 w-4" />
+              {workflowProcessing === "cotacao" ? "Enviando..." : "Enviar para cotacao"}
+            </Button>
+          ) : compra.status !== "pedido_autorizado" && compra.etapa_fluxo === "cotacao_em_andamento" ? (
+            <Button
+              variant="outline"
+              onClick={() =>
+                runWorkflowAction(
+                  `/api/compras/${compra.id}/recebimento-cotacao`,
+                  "Cotacao enviada para aprovacao do solicitante.",
+                  "solicitante",
+                )
+              }
+              disabled={workflowProcessing === "solicitante"}
+            >
+              <Send className="mr-2 h-4 w-4" />
+              {workflowProcessing === "solicitante" ? "Solicitando..." : "Solicitar aprovacao do solicitante"}
+            </Button>
+          ) : compra.status !== "pedido_autorizado" && compra.etapa_fluxo === "analise_solicitante" ? (
+            <Button variant="outline" disabled>
+              <Loader2 className="mr-2 h-4 w-4" />
+              Aguardando solicitante
+            </Button>
+          ) : compra.status !== "pedido_autorizado" && canFinalizeFornecedor && compra.etapa_fluxo === "liberada_para_fornecedor" ? (
             <Link href={`/autorizacoes/${compra.id}`}>
               <Button variant="outline">
                 <CheckCircle2 className="mr-2 h-4 w-4" />
-                Preencher autorizacao
+                Fechar com fornecedor
               </Button>
             </Link>
-          ) : compra.status !== "pedido_autorizado" && session?.perfil === "comprador" && compra.etapa_autorizacao === "solicitada" ? (
+          ) : compra.status !== "pedido_autorizado" && canRequestApproval && compra.etapa_fluxo === "aprovada_admin" ? (
+            <Button variant="outline" onClick={handleRequestFinance} disabled={requestingFinance}>
+              <CheckCircle2 className="mr-2 h-4 w-4" />
+              {requestingFinance ? "Solicitando..." : "Solicitar assinatura do financeiro"}
+            </Button>
+          ) : compra.status !== "pedido_autorizado" && canRequestApproval && compra.etapa_fluxo === "aguardando_admin" ? (
             <Button variant="outline" disabled>
               <CheckCircle2 className="mr-2 h-4 w-4" />
               Aguardando administrador
             </Button>
-          ) : compra.status !== "pedido_autorizado" && session?.perfil === "comprador" ? (
+          ) : compra.status !== "pedido_autorizado" && canRequestApproval && compra.etapa_fluxo === "aguardando_financeiro" ? (
+            <Button variant="outline" disabled>
+              <CheckCircle2 className="mr-2 h-4 w-4" />
+              Aguardando financeiro
+            </Button>
+          ) : compra.status !== "pedido_autorizado" && canRequestApproval && compra.etapa_fluxo === "aprovada_solicitante" ? (
             <Button variant="outline" onClick={handleRequestAuthorization} disabled={requestingAuthorization}>
               <CheckCircle2 className="mr-2 h-4 w-4" />
-              {requestingAuthorization ? "Solicitando..." : "Solicitar autorizacao"}
+              {requestingAuthorization ? "Solicitando..." : "Solicitar assinatura do ADM"}
             </Button>
-          ) : compra.status !== "pedido_autorizado" && session?.perfil === "admin" && compra.etapa_autorizacao === "solicitada" ? (
-            <Link href="/solicitacoes-autorizacao">
+          ) : compra.status !== "pedido_autorizado" && canApproveAdm && compra.etapa_fluxo === "aguardando_admin" ? (
+            <Link href={`/solicitacoes-autorizacao/${compra.id}`}>
               <Button variant="outline">
                 <CheckCircle2 className="mr-2 h-4 w-4" />
-                Ver solicitacoes
+                Autorizar pedido
               </Button>
             </Link>
+          ) : compra.status !== "pedido_autorizado" ? (
+            <Button variant="outline" disabled>
+              Aguardando proxima etapa
+            </Button>
           ) : null}
 
           {compra.status === "pedido_autorizado" && (
@@ -497,6 +602,36 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
         />
       )}
 
+      {compra.status === "pedido_autorizado" && (!compra.possui_nf || !compra.possui_boleto) && (
+        <AlertCard
+          icon={<AlertTriangle className="h-5 w-5 text-amber-700" />}
+          title="Documentacao pendente"
+          description={`Ainda faltam ${[
+            !compra.possui_nf ? "nota fiscal" : null,
+            !compra.possui_boleto ? "boleto" : null,
+          ]
+            .filter(Boolean)
+            .join(" e ")} neste pedido. Use a aba Documentos para complementar o cadastro.`}
+          className="border-amber-300 bg-amber-50"
+          titleClassName="text-amber-700"
+          descriptionClassName="text-amber-700"
+        />
+      )}
+
+      {compra.status === "pedido_autorizado" &&
+        compra.possui_nf &&
+        compra.possui_boleto &&
+        !compra.documentos_financeiro_confirmados_em && (
+          <AlertCard
+            icon={<CheckCircle2 className="h-5 w-5 text-sky-700" />}
+            title="Aguardando baixa do financeiro"
+            description="Nota fiscal e boleto ja foram anexados. O financeiro ainda precisa registrar esses documentos no sistema interno."
+            className="border-sky-300 bg-sky-50"
+            titleClassName="text-sky-700"
+            descriptionClassName="text-sky-700"
+          />
+        )}
+
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           title="Status do pedido"
@@ -549,9 +684,7 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
                 <Info label="Proposta">{compra.proposta_nome}</Info>
                 <Info label="Categoria principal">{CATEGORIA_LABELS[compra.categoria]}</Info>
                 <Info label="Categorias ativas">{categoriasAtivasLabel}</Info>
-                <Info label="Etapa da autorizacao">
-                  {compra.etapa_autorizacao === "nenhuma" ? "-" : ETAPA_AUTORIZACAO_LABELS[compra.etapa_autorizacao]}
-                </Info>
+                <Info label="Etapa do fluxo">{ETAPA_FLUXO_LABELS[compra.etapa_fluxo]}</Info>
                 <Info label="Status da entrega">{deliveryLabel}</Info>
                 <Info label="Criado em">{formatDateTime(compra.data_criacao)}</Info>
                 <Info label="Ultima atualizacao">{formatDateTime(compra.updated_at)}</Info>

@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireFeature } from '@/lib/auth/api'
-import type { EtapaAutorizacao, StatusPedido } from '@/lib/types'
+import { requireAnyFeature, requireFeature } from '@/lib/auth/api'
+import type { EtapaAutorizacao, EtapaFluxoCompra, StatusPedido } from '@/lib/types'
 import { createCompra, listCompras } from '@/lib/repositories'
 
 export async function GET(request: NextRequest) {
   try {
-    const guard = await requireFeature(request, 'compras')
+    const guard = await requireAnyFeature(request, ['compras', 'autorizacoes', 'solicitacoes_autorizacao', 'financeiro', 'entregas'])
     if ('response' in guard) {
       return guard.response
     }
@@ -13,15 +13,19 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const clienteId = searchParams.get('cliente_id')
     const propostaId = searchParams.get('proposta_id')
+    const solicitanteId = searchParams.get('solicitante_id')
     const status = searchParams.get('status')
     const etapaAutorizacao = searchParams.get('etapa_autorizacao')
+    const etapaFluxo = searchParams.get('etapa_fluxo')
     const arquivados = searchParams.get('arquivados')
 
     const compras = await listCompras({
       clienteId: clienteId ? Number(clienteId) : undefined,
       propostaId: propostaId ? Number(propostaId) : undefined,
+      solicitanteId: solicitanteId ? Number(solicitanteId) : undefined,
       status: status ? (status as StatusPedido) : undefined,
       etapaAutorizacao: etapaAutorizacao ? (etapaAutorizacao as EtapaAutorizacao) : undefined,
+      etapaFluxo: etapaFluxo ? (etapaFluxo as EtapaFluxoCompra) : undefined,
       includeArchived: arquivados === 'todos',
       onlyArchived: arquivados === 'arquivados',
     })
