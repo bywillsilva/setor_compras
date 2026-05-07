@@ -13,4 +13,7 @@ next.user-config.*
 # Common ignores
 node_modules
 .next/
+.turbo/
+*.tsbuildinfo
+scripts/supabase/.temp/
 .DS_Store
