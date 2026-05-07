@@ -702,12 +702,23 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
                         <Paperclip className="h-4 w-4 text-muted-foreground" />
                       </div>
                       <p className="text-xs text-muted-foreground">{formatAttachmentDate(anexo.created_at)}</p>
+                      {anexo.disponivel === false && (
+                        <p className="mt-2 text-xs text-destructive">
+                          Arquivo indisponivel no servidor atual. Reenvie este documento para restaurar o acesso.
+                        </p>
+                      )}
                       <div className="mt-4 flex items-center justify-between gap-2">
-                        <Button asChild variant="outline" size="sm">
-                          <a href={getAttachmentHref(anexo)} target="_blank" rel="noreferrer">
-                            Abrir anexo
-                          </a>
-                        </Button>
+                        {anexo.disponivel === false ? (
+                          <Button variant="outline" size="sm" disabled>
+                            Abrir indisponivel
+                          </Button>
+                        ) : (
+                          <Button asChild variant="outline" size="sm">
+                            <a href={getAttachmentHref(anexo)} target="_blank" rel="noreferrer">
+                              Abrir anexo
+                            </a>
+                          </Button>
+                        )}
                         <Button
                           type="button"
                           variant="ghost"

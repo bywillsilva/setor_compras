@@ -11,7 +11,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "node ./scripts/start.mjs",
-    "lint": "npx tsc --noEmit"
+    "lint": "npx tsc --noEmit",
+    "repair:attachments": "node ./scripts/repair-attachments.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

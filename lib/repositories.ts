@@ -1,5 +1,7 @@
+import { access } from 'fs/promises'
 import { format, isAfter, isBefore, parseISO, subMonths } from 'date-fns'
 import type { PoolConnection, ResultSetHeader } from 'mysql2/promise'
+import { isExternalAttachmentUrl, isSupabaseAttachmentUrl, resolveLocalAttachmentPath } from '@/lib/attachments'
 import { hashPassword } from '@/lib/auth/password'
 import { getDatabaseType, getMySQLPool, getSupabaseClient, queryMySQL, type DatabaseType } from '@/lib/db'
 import {
@@ -1115,7 +1117,7 @@ export async function listHistoricoByCompraId(compraId: number): Promise<Histori
 export async function listAnexosByCompraId(compraId: number): Promise<Anexo[]> {
   if (getDatabaseType() === 'mysql') {
     const rows = await mysqlSelect('SELECT * FROM anexos WHERE compra_id = ? ORDER BY created_at DESC', [compraId])
-    return rows.map(normalizeAnexo)
+    return annotateAnexoAvailability(rows.map(normalizeAnexo))
   }
 
   const client = getSupabaseOrThrow()
@@ -1125,7 +1127,7 @@ export async function listAnexosByCompraId(compraId: number): Promise<Anexo[]> {
     .eq('compra_id', compraId)
     .order('created_at', { ascending: false })
   throwIfSupabaseError(error)
-  return (data ?? []).map((row: Row) => normalizeAnexo(row))
+  return annotateAnexoAvailability((data ?? []).map((row: Row) => normalizeAnexo(row)))
 }
 
 export async function getAnexoById(compraId: number, anexoId: number): Promise<Anexo | null> {
@@ -2273,6 +2275,34 @@ function normalizeAnexo(row: Row): Anexo {
     arquivo_url: String(row.arquivo_url ?? ''),
     nome_arquivo: String(row.nome_arquivo ?? ''),
     created_at: toDateTimeString(row.created_at),
+  }
+}
+
+async function annotateAnexoAvailability(anexos: Anexo[]) {
+  return Promise.all(
+    anexos.map(async (anexo) => ({
+      ...anexo,
+      disponivel: await isAnexoAvailable(anexo.arquivo_url),
+    })),
+  )
+}
+
+async function isAnexoAvailable(arquivoUrl: string) {
+  if (isSupabaseAttachmentUrl(arquivoUrl) || isExternalAttachmentUrl(arquivoUrl)) {
+    return true
+  }
+
+  const localPath = resolveLocalAttachmentPath(arquivoUrl)
+
+  if (!localPath) {
+    return false
+  }
+
+  try {
+    await access(localPath)
+    return true
+  } catch {
+    return false
   }
 }
 

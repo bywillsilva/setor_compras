@@ -79,6 +79,7 @@ export interface Anexo {
   arquivo_url: string
   nome_arquivo: string
   created_at: string
+  disponivel?: boolean
 }
 
 export interface Usuario {
