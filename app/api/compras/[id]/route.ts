@@ -38,6 +38,17 @@ export async function PUT(
 ) {
   try {
     const body = await request.json()
+    const quoteEditableFields = [
+      'fornecedor',
+      'descricao',
+      'data_envio_fornecedor',
+      'valor_categoria_perfis',
+      'valor_categoria_vidros',
+      'valor_categoria_acessorios',
+      'valor_categoria_perdas',
+      'valor_categoria_outros',
+    ] as const
+    const bodyKeys = Object.keys(body)
     const isAuthorizationUpdate = body.status === 'pedido_autorizado'
     const isDeliveryRevision =
       body.status_entrega !== undefined ||
@@ -45,11 +56,16 @@ export async function PUT(
       body.previsao_entrega !== undefined ||
       body.numero_pedido !== undefined ||
       body.motivo_revisao !== undefined
+    const isQuoteOperationalUpdate =
+      bodyKeys.length > 0 &&
+      bodyKeys.every((key) => quoteEditableFields.includes(key as (typeof quoteEditableFields)[number]))
 
     const guard = isAuthorizationUpdate
       ? await requireFeature(request, 'autorizacoes')
       : isDeliveryRevision
         ? await requireFeature(request, 'revisar_entrega')
+        : isQuoteOperationalUpdate
+          ? await requireAnyFeature(request, ['compras', 'editar_compra'])
         : await requireFeature(request, 'editar_compra')
 
     if ('response' in guard) {
@@ -57,6 +73,11 @@ export async function PUT(
     }
 
     const { id } = await params
+    const compraAtual = isQuoteOperationalUpdate ? await getCompraDetail(Number(id)) : null
+
+    if (isQuoteOperationalUpdate && !compraAtual) {
+      return NextResponse.json({ error: 'Compra nao encontrada.' }, { status: 404 })
+    }
 
     if (typeof body.arquivado === 'boolean') {
       const archiveGuard = await requireFeature(request, 'editar_compra')
@@ -69,6 +90,36 @@ export async function PUT(
         message: result.archived ? 'Pedido arquivado com sucesso.' : 'Pedido desarquivado com sucesso.',
         archived: result.archived,
       })
+    }
+
+    if (isQuoteOperationalUpdate && guard.session.perfil !== 'admin' && compraAtual?.status === 'pedido_autorizado') {
+      return NextResponse.json(
+        { error: 'Depois da autorizacao final, alteracoes da cotacao exigem aprovacao administrativa.' },
+        { status: 403 },
+      )
+    }
+
+    if (!isAuthorizationUpdate && !isDeliveryRevision && guard.session.perfil !== 'admin') {
+      if (isQuoteOperationalUpdate) {
+        await updateCompra(Number(id), {
+          fornecedor: body.fornecedor,
+          descricao: body.descricao,
+          data_envio_fornecedor: body.data_envio_fornecedor,
+          valor_categoria_perfis: body.valor_categoria_perfis,
+          valor_categoria_vidros: body.valor_categoria_vidros,
+          valor_categoria_acessorios: body.valor_categoria_acessorios,
+          valor_categoria_perdas: body.valor_categoria_perdas,
+          valor_categoria_outros: body.valor_categoria_outros,
+          usuario: guard.session.nome,
+        })
+
+        return NextResponse.json({ message: 'Dados operacionais da cotacao atualizados com sucesso.' })
+      }
+
+      return NextResponse.json(
+        { error: 'Alteracoes sensiveis em compras exigem aprovacao administrativa.' },
+        { status: 403 },
+      )
     }
 
     await updateCompra(Number(id), {
@@ -108,6 +159,13 @@ export async function DELETE(
     const guard = await requireFeature(request, 'editar_compra')
     if ('response' in guard) {
       return guard.response
+    }
+
+    if (guard.session.perfil !== 'admin') {
+      return NextResponse.json(
+        { error: 'Exclusoes de compras exigem aprovacao administrativa.' },
+        { status: 403 },
+      )
     }
 
     const { id } = await params

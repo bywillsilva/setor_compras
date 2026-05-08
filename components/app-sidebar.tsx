@@ -15,6 +15,7 @@ import {
   LogOut,
   Package,
   Settings,
+  ShieldCheck,
   ShoppingCart,
   Truck,
   Users,
@@ -29,6 +30,7 @@ type NavigationItem = {
   href: string
   icon: typeof LayoutDashboard
   feature: AppFeature
+  exact?: boolean
 }
 
 const NAVIGATION_ITEMS: NavigationItem[] = [
@@ -41,6 +43,14 @@ const NAVIGATION_ITEMS: NavigationItem[] = [
   { name: "Financeiro", href: "/financeiro", icon: Landmark, feature: "financeiro" },
   { name: "Entregas", href: "/entregas", icon: Truck, feature: "entregas" },
   { name: "Orcamentos", href: "/orcamentos", icon: Calculator, feature: "orcamentos" },
+]
+
+const ADMIN_FOOTER_ITEMS = [
+  {
+    name: "Fila administrativa",
+    href: "/configuracoes/solicitacoes-sensiveis",
+    icon: ShieldCheck,
+  },
 ]
 
 export function AppSidebar({
@@ -105,7 +115,7 @@ export function AppSidebar({
 
         <nav className="flex-1 space-y-1 px-3 py-4">
           {navigation.map((item) => {
-            const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(`${item.href}/`))
+            const isActive = isSidebarItemActive(pathname, item.href, item.exact)
 
             return (
               <Link
@@ -128,13 +138,39 @@ export function AppSidebar({
         </nav>
 
         <div className="border-t border-sidebar-border p-3">
+          {session.perfil === "admin" &&
+            ADMIN_FOOTER_ITEMS.map((item) => {
+              const isActive = isSidebarItemActive(pathname, item.href)
+
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  title={collapsed ? item.name : undefined}
+                  className={cn(
+                    "flex rounded-lg text-sm transition-colors",
+                    collapsed ? "justify-center px-2 py-3" : "items-center gap-3 px-3 py-2",
+                    isActive
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
+                  )}
+                >
+                  <item.icon className="h-5 w-5 shrink-0" />
+                  {!collapsed && item.name}
+                </Link>
+              )
+            })}
+
           {hasFeatureAccess(session.perfil, "configuracoes", session.features) && (
             <Link
               href="/configuracoes"
               title={collapsed ? "Configuracoes" : undefined}
               className={cn(
-                "flex rounded-lg text-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
+                "flex rounded-lg text-sm transition-colors",
                 collapsed ? "justify-center px-2 py-3" : "items-center gap-3 px-3 py-2",
+                isSidebarItemActive(pathname, "/configuracoes", true)
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
               )}
             >
               <Settings className="h-5 w-5 shrink-0" />
@@ -163,4 +199,16 @@ export function AppSidebar({
 
 function getNavigation(perfil: PerfilUsuario, features: AppFeature[]) {
   return NAVIGATION_ITEMS.filter((item) => hasFeatureAccess(perfil, item.feature, features))
+}
+
+function isSidebarItemActive(pathname: string, href: string, exact = false) {
+  if (href === "/") {
+    return pathname === "/"
+  }
+
+  if (exact) {
+    return pathname === href
+  }
+
+  return pathname === href || pathname.startsWith(`${href}/`)
 }

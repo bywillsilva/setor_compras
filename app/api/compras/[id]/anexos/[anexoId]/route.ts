@@ -19,6 +19,12 @@ export async function DELETE(
     if (accessError) {
       return accessError
     }
+
+    const session = await getRequestSession(request)
+    if (!session || session.perfil !== 'admin') {
+      return NextResponse.json({ error: 'A exclusao de anexos exige autorizacao administrativa.' }, { status: 403 })
+    }
+
     const attachmentId = Number(anexoId)
     const anexo = await getAnexoById(compraId, attachmentId)
 

@@ -4,19 +4,25 @@ import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
-import { CheckCircle2, ClipboardList, Eye, Loader2, Plus, Search } from "lucide-react"
+import { CheckCircle2, ClipboardList, Eye, Loader2, Plus } from "lucide-react"
 import { useCurrentSession } from "@/components/auth-provider"
 import { DateRangeFilter } from "@/components/shared/date-range-filter"
+import { ListFilterField, ListFilterGrid, ListFilterPanel } from "@/components/shared/list-filter-panel"
+import { PageHeader, SectionCard, SummaryMetricCard } from "@/components/shared/page-layout"
 import { RowActionsMenu } from "@/components/shared/row-actions-menu"
+import { SortableTableHead, TableFilterInput, type SortDirection } from "@/components/shared/table-tools"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { hasFeatureAccess } from "@/lib/auth/permissions"
-import { matchesDateRange } from "@/lib/date-range"
 import {
   ETAPA_FLUXO_BADGE_CLASSES,
   ETAPA_FLUXO_LABELS,
@@ -25,24 +31,25 @@ import {
 } from "@/lib/domain"
 import type { Compra } from "@/lib/types"
 
-const SORT_OPTIONS = {
-  atualizacao_desc: "Atualizacao mais recente",
-  atualizacao_asc: "Atualizacao mais antiga",
-  cliente_az: "Cliente A-Z",
-  proposta_az: "Proposta A-Z",
-} as const
-
-type SortOption = keyof typeof SORT_OPTIONS
+type SortColumn = "solicitacao" | "cliente" | "fornecedor" | "atualizado"
 
 export default function SolicitacoesPage() {
   const session = useCurrentSession()
   const [compras, setCompras] = useState<Compra[]>([])
   const [loading, setLoading] = useState(true)
   const [processingId, setProcessingId] = useState<number | null>(null)
-  const [search, setSearch] = useState("")
-  const [dateFrom, setDateFrom] = useState("")
-  const [dateTo, setDateTo] = useState("")
-  const [sortBy, setSortBy] = useState<SortOption>("atualizacao_desc")
+  const [filters, setFilters] = useState({
+    solicitacao: "",
+    cliente: "",
+    fornecedor: "",
+    etapa: "todos",
+    updatedFrom: "",
+    updatedTo: "",
+  })
+  const [sort, setSort] = useState<{ column: SortColumn; direction: SortDirection }>({
+    column: "atualizado",
+    direction: "desc",
+  })
 
   const canCreateSolicitacao = Boolean(session && hasFeatureAccess(session.perfil, "solicitacoes", session.features))
 
@@ -63,7 +70,7 @@ export default function SolicitacoesPage() {
   }
 
   useEffect(() => {
-    fetchSolicitacoes()
+    void fetchSolicitacoes()
   }, [])
 
   async function handleApprove(compraId: number) {
@@ -86,26 +93,37 @@ export default function SolicitacoesPage() {
     }
   }
 
-  const filteredCompras = useMemo(
-    () =>
-      compras
-        .filter((compra) => {
-          const term = search.trim().toLowerCase()
-          if (!term) {
-            return true
-          }
+  const filteredCompras = useMemo(() => {
+    return [...compras]
+      .filter((compra) => {
+        const matchesSolicitacao =
+          !filters.solicitacao ||
+          `#${compra.id}`.toLowerCase().includes(filters.solicitacao.toLowerCase()) ||
+          (compra.proposta_nome ?? "").toLowerCase().includes(filters.solicitacao.toLowerCase())
 
-          return (
-            compra.descricao.toLowerCase().includes(term) ||
-            compra.fornecedor.toLowerCase().includes(term) ||
-            compra.cliente_nome?.toLowerCase().includes(term) ||
-            compra.proposta_nome?.toLowerCase().includes(term)
-          )
-        })
-        .filter((compra) => matchesDateRange(compra.updated_at, dateFrom, dateTo))
-        .sort((left, right) => sortCompras(left, right, sortBy)),
-    [compras, dateFrom, dateTo, search, sortBy],
-  )
+        const matchesCliente =
+          !filters.cliente || (compra.cliente_nome ?? "").toLowerCase().includes(filters.cliente.toLowerCase())
+
+        const matchesFornecedor =
+          !filters.fornecedor ||
+          compra.fornecedor.toLowerCase().includes(filters.fornecedor.toLowerCase()) ||
+          compra.descricao.toLowerCase().includes(filters.fornecedor.toLowerCase())
+
+        const matchesEtapa = filters.etapa === "todos" || compra.etapa_fluxo === filters.etapa
+        const matchesUpdatedFrom = !filters.updatedFrom || compra.updated_at.slice(0, 10) >= filters.updatedFrom
+        const matchesUpdatedTo = !filters.updatedTo || compra.updated_at.slice(0, 10) <= filters.updatedTo
+
+        return (
+          matchesSolicitacao &&
+          matchesCliente &&
+          matchesFornecedor &&
+          matchesEtapa &&
+          matchesUpdatedFrom &&
+          matchesUpdatedTo
+        )
+      })
+      .sort((left, right) => sortCompras(left, right, sort))
+  }, [compras, filters, sort])
 
   const resumo = useMemo(
     () => ({
@@ -123,6 +141,13 @@ export default function SolicitacoesPage() {
     [filteredCompras],
   )
 
+  function toggleSort(column: SortColumn) {
+    setSort((current) => ({
+      column,
+      direction: current.column === column && current.direction === "asc" ? "desc" : "asc",
+    }))
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
@@ -133,205 +158,238 @@ export default function SolicitacoesPage() {
 
   return (
     <div className="space-y-6 p-6">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Solicitacoes</h1>
-          <p className="text-muted-foreground">
-            Registre a necessidade de material da obra e acompanhe a aprovacao da cotacao pelo seu setor.
-          </p>
-        </div>
-
-        {canCreateSolicitacao && (
-          <Link href="/solicitacoes/novo">
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Nova solicitacao
-            </Button>
-          </Link>
-        )}
-      </div>
+      <PageHeader
+        title="Solicitacoes"
+        description="Registre a necessidade de material da obra e acompanhe a aprovacao da cotacao pelo seu setor."
+        actions={
+          canCreateSolicitacao ? (
+            <Link href="/solicitacoes/novo">
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                Nova solicitacao
+              </Button>
+            </Link>
+          ) : null
+        }
+      />
 
       <div className="grid gap-4 md:grid-cols-3">
-        <SummaryCard title="Solicitacoes" value={resumo.total} description="Pedidos registrados por voce" />
-        <SummaryCard title="Em cotacao" value={resumo.emCotacao} description="Aguardando retorno do comprador" />
-        <SummaryCard title="Em analise" value={resumo.emAnalise} description="Aguardando sua aprovacao" />
+        <SummaryMetricCard title="Registradas" value={resumo.total} description="Solicitacoes abertas nesta visao" />
+        <SummaryMetricCard title="Em cotacao" value={resumo.emCotacao} description="Aguardando retorno do comprador" />
+        <SummaryMetricCard title="Em analise" value={resumo.emAnalise} description="Aguardando sua assinatura" />
       </div>
 
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-3 md:flex-row">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar por cliente, proposta, fornecedor ou descricao..."
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  className="pl-10"
-                />
-              </div>
-              <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortOption)}>
-                <SelectTrigger className="w-full md:w-[220px]">
-                  <SelectValue placeholder="Ordenacao" />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(SORT_OPTIONS).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
+      <SectionCard title="Fila de solicitacoes" description={`${filteredCompras.length} pedido(s) nesta visao`}>
+        <ListFilterPanel
+          trailing={
             <DateRangeFilter
-              startDate={dateFrom}
-              endDate={dateTo}
-              onStartDateChange={setDateFrom}
-              onEndDateChange={setDateTo}
-              onClear={() => {
-                setDateFrom("")
-                setDateTo("")
-              }}
+              startDate={filters.updatedFrom}
+              endDate={filters.updatedTo}
+              onStartDateChange={(value) => setFilters((current) => ({ ...current, updatedFrom: value }))}
+              onEndDateChange={(value) => setFilters((current) => ({ ...current, updatedTo: value }))}
+              onClear={() => setFilters((current) => ({ ...current, updatedFrom: "", updatedTo: "" }))}
               startLabel="Atualizado de"
               endLabel="Atualizado ate"
             />
+          }
+        >
+          <ListFilterGrid columns="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <ListFilterField label="Solicitacao">
+              <TableFilterInput
+                value={filters.solicitacao}
+                onChange={(value) => setFilters((current) => ({ ...current, solicitacao: value }))}
+                placeholder="ID ou proposta"
+              />
+            </ListFilterField>
+
+            <ListFilterField label="Cliente">
+              <TableFilterInput
+                value={filters.cliente}
+                onChange={(value) => setFilters((current) => ({ ...current, cliente: value }))}
+                placeholder="Filtrar cliente"
+              />
+            </ListFilterField>
+
+            <ListFilterField label="Fornecedor ou material">
+              <TableFilterInput
+                value={filters.fornecedor}
+                onChange={(value) => setFilters((current) => ({ ...current, fornecedor: value }))}
+                placeholder="Fornecedor ou material"
+              />
+            </ListFilterField>
+
+            <ListFilterField label="Etapa">
+              <Select value={filters.etapa} onValueChange={(value) => setFilters((current) => ({ ...current, etapa: value }))}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="Todas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todas</SelectItem>
+                  <SelectItem value="solicitacao_registrada">Registrada</SelectItem>
+                  <SelectItem value="cotacao_em_andamento">Em cotacao</SelectItem>
+                  <SelectItem value="analise_solicitante">Em analise</SelectItem>
+                  <SelectItem value="retificacao">Retificacao</SelectItem>
+                  <SelectItem value="aprovada_solicitante">Aprovada</SelectItem>
+                </SelectContent>
+              </Select>
+            </ListFilterField>
+          </ListFilterGrid>
+        </ListFilterPanel>
+        {filteredCompras.length === 0 ? (
+          <div className="space-y-4 rounded-lg border border-dashed p-10 text-center text-muted-foreground">
+            <p>Nenhuma solicitacao encontrada para os filtros atuais.</p>
+            {canCreateSolicitacao ? (
+              <Link href="/solicitacoes/novo">
+                <Button variant="outline">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Registrar nova solicitacao
+                </Button>
+              </Link>
+            ) : null}
           </div>
-        </CardContent>
-      </Card>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>
+                    <SortableTableHead
+                      label="Solicitacao"
+                      isActive={sort.column === "solicitacao"}
+                      direction={sort.direction}
+                      onClick={() => toggleSort("solicitacao")}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <SortableTableHead
+                      label="Cliente"
+                      isActive={sort.column === "cliente"}
+                      direction={sort.direction}
+                      onClick={() => toggleSort("cliente")}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <SortableTableHead
+                      label="Fornecedor"
+                      isActive={sort.column === "fornecedor"}
+                      direction={sort.direction}
+                      onClick={() => toggleSort("fornecedor")}
+                    />
+                  </TableHead>
+                  <TableHead>Situacao</TableHead>
+                  <TableHead>
+                    <SortableTableHead
+                      label="Atualizado"
+                      isActive={sort.column === "atualizado"}
+                      direction={sort.direction}
+                      onClick={() => toggleSort("atualizado")}
+                    />
+                  </TableHead>
+                  <TableHead className="text-right">Acoes</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredCompras.map((compra) => {
+                  const isProcessing = processingId === compra.id
+                  const canApprove = session?.userId === compra.solicitante_id && compra.etapa_fluxo === "analise_solicitante"
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Suas solicitacoes</CardTitle>
-          <CardDescription>{filteredCompras.length} pedido(s) nesta visao</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {filteredCompras.length === 0 ? (
-            <div className="space-y-4 rounded-lg border border-dashed p-10 text-center text-muted-foreground">
-              <p>Nenhuma solicitacao encontrada para os filtros atuais.</p>
-              {canCreateSolicitacao && (
-                <div>
-                  <Link href="/solicitacoes/novo">
-                    <Button variant="outline">
-                      <Plus className="mr-2 h-4 w-4" />
-                      Registrar nova solicitacao
-                    </Button>
-                  </Link>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Solicitacao</TableHead>
-                    <TableHead>Cliente</TableHead>
-                    <TableHead>Fornecedor</TableHead>
-                    <TableHead>Situacao</TableHead>
-                    <TableHead>Atualizado</TableHead>
-                    <TableHead className="text-right">Acoes</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredCompras.map((compra) => {
-                    const isProcessing = processingId === compra.id
-                    const canApprove = session?.userId === compra.solicitante_id && compra.etapa_fluxo === "analise_solicitante"
-
-                    return (
-                      <TableRow key={compra.id}>
-                        <TableCell>
-                          <div className="space-y-1">
-                            <div className="font-mono text-sm font-medium">#{compra.id}</div>
-                            <div className="text-xs text-muted-foreground">{compra.proposta_nome}</div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="space-y-1">
-                            <div className="font-medium">{compra.cliente_nome}</div>
-                            {compra.solicitado_por && (
-                              <div className="text-xs text-muted-foreground">Registrada por {compra.solicitado_por}</div>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>{compra.fornecedor}</TableCell>
-                        <TableCell>
-                          <div className="space-y-2">
-                            <Badge className={ETAPA_FLUXO_BADGE_CLASSES[compra.etapa_fluxo]}>
-                              {ETAPA_FLUXO_LABELS[compra.etapa_fluxo]}
-                            </Badge>
+                  return (
+                    <TableRow key={compra.id}>
+                      <TableCell>
+                        <div className="space-y-1">
+                          <div className="font-mono text-sm font-medium">#{compra.id}</div>
+                          <div className="text-xs text-muted-foreground">{compra.proposta_nome}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-medium">{compra.cliente_nome}</TableCell>
+                      <TableCell>
+                        <div className="space-y-1">
+                          <div>{compra.fornecedor}</div>
+                          <div className="text-xs text-muted-foreground">{compra.descricao}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-2">
+                          <Badge className={ETAPA_FLUXO_BADGE_CLASSES[compra.etapa_fluxo]}>
+                            {ETAPA_FLUXO_LABELS[compra.etapa_fluxo]}
+                          </Badge>
+                          {shouldShowSolicitacaoStatus(compra) ? (
                             <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
-                          </div>
-                        </TableCell>
-                        <TableCell>{format(new Date(compra.updated_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}</TableCell>
-                        <TableCell className="text-right">
-                          <RowActionsMenu label={`Acoes da solicitacao ${compra.id}`}>
-                            <DropdownMenuItem asChild>
-                              <Link href={`/solicitacoes/${compra.id}`}>
-                                <Eye className="h-4 w-4" />
-                                Abrir solicitacao
-                              </Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell>{format(new Date(compra.updated_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}</TableCell>
+                      <TableCell className="text-right">
+                        <RowActionsMenu label={`Acoes da solicitacao ${compra.id}`}>
+                          <DropdownMenuItem asChild>
+                            <Link href={`/solicitacoes/${compra.id}`}>
+                              <Eye className="h-4 w-4" />
+                              Abrir solicitacao
+                            </Link>
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
 
-                            {canApprove ? (
-                              <DropdownMenuItem onClick={() => handleApprove(compra.id)} disabled={isProcessing}>
-                                {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                                {isProcessing ? "Aprovando..." : "Aprovar solicitacao de compra"}
-                              </DropdownMenuItem>
-                            ) : (
-                              <DropdownMenuItem disabled>
-                                <ClipboardList className="h-4 w-4" />
-                                Sem acao imediata
-                              </DropdownMenuItem>
-                            )}
-                          </RowActionsMenu>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                          {canApprove ? (
+                            <DropdownMenuItem onClick={() => handleApprove(compra.id)} disabled={isProcessing}>
+                              {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                              {isProcessing ? "Aprovando..." : "Aprovar solicitacao de compra"}
+                            </DropdownMenuItem>
+                          ) : (
+                            <DropdownMenuItem disabled>
+                              <ClipboardList className="h-4 w-4" />
+                              Sem acao imediata
+                            </DropdownMenuItem>
+                          )}
+                        </RowActionsMenu>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </SectionCard>
     </div>
   )
 }
 
-function sortCompras(left: Compra, right: Compra, sortBy: SortOption) {
-  switch (sortBy) {
-    case "atualizacao_asc":
-      return new Date(left.updated_at).getTime() - new Date(right.updated_at).getTime()
-    case "cliente_az":
-      return (left.cliente_nome ?? "").localeCompare(right.cliente_nome ?? "", "pt-BR")
-    case "proposta_az":
-      return (left.proposta_nome ?? "").localeCompare(right.proposta_nome ?? "", "pt-BR")
-    case "atualizacao_desc":
+function sortCompras(
+  left: Compra,
+  right: Compra,
+  sort: { column: SortColumn; direction: SortDirection },
+) {
+  const modifier = sort.direction === "asc" ? 1 : -1
+
+  switch (sort.column) {
+    case "solicitacao":
+      return (`#${left.id}`.localeCompare(`#${right.id}`, "pt-BR")) * modifier
+    case "cliente":
+      return ((left.cliente_nome ?? "").localeCompare(right.cliente_nome ?? "", "pt-BR")) * modifier
+    case "fornecedor":
+      return left.fornecedor.localeCompare(right.fornecedor, "pt-BR") * modifier
+    case "atualizado":
     default:
-      return new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()
+      return (new Date(left.updated_at).getTime() - new Date(right.updated_at).getTime()) * modifier
   }
 }
 
-function SummaryCard({
-  title,
-  value,
-  description,
-}: {
-  title: string
-  value: number | string
-  description: string
-}) {
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardDescription>{title}</CardDescription>
-        <CardTitle className="text-3xl">{value}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p className="text-sm text-muted-foreground">{description}</p>
-      </CardContent>
-    </Card>
-  )
+function shouldShowSolicitacaoStatus(compra: Compra) {
+  if (compra.etapa_fluxo === "cotacao_em_andamento" && compra.status === "cotacao") {
+    return false
+  }
+
+  if (compra.etapa_fluxo === "analise_solicitante" && compra.status === "em_analise") {
+    return false
+  }
+
+  if (compra.etapa_fluxo === "retificacao" && compra.status === "retificacao") {
+    return false
+  }
+
+  if (compra.etapa_fluxo === "pedido_autorizado" && compra.status === "pedido_autorizado") {
+    return false
+  }
+
+  return true
 }

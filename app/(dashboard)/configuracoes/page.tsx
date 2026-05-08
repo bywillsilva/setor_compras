@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useEffect, useState, type ReactNode } from "react"
 import {
   AlertCircle,
@@ -9,6 +10,7 @@ import {
   Loader2,
   RefreshCw,
   Settings2,
+  ShieldCheck,
   Users,
 } from "lucide-react"
 import { useCurrentSession } from "@/components/auth-provider"
@@ -49,7 +51,7 @@ import {
   LOCKED_ADMIN_FEATURES,
   PERFIL_LABELS,
 } from "@/lib/auth/permissions"
-import type { AppFeature, PerfilUsuario } from "@/lib/types"
+import type { AppFeature, PerfilUsuario, SolicitacaoSensivel } from "@/lib/types"
 
 type DatabaseStatus = {
   configured: boolean
@@ -97,6 +99,9 @@ export default function ConfiguracoesPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingUsuario, setEditingUsuario] = useState<UsuarioResumo | null>(null)
   const [userFormData, setUserFormData] = useState(EMPTY_USER_FORM)
+  const [pendingSensitiveRequests, setPendingSensitiveRequests] = useState<SolicitacaoSensivel[]>([])
+  const [loadingSensitiveRequests, setLoadingSensitiveRequests] = useState(false)
+  const [sensitiveRequestsError, setSensitiveRequestsError] = useState<string | null>(null)
 
   useEffect(() => {
     checkDatabase()
@@ -106,6 +111,7 @@ export default function ConfiguracoesPage() {
     if (session?.perfil === "admin") {
       fetchUsuarios()
       fetchPerfilPermissoes()
+      fetchPendingSensitiveRequests()
     }
   }, [session?.perfil])
 
@@ -176,6 +182,27 @@ export default function ConfiguracoesPage() {
       alert(error instanceof Error ? error.message : "Erro ao carregar permissoes por perfil.")
     } finally {
       setLoadingPermissoes(false)
+    }
+  }
+
+  async function fetchPendingSensitiveRequests() {
+    setLoadingSensitiveRequests(true)
+    setSensitiveRequestsError(null)
+
+    try {
+      const response = await fetch("/api/solicitacoes-sensiveis?status=pendente", { cache: "no-store" })
+      const payload = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "Erro ao carregar fila administrativa.")
+      }
+
+      setPendingSensitiveRequests(Array.isArray(payload) ? payload : [])
+    } catch (error) {
+      setSensitiveRequestsError(error instanceof Error ? error.message : "Erro ao carregar fila administrativa.")
+      setPendingSensitiveRequests([])
+    } finally {
+      setLoadingSensitiveRequests(false)
     }
   }
 
@@ -414,6 +441,10 @@ export default function ConfiguracoesPage() {
                   <code className="block rounded bg-amber-100 p-2 text-xs text-amber-900">
                     scripts/migrations/supabase/2026-05-07-workflow-signatures.sql
                   </code>
+                  <p className="mb-2 mt-3 text-sm text-amber-800">Para habilitar a fila administrativa de alteracoes e exclusoes sensiveis:</p>
+                  <code className="block rounded bg-amber-100 p-2 text-xs text-amber-900">
+                    scripts/migrations/supabase/2026-05-08-sensitive-change-requests.sql
+                  </code>
                   <p className="mb-2 mt-3 text-sm text-amber-800">Se quiser resetar tudo e recriar do zero:</p>
                   <code className="block rounded bg-amber-100 p-2 text-xs text-amber-900">
                     scripts/reset-database-supabase.sql
@@ -469,6 +500,81 @@ APP_ADMIN_PASSWORD="admin123456"`}
           </div>
         </CardContent>
       </Card>
+
+      {session?.perfil === "admin" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5" />
+              Autorizacoes administrativas
+              <Badge variant="outline" className="ml-2">
+                {loadingSensitiveRequests ? "..." : pendingSensitiveRequests.length}
+              </Badge>
+            </CardTitle>
+            <CardDescription>
+              Revise solicitacoes de exclusao e alteracao sensivel enviadas pelos outros setores antes de aplicar qualquer mudanca definitiva.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-muted-foreground">
+                Esta fila centraliza pedidos de alteracao e exclusao em clientes, propostas e compras para manter rastreabilidade e evitar mudancas sem aprovacao.
+              </p>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={fetchPendingSensitiveRequests} disabled={loadingSensitiveRequests}>
+                  {loadingSensitiveRequests ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Atualizando...
+                    </>
+                  ) : (
+                    "Atualizar fila"
+                  )}
+                </Button>
+                <Button asChild>
+                  <Link href="/configuracoes/solicitacoes-sensiveis">
+                    <ShieldCheck className="mr-2 h-4 w-4" />
+                    Revisar solicitacoes
+                  </Link>
+                </Button>
+              </div>
+            </div>
+
+            {sensitiveRequestsError ? (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                {sensitiveRequestsError}
+              </div>
+            ) : loadingSensitiveRequests ? (
+              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                Carregando fila administrativa...
+              </div>
+            ) : pendingSensitiveRequests.length === 0 ? (
+              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                Nenhuma solicitacao sensivel pendente no momento.
+              </div>
+            ) : (
+              <div className="space-y-2 rounded-lg border p-3">
+                <div className="text-sm font-medium text-foreground">
+                  {pendingSensitiveRequests.length} solicitacao(oes) aguardando aprovacao
+                </div>
+                <div className="space-y-2">
+                  {pendingSensitiveRequests.slice(0, 3).map((request) => (
+                    <div key={request.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/40 px-3 py-2 text-sm">
+                      <div>
+                        <span className="font-medium">{request.solicitante_nome}</span>{" "}
+                        <span className="text-muted-foreground">
+                          solicitou {request.acao} de {request.entidade}
+                        </span>
+                      </div>
+                      <Badge variant="outline">#{request.id}</Badge>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {session?.perfil === "admin" && (
         <Card>

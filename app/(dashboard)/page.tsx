@@ -10,21 +10,26 @@ import {
   Clock,
   FileSearch,
   ShoppingCart,
+  ShieldAlert,
   TrendingUp,
   Truck,
 } from "lucide-react"
+import { useCurrentSession } from "@/components/auth-provider"
 import { DashboardChart } from "@/components/dashboard-chart"
 import { SetupBanner } from "@/components/setup-banner"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { STATUS_BADGE_CLASSES, STATUS_LABELS } from "@/lib/domain"
 import type { DashboardData } from "@/lib/types"
 
 export default function DashboardPage() {
+  const session = useCurrentSession()
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [dbConfigured, setDbConfigured] = useState<boolean | null>(null)
+  const [pendingSensitiveApprovals, setPendingSensitiveApprovals] = useState(0)
 
   useEffect(() => {
     async function checkSetup() {
@@ -53,6 +58,30 @@ export default function DashboardPage() {
 
     checkSetup()
   }, [])
+
+  useEffect(() => {
+    if (session?.perfil !== "admin") {
+      setPendingSensitiveApprovals(0)
+      return
+    }
+
+    async function loadSensitiveApprovals() {
+      try {
+        const response = await fetch("/api/solicitacoes-sensiveis?status=pendente", { cache: "no-store" })
+        const payload = await response.json().catch(() => null)
+
+        if (!response.ok) {
+          return
+        }
+
+        setPendingSensitiveApprovals(Array.isArray(payload) ? payload.length : 0)
+      } catch {
+        setPendingSensitiveApprovals(0)
+      }
+    }
+
+    void loadSensitiveApprovals()
+  }, [session?.perfil])
 
   if (loading) {
     return (
@@ -91,6 +120,25 @@ export default function DashboardPage() {
         <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
         <p className="text-muted-foreground">Visão geral do setor de compras corporativas</p>
       </div>
+
+      {session?.perfil === "admin" && pendingSensitiveApprovals > 0 && (
+        <Card className="border-amber-300 bg-amber-50">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-amber-800">
+              <ShieldAlert className="h-5 w-5" />
+              Solicitacoes administrativas pendentes
+            </CardTitle>
+            <CardDescription className="text-amber-700">
+              Existem {pendingSensitiveApprovals} solicitacao(oes) de alteracao ou exclusao aguardando sua aprovacao.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild variant="outline" className="border-amber-300 bg-white text-amber-800 hover:bg-amber-100">
+              <Link href="/configuracoes/solicitacoes-sensiveis">Revisar fila administrativa</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <StatCard

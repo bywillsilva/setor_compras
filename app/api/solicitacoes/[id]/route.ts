@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { requireFeature } from "@/lib/auth/api"
+import { requireAnyFeature } from "@/lib/auth/api"
+import { hasFeatureAccess } from "@/lib/auth/permissions"
 import { getCompraDetail } from "@/lib/repositories"
 
 export async function GET(
@@ -7,7 +8,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const guard = await requireFeature(request, "solicitacoes")
+    const guard = await requireAnyFeature(request, ["solicitacoes", "compras"])
     if ("response" in guard) {
       return guard.response
     }
@@ -19,7 +20,9 @@ export async function GET(
       return NextResponse.json({ error: "Solicitacao nao encontrada." }, { status: 404 })
     }
 
-    if (compra.solicitante_id !== guard.session.userId) {
+    const canViewAsCompras = hasFeatureAccess(guard.session.perfil, "compras", guard.session.features)
+
+    if (!canViewAsCompras && compra.solicitante_id !== guard.session.userId) {
       return NextResponse.json({ error: "Voce nao tem acesso a esta solicitacao." }, { status: 403 })
     }
 

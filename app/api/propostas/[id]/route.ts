@@ -49,6 +49,13 @@ export async function PUT(
       })
     }
 
+    if (guard.session.perfil !== 'admin') {
+      return NextResponse.json(
+        { error: 'Alteracoes sensiveis em propostas exigem aprovacao administrativa.' },
+        { status: 403 },
+      )
+    }
+
     if (!body.cliente_id || !String(body.nome ?? '').trim()) {
       return NextResponse.json({ error: 'Cliente e nome são obrigatórios.' }, { status: 400 })
     }
@@ -83,6 +90,13 @@ export async function DELETE(
     const guard = await requireFeature(request, 'editar_proposta')
     if ('response' in guard) {
       return guard.response
+    }
+
+    if (guard.session.perfil !== 'admin') {
+      return NextResponse.json(
+        { error: 'Exclusoes de propostas exigem aprovacao administrativa.' },
+        { status: 403 },
+      )
     }
 
     const { id } = await params

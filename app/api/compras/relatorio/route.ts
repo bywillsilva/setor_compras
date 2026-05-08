@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { format } from "date-fns"
 import { requireFeature } from "@/lib/auth/api"
 import { matchesDateRange } from "@/lib/date-range"
-import { ETAPA_FLUXO_LABELS, STATUS_LABELS } from "@/lib/domain"
+import { CATEGORIA_LABELS, ETAPA_FLUXO_LABELS } from "@/lib/domain"
 import { listCompras } from "@/lib/repositories"
-import type { Compra, StatusPedido } from "@/lib/types"
+import type { Compra, EtapaFluxoCompra, StatusPedido } from "@/lib/types"
 
 type SortOption =
   | "movimentacao_desc"
@@ -62,15 +62,6 @@ export async function GET(request: NextRequest) {
     const pdf = buildComprasPdf(filteredCompras, {
       generatedBy: guard.session.nome,
       generatedAt: new Date(),
-      filters: {
-        search,
-        status: status ?? "todos",
-        clienteId: clienteId ?? "todos",
-        arquivados: arquivados ?? "ativos",
-        dateFrom,
-        dateTo,
-        sortBy,
-      },
     })
 
     return new NextResponse(pdf, {
@@ -115,49 +106,50 @@ function buildComprasPdf(
   context: {
     generatedBy: string
     generatedAt: Date
-    filters: Record<string, string>
   },
 ) {
+  const concluidos = compras.filter((compra) => compra.status_entrega === "entregue")
+  const emAndamento = compras.filter(
+    (compra) =>
+      compra.status_entrega !== "entregue" &&
+      (compra.status === "pedido_autorizado" ||
+        compra.etapa_fluxo === "liberada_para_fornecedor" ||
+        compra.etapa_fluxo === "pedido_autorizado"),
+  )
+  const aguardandoAutorizacao = compras.filter(
+    (compra) => !concluidos.includes(compra) && !emAndamento.includes(compra),
+  )
+  const observacoes = buildObservations(compras)
+
   const lines = [
-    "Relatorio de compras",
-    `Gerado em: ${format(context.generatedAt, "dd/MM/yyyy HH:mm")}`,
+    "RELATORIO DE ACOMPANHAMENTO DE PEDIDOS",
+    "",
+    `Atualizacao: ${format(context.generatedAt, "dd/MM")}`,
     `Responsavel: ${sanitizeText(context.generatedBy)}`,
-    `Filtros: busca=${context.filters.search || "-"} | status=${context.filters.status} | cliente=${context.filters.clienteId} | arquivados=${context.filters.arquivados}`,
-    `Periodo: ${context.filters.dateFrom || "-"} ate ${context.filters.dateTo || "-"}`,
-    `Ordenacao: ${context.filters.sortBy}`,
-    `Total de pedidos: ${compras.length}`,
+    `Total de pedidos nesta visao: ${compras.length}`,
     "",
   ]
 
-  for (const compra of compras) {
-    const pendencias = [
-      !compra.possui_nf ? "sem NF" : null,
-      !compra.possui_boleto ? "sem boleto" : null,
-      compra.status === "pedido_autorizado" &&
-      compra.possui_nf &&
-      compra.possui_boleto &&
-      !compra.documentos_financeiro_confirmados_em
-        ? "financeiro pendente"
-        : null,
-    ]
-      .filter(Boolean)
-      .join(", ")
+  appendSection(lines, "STATUS: CONCLUIDO", concluidos, formatCompletedEntry)
+  lines.push("------------------------", "")
+  appendSection(lines, "STATUS: EM ANDAMENTO", emAndamento, formatOngoingEntry)
+  lines.push("------------------------", "")
+  appendSection(lines, "STATUS: AGUARDANDO AUTORIZACAO", aguardandoAutorizacao, formatPendingApprovalEntry)
+  lines.push("------------------------", "", "OBSERVACOES", "")
 
-    lines.push(
-      `Pedido #${compra.id} | Cliente: ${sanitizeText(compra.cliente_nome ?? "-")} | Proposta: ${sanitizeText(compra.proposta_nome ?? "-")}`,
-      `Fornecedor: ${sanitizeText(compra.fornecedor)} | Valor: ${formatCurrency(compra.valor_total)} | Status: ${STATUS_LABELS[compra.status]}`,
-      `Fluxo: ${ETAPA_FLUXO_LABELS[compra.etapa_fluxo]} | Atualizacao: ${format(new Date(compra.updated_at), "dd/MM/yyyy HH:mm")}`,
-      `Pedido fornecedor: ${sanitizeText(compra.numero_pedido ?? "pendente")} | Previsao: ${sanitizeText(compra.previsao_entrega ?? "-")} | Entrega: ${sanitizeText(compra.status_entrega)}`,
-      `Pendencias: ${pendencias || "nenhuma"}`,
-      `Descricao: ${sanitizeText(compra.descricao || "-")}`,
-      "",
-    )
+  if (observacoes.length === 0) {
+    lines.push("- Sem observacoes adicionais nesta visao.")
+  } else {
+    for (const observacao of observacoes) {
+      lines.push(`- ${observacao}`)
+    }
   }
 
   return buildSimplePdf(lines)
 }
 
 function buildSimplePdf(lines: string[]) {
+  const wrappedLines = lines.flatMap((line) => wrapLine(line, 90))
   const pageHeight = 792
   const top = 760
   const left = 40
@@ -165,8 +157,8 @@ function buildSimplePdf(lines: string[]) {
   const maxLinesPerPage = 48
   const chunks: string[][] = []
 
-  for (let index = 0; index < lines.length; index += maxLinesPerPage) {
-    chunks.push(lines.slice(index, index + maxLinesPerPage))
+  for (let index = 0; index < wrappedLines.length; index += maxLinesPerPage) {
+    chunks.push(wrappedLines.slice(index, index + maxLinesPerPage))
   }
 
   const objects: string[] = []
@@ -219,6 +211,206 @@ function buildSimplePdf(lines: string[]) {
   return new TextEncoder().encode(pdf)
 }
 
+function appendSection(
+  lines: string[],
+  title: string,
+  compras: Compra[],
+  formatter: (compra: Compra) => string[],
+) {
+  lines.push(title, "")
+
+  if (compras.length === 0) {
+    lines.push("- Nenhum pedido nesta situacao.", "")
+    return
+  }
+
+  for (const compra of compras) {
+    lines.push(...formatter(compra), "")
+  }
+}
+
+function formatCompletedEntry(compra: Compra) {
+  return [
+    formatCompraHeading(compra),
+    `OK entregue por ${sanitizeText(compra.fornecedor)} | ${sanitizeText(resolveProductLabel(compra))} -> ${formatShortDate(compra.data_entrega_real ?? compra.updated_at)}`,
+  ]
+}
+
+function formatOngoingEntry(compra: Compra) {
+  return [
+    `Entrega prevista: ${formatShortDate(compra.previsao_entrega)} !`,
+    "",
+    formatCompraHeading(compra),
+    "",
+    `* Fornecedor: ${sanitizeText(compra.fornecedor)}`,
+    `* Produto: ${sanitizeText(resolveProductLabel(compra))}`,
+    `  Local: ${sanitizeText(resolveDeliveryLocation(compra))}`,
+    `  Situacao: ${sanitizeText(resolveOngoingStatus(compra))}`,
+  ]
+}
+
+function formatPendingApprovalEntry(compra: Compra) {
+  return [
+    formatCompraHeading(compra),
+    "",
+    `* Fornecedor: ${sanitizeText(compra.fornecedor)}`,
+    `* Produto: ${sanitizeText(resolveProductLabel(compra))}`,
+    `  Etapa: ${sanitizeText(resolvePendingApprovalLabel(compra.etapa_fluxo))}`,
+    `  Atualizado em: ${formatDateTime(compra.updated_at)}`,
+  ]
+}
+
+function formatCompraHeading(compra: Compra) {
+  const cliente = sanitizeText(compra.cliente_nome ?? "Cliente nao informado")
+  const proposta = sanitizeText(compra.proposta_nome ?? "")
+  return proposta ? `${cliente} - ${proposta}` : cliente
+}
+
+function resolveProductLabel(compra: Compra) {
+  const description = compra.descricao?.trim()
+  if (description) {
+    return description
+  }
+
+  return CATEGORIA_LABELS[compra.categoria]
+}
+
+function resolveDeliveryLocation(_compra: Compra) {
+  return "Nao informado"
+}
+
+function resolveOngoingStatus(compra: Compra) {
+  if (!compra.possui_nf || !compra.possui_boleto) {
+    const pendencias = [
+      !compra.possui_nf ? "NF pendente" : null,
+      !compra.possui_boleto ? "boleto pendente" : null,
+    ]
+      .filter(Boolean)
+      .join(" e ")
+    return pendencias || "Em andamento"
+  }
+
+  if (!compra.documentos_financeiro_confirmados_em) {
+    return "Aguardando baixa do financeiro"
+  }
+
+  return "Em rota de entrega"
+}
+
+function resolvePendingApprovalLabel(etapaFluxo: EtapaFluxoCompra) {
+  switch (etapaFluxo) {
+    case "solicitacao_registrada":
+      return "Solicitacao registrada e aguardando inicio da cotacao"
+    case "cotacao_em_andamento":
+      return "Cotacao em andamento com o fornecedor"
+    case "analise_solicitante":
+      return "Aguardando aprovacao do solicitante"
+    case "retificacao":
+      return "Em retificacao"
+    case "aprovada_solicitante":
+      return "Aprovada pelo solicitante e pronta para envio ao ADM"
+    case "aguardando_admin":
+      return "Aguardando aprovacao do ADM"
+    case "aprovada_admin":
+      return "Aprovada pelo ADM e pronta para envio ao financeiro"
+    case "aguardando_financeiro":
+      return "Aguardando aprovacao do financeiro"
+    case "liberada_para_fornecedor":
+      return "Liberada para fechamento com o fornecedor"
+    case "pedido_autorizado":
+      return "Pedido autorizado"
+    default:
+      return ETAPA_FLUXO_LABELS[etapaFluxo]
+  }
+}
+
+function buildObservations(compras: Compra[]) {
+  const notes: string[] = []
+
+  for (const compra of compras) {
+    const heading = formatCompraHeading(compra)
+
+    if (compra.etapa_fluxo === "analise_solicitante") {
+      notes.push(`${heading} aguardando assinatura do solicitante para seguir ao ADM.`)
+    } else if (compra.etapa_fluxo === "aguardando_admin") {
+      notes.push(`${heading} aguardando aprovacao do ADM.`)
+    } else if (compra.etapa_fluxo === "aguardando_financeiro") {
+      notes.push(`${heading} aguardando aprovacao do financeiro.`)
+    } else if (compra.etapa_fluxo === "retificacao") {
+      notes.push(`${heading} retornou para retificacao e precisa de novo envio.`)
+    }
+
+    if (compra.status === "pedido_autorizado" && (!compra.possui_nf || !compra.possui_boleto)) {
+      const pendencias = [
+        !compra.possui_nf ? "nota fiscal" : null,
+        !compra.possui_boleto ? "boleto" : null,
+      ]
+        .filter(Boolean)
+        .join(" e ")
+
+      notes.push(`${heading} esta sem ${pendencias} anexado(s).`)
+    }
+
+    if (
+      compra.status === "pedido_autorizado" &&
+      compra.possui_nf &&
+      compra.possui_boleto &&
+      !compra.documentos_financeiro_confirmados_em
+    ) {
+      notes.push(`${heading} ja possui NF e boleto, mas ainda aguarda baixa do financeiro.`)
+    }
+  }
+
+  return Array.from(new Set(notes))
+}
+
+function formatShortDate(value: string | null) {
+  if (!value) {
+    return "a definir"
+  }
+
+  return format(new Date(value), "dd/MM")
+}
+
+function formatDateTime(value: string) {
+  return format(new Date(value), "dd/MM/yyyy HH:mm")
+}
+
+function wrapLine(line: string, maxLength: number) {
+  const normalizedLine = sanitizeText(line)
+
+  if (!normalizedLine) {
+    return [""]
+  }
+
+  if (normalizedLine.length <= maxLength) {
+    return [normalizedLine]
+  }
+
+  const words = normalizedLine.split(" ")
+  const wrapped: string[] = []
+  let current = ""
+
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word
+    if (next.length <= maxLength) {
+      current = next
+      continue
+    }
+
+    if (current) {
+      wrapped.push(current)
+    }
+    current = word
+  }
+
+  if (current) {
+    wrapped.push(current)
+  }
+
+  return wrapped
+}
+
 function escapePdfText(value: string) {
   return value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)")
 }
@@ -228,15 +420,4 @@ function sanitizeText(value: string) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^\x20-\x7E]/g, " ")
-}
-
-function formatCurrency(value: number | null) {
-  if (!value) {
-    return "-"
-  }
-
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format(Number(value))
 }

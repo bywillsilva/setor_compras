@@ -88,6 +88,8 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
   const canRequestApproval = Boolean(
     session && hasFeatureAccess(session.perfil, "solicitar_autorizacao", session.features),
   )
+  const isAdmin = session?.perfil === "admin"
+  const canManageCotacaoData = Boolean(session && hasFeatureAccess(session.perfil, "compras", session.features))
   const canFinalizeFornecedor = Boolean(
     session && hasFeatureAccess(session.perfil, "autorizacoes", session.features),
   )
@@ -143,6 +145,44 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
     setSaving(true)
 
     try {
+      if (!isAdmin && (!canManageCotacaoData || compra?.status === "pedido_autorizado")) {
+        const motivo = window.prompt("Descreva o motivo da alteracao para enviar ao administrador.")
+        if (motivo === null) {
+          return
+        }
+
+        const response = await fetch("/api/solicitacoes-sensiveis", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            entidade: "compra",
+            entidade_id: Number(id),
+            acao: "editar",
+            motivo: motivo.trim() || "Ajuste dos dados gerais da compra.",
+            payload: {
+              fornecedor: formData.fornecedor,
+              descricao: formData.descricao,
+              data_envio_fornecedor: formData.data_envio_fornecedor || null,
+              valor_categoria_perfis: toNumber(formData.valor_categoria_perfis),
+              valor_categoria_vidros: toNumber(formData.valor_categoria_vidros),
+              valor_categoria_acessorios: toNumber(formData.valor_categoria_acessorios),
+              valor_categoria_perdas: toNumber(formData.valor_categoria_perdas),
+              valor_categoria_outros: toNumber(formData.valor_categoria_outros),
+            },
+          }),
+        })
+
+        const payload = await response.json().catch(() => null)
+
+        if (!response.ok) {
+          throw new Error(payload?.error || "Erro ao solicitar alteracao do pedido.")
+        }
+
+        alert("Solicitacao enviada ao administrador.")
+        resetEditing()
+        return
+      }
+
         const response = await fetch(`/api/compras/${id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -215,13 +255,39 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
       return
     }
 
-    if (!confirm("Deseja excluir este pedido permanentemente? O historico e os anexos vinculados tambem serao removidos.")) {
-      return
-    }
-
     setDeleting(true)
 
     try {
+      if (!isAdmin) {
+        const motivo = window.prompt("Descreva o motivo da exclusao para enviar ao administrador.")
+        if (motivo === null) {
+          return
+        }
+
+        const response = await fetch("/api/solicitacoes-sensiveis", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            entidade: "compra",
+            entidade_id: compra.id,
+            acao: "excluir",
+            motivo: motivo.trim() || "Exclusao solicitada para o pedido de compra.",
+          }),
+        })
+        const payload = await response.json().catch(() => null)
+
+        if (!response.ok) {
+          throw new Error(payload?.error || "Erro ao solicitar exclusao do pedido.")
+        }
+
+        alert("Solicitacao enviada ao administrador.")
+        return
+      }
+
+      if (!confirm("Deseja excluir este pedido permanentemente? O historico e os anexos vinculados tambem serao removidos.")) {
+        return
+      }
+
       const response = await fetch(`/api/compras/${id}`, { method: "DELETE" })
       const payload = await response.json()
 
@@ -427,6 +493,7 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
     { label: "Perdas/Reposicao", value: compra.valor_categoria_perdas },
     { label: "Outros", value: compra.valor_categoria_outros },
   ]
+  const canDirectEditCotacao = canManageCotacaoData && compra.status !== "pedido_autorizado"
 
   return (
     <div className="space-y-6 p-6">
@@ -546,14 +613,16 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
                   Mais acoes
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => setEditing(true)}>Editar dados gerais</DropdownMenuItem>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setEditing(true)}>
+                    {isAdmin ? "Editar dados gerais" : canDirectEditCotacao ? "Editar dados da cotacao" : "Solicitar alteracao"}
+                  </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleArchiveToggle} disabled={togglingArchive}>
                   {compra.arquivado ? "Desarquivar pedido" : "Arquivar pedido"}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem variant="destructive" onClick={handleDelete} disabled={deleting || togglingArchive}>
-                  Excluir pedido
+                  {isAdmin ? "Excluir pedido" : "Solicitar exclusao"}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -571,7 +640,7 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
                 ) : (
                   <>
                     <Save className="mr-2 h-4 w-4" />
-                    Salvar
+                    {isAdmin ? "Salvar" : canDirectEditCotacao ? "Salvar dados da cotacao" : "Enviar para aprovacao"}
                   </>
                 )}
               </Button>
@@ -716,8 +785,12 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
                   <div>
                     <h3 className="font-medium text-foreground">Edicao rapida</h3>
                     <p className="text-sm text-muted-foreground">
-                      Ajuste apenas os dados gerais. A autorizacao e o registro da entrega seguem em etapas proprias.
-                    </p>
+                        {isAdmin
+                          ? "Ajuste apenas os dados gerais. A autorizacao e o registro da entrega seguem em etapas proprias."
+                          : canDirectEditCotacao
+                            ? "Atualize os dados operacionais da cotacao e o rateio desta compra enquanto o pedido ainda nao estiver autorizado."
+                            : "Revise os dados gerais e envie a alteracao para aprovacao administrativa. A autorizacao e a entrega continuam seguindo seus fluxos proprios."}
+                      </p>
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
@@ -852,26 +925,28 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
                             </a>
                           </Button>
                         )}
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => handleDeleteAttachment(anexo)}
-                          disabled={deletingAttachmentId === anexo.id}
-                        >
-                          {deletingAttachmentId === anexo.id ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Excluindo...
-                            </>
-                          ) : (
-                            <>
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Excluir
-                            </>
-                          )}
-                        </Button>
+                        {isAdmin && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => handleDeleteAttachment(anexo)}
+                            disabled={deletingAttachmentId === anexo.id}
+                          >
+                            {deletingAttachmentId === anexo.id ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Excluindo...
+                              </>
+                            ) : (
+                              <>
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Excluir
+                              </>
+                            )}
+                          </Button>
+                        )}
                       </div>
                     </div>
                   ))}

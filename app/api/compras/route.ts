@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
     const id = await createCompra({
       cliente_id: Number(body.cliente_id),
       proposta_id: Number(body.proposta_id),
-      categoria: body.categoria ?? 'outros',
+      categoria: body.categoria,
       fornecedor: String(body.fornecedor).trim(),
       descricao: String(body.descricao).trim(),
       valor_total: body.valor_total ?? null,

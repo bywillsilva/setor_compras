@@ -4,11 +4,13 @@ import { useEffect, useMemo, useState, type ReactNode } from "react"
 import Link from "next/link"
 import { format, parseISO } from "date-fns"
 import { ptBR } from "date-fns/locale"
-import { Eye, FileText, Loader2, Plus, Search } from "lucide-react"
+import { Eye, FileText, Loader2, Plus } from "lucide-react"
 import { DateRangeFilter } from "@/components/shared/date-range-filter"
+import { ListFilterField, ListFilterGrid, ListFilterPanel } from "@/components/shared/list-filter-panel"
+import { PageHeader, SectionCard } from "@/components/shared/page-layout"
+import { SortableTableHead, TableFilterInput, type SortDirection } from "@/components/shared/table-tools"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
@@ -27,15 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { matchesDateRange } from "@/lib/date-range"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import type { Cliente, Proposta } from "@/lib/types"
 
 const ARCHIVE_FILTER_LABELS = {
@@ -56,34 +50,32 @@ const EMPTY_FORM = {
   custo_perdas: "",
 }
 
-const SORT_OPTIONS = {
-  proposta_az: "Proposta A-Z",
-  cliente_az: "Cliente A-Z",
-  cadastro_desc: "Cadastro mais recente",
-  cadastro_asc: "Cadastro mais antigo",
-} as const
-
-type SortOption = keyof typeof SORT_OPTIONS
+type SortColumn = "proposta" | "cliente" | "cadastro" | "previsto"
 
 export default function PropostasPage() {
   const [propostas, setPropostas] = useState<Proposta[]>([])
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [search, setSearch] = useState("")
-  const [clienteFilter, setClienteFilter] = useState<string>("todos")
-  const [archiveFilter, setArchiveFilter] = useState<keyof typeof ARCHIVE_FILTER_LABELS>("ativos")
-  const [dateFrom, setDateFrom] = useState("")
-  const [dateTo, setDateTo] = useState("")
-  const [sortBy, setSortBy] = useState<SortOption>("proposta_az")
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [filters, setFilters] = useState({
+    proposta: "",
+    cliente: "",
+    archive: "ativos" as keyof typeof ARCHIVE_FILTER_LABELS,
+    createdFrom: "",
+    createdTo: "",
+  })
+  const [sort, setSort] = useState<{ column: SortColumn; direction: SortDirection }>({
+    column: "proposta",
+    direction: "asc",
+  })
   const [formData, setFormData] = useState(EMPTY_FORM)
 
   useEffect(() => {
-    fetchData()
-  }, [archiveFilter])
+    void fetchData(filters.archive)
+  }, [filters.archive])
 
-  async function fetchData() {
+  async function fetchData(archiveFilter = filters.archive) {
     try {
       setLoading(true)
       const propostasQuery = archiveFilter === "ativos" ? "" : `?arquivados=${archiveFilter}`
@@ -141,7 +133,7 @@ export default function PropostasPage() {
 
       setDialogOpen(false)
       setFormData(EMPTY_FORM)
-      await fetchData()
+      await fetchData(filters.archive)
     } catch (error) {
       alert(error instanceof Error ? error.message : "Erro ao salvar proposta.")
     } finally {
@@ -163,21 +155,26 @@ export default function PropostasPage() {
     ],
   )
 
-  const filteredPropostas = useMemo(
-    () =>
-      [...propostas]
-        .filter((proposta) => {
-          const matchSearch =
-            proposta.nome.toLowerCase().includes(search.toLowerCase()) ||
-            proposta.cliente_nome?.toLowerCase().includes(search.toLowerCase())
+  const filteredPropostas = useMemo(() => {
+    return [...propostas]
+      .filter((proposta) => {
+        const matchesProposta = !filters.proposta || proposta.nome.toLowerCase().includes(filters.proposta.toLowerCase())
+        const matchesCliente =
+          !filters.cliente || (proposta.cliente_nome ?? "").toLowerCase().includes(filters.cliente.toLowerCase())
+        const matchesCreatedFrom = !filters.createdFrom || proposta.created_at.slice(0, 10) >= filters.createdFrom
+        const matchesCreatedTo = !filters.createdTo || proposta.created_at.slice(0, 10) <= filters.createdTo
 
-          const matchCliente = clienteFilter === "todos" || proposta.cliente_id.toString() === clienteFilter
-          return matchSearch && matchCliente
-        })
-        .filter((proposta) => matchesDateRange(proposta.created_at, dateFrom, dateTo))
-        .sort((left, right) => sortPropostas(left, right, sortBy)),
-    [clienteFilter, dateFrom, dateTo, propostas, search, sortBy],
-  )
+        return matchesProposta && matchesCliente && matchesCreatedFrom && matchesCreatedTo
+      })
+      .sort((left, right) => sortPropostas(left, right, sort))
+  }, [filters, propostas, sort])
+
+  function toggleSort(column: SortColumn) {
+    setSort((current) => ({
+      column,
+      direction: current.column === column && current.direction === "asc" ? "desc" : "asc",
+    }))
+  }
 
   if (loading) {
     return (
@@ -189,197 +186,198 @@ export default function PropostasPage() {
 
   return (
     <div className="space-y-6 p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Propostas</h1>
-          <p className="text-muted-foreground">Controle de obras, orcamento por categoria e reserva de perdas/reposicao.</p>
-        </div>
+      <PageHeader
+        title="Propostas"
+        description="Controle de obras, orcamento por categoria e reserva de perdas/reposicao."
+        actions={
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button onClick={openDialog}>
+                <Plus className="mr-2 h-4 w-4" />
+                Nova proposta
+              </Button>
+            </DialogTrigger>
 
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button onClick={openDialog}>
-              <Plus className="mr-2 h-4 w-4" />
-              Nova Proposta
-            </Button>
-          </DialogTrigger>
+            <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Nova proposta</DialogTitle>
+                <DialogDescription>Configure cliente, periodo e orcamento da obra.</DialogDescription>
+              </DialogHeader>
 
-          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Nova proposta</DialogTitle>
-              <DialogDescription>Configure cliente, periodo e orcamento da obra.</DialogDescription>
-            </DialogHeader>
+              <div className="space-y-5 py-4">
+                <div className="space-y-2">
+                  <Label>Cliente *</Label>
+                  <Select
+                    value={formData.cliente_id}
+                    onValueChange={(value) => setFormData((current) => ({ ...current, cliente_id: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione o cliente" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clientes.filter((cliente) => !cliente.arquivado).map((cliente) => (
+                        <SelectItem key={cliente.id} value={cliente.id.toString()}>
+                          {cliente.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-            <div className="space-y-5 py-4">
-              <div className="space-y-2">
-                <Label>Cliente *</Label>
-                <Select
-                  value={formData.cliente_id}
-                  onValueChange={(value) => setFormData((current) => ({ ...current, cliente_id: value }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione o cliente" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clientes.filter((cliente) => !cliente.arquivado).map((cliente) => (
-                      <SelectItem key={cliente.id} value={cliente.id.toString()}>
-                        {cliente.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Nome da proposta *</Label>
-                <Input
-                  value={formData.nome}
-                  onChange={(event) => setFormData((current) => ({ ...current, nome: event.target.value }))}
-                  placeholder="Ex: PP-2026-014 - Torre Norte"
-                />
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <Field label="Data de inicio">
+                <div className="space-y-2">
+                  <Label>Nome da proposta *</Label>
                   <Input
-                    type="date"
-                    value={formData.data_inicio}
-                    onChange={(event) => setFormData((current) => ({ ...current, data_inicio: event.target.value }))}
+                    value={formData.nome}
+                    onChange={(event) => setFormData((current) => ({ ...current, nome: event.target.value }))}
+                    placeholder="Ex: PP-2026-014 - Torre Norte"
                   />
-                </Field>
-
-                <Field label="Data prevista">
-                  <Input
-                    type="date"
-                    value={formData.data_fim}
-                    onChange={(event) => setFormData((current) => ({ ...current, data_fim: event.target.value }))}
-                  />
-                </Field>
-              </div>
-
-              <div className="space-y-3 rounded-lg border p-4">
-                <div>
-                  <h3 className="font-medium">Materiais previstos</h3>
-                  <p className="text-sm text-muted-foreground">Preencha as categorias principais da obra e mantenha perdas/reposicao como reserva separada.</p>
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
-                  <Field label="Perfis">
+                  <Field label="Data de inicio">
                     <Input
-                      type="number"
-                      step="0.01"
-                      value={formData.valor_previsto_perfis}
-                      onChange={(event) =>
-                        setFormData((current) => ({ ...current, valor_previsto_perfis: event.target.value }))
-                      }
+                      type="date"
+                      value={formData.data_inicio}
+                      onChange={(event) => setFormData((current) => ({ ...current, data_inicio: event.target.value }))}
                     />
                   </Field>
 
-                  <Field label="Vidros">
+                  <Field label="Data prevista">
                     <Input
-                      type="number"
-                      step="0.01"
-                      value={formData.valor_previsto_vidros}
-                      onChange={(event) =>
-                        setFormData((current) => ({ ...current, valor_previsto_vidros: event.target.value }))
-                      }
+                      type="date"
+                      value={formData.data_fim}
+                      onChange={(event) => setFormData((current) => ({ ...current, data_fim: event.target.value }))}
                     />
                   </Field>
+                </div>
 
-                  <Field label="Acessorios">
+                <div className="space-y-3 rounded-lg border p-4">
+                  <div>
+                    <h3 className="font-medium">Materiais previstos</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Preencha as categorias principais da obra e mantenha perdas/reposicao como reserva separada.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field label="Perfis">
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={formData.valor_previsto_perfis}
+                        onChange={(event) => setFormData((current) => ({ ...current, valor_previsto_perfis: event.target.value }))}
+                      />
+                    </Field>
+
+                    <Field label="Vidros">
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={formData.valor_previsto_vidros}
+                        onChange={(event) => setFormData((current) => ({ ...current, valor_previsto_vidros: event.target.value }))}
+                      />
+                    </Field>
+
+                    <Field label="Acessorios">
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={formData.valor_previsto_acessorios}
+                        onChange={(event) => setFormData((current) => ({ ...current, valor_previsto_acessorios: event.target.value }))}
+                      />
+                    </Field>
+
+                    <Field label="Outros">
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={formData.valor_previsto_outros}
+                        onChange={(event) => setFormData((current) => ({ ...current, valor_previsto_outros: event.target.value }))}
+                      />
+                    </Field>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <StaticValue
+                    label="Valor previsto total"
+                    value={formatCurrency(totalCategorias)}
+                    hint="Calculado automaticamente pela soma das categorias."
+                  />
+                  <Field label="Custo de perdas/reposicao">
                     <Input
                       type="number"
                       step="0.01"
-                      value={formData.valor_previsto_acessorios}
-                      onChange={(event) =>
-                        setFormData((current) => ({ ...current, valor_previsto_acessorios: event.target.value }))
-                      }
-                    />
-                  </Field>
-
-                  <Field label="Outros">
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={formData.valor_previsto_outros}
-                      onChange={(event) =>
-                        setFormData((current) => ({ ...current, valor_previsto_outros: event.target.value }))
-                      }
+                      value={formData.custo_perdas}
+                      onChange={(event) => setFormData((current) => ({ ...current, custo_perdas: event.target.value }))}
                     />
                   </Field>
                 </div>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <StaticValue
-                  label="Valor previsto total"
-                  value={formatCurrency(totalCategorias)}
-                  hint="Calculado automaticamente pela soma das categorias."
-                />
-                  <Field label="Custo de perdas/reposicao">
-                    <Input
-                    type="number"
-                    step="0.01"
-                    value={formData.custo_perdas}
-                    onChange={(event) => setFormData((current) => ({ ...current, custo_perdas: event.target.value }))}
-                  />
-                </Field>
-              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setDialogOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button onClick={handleSave} disabled={saving}>
+                  {saving ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Salvando...
+                    </>
+                  ) : (
+                    "Salvar"
+                  )}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        }
+      />
 
-              <div className="rounded-lg bg-muted p-3 text-sm">
-                <strong>Total previsto calculado:</strong> {formatCurrency(totalCategorias)}
-              </div>
-            </div>
+      <SectionCard
+        title="Lista de propostas"
+        description={`${filteredPropostas.length} proposta(s) mostrando ${ARCHIVE_FILTER_LABELS[filters.archive].toLowerCase()}`}
+      >
+        <ListFilterPanel
+          trailing={
+            <DateRangeFilter
+              startDate={filters.createdFrom}
+              endDate={filters.createdTo}
+              onStartDateChange={(value) => setFilters((current) => ({ ...current, createdFrom: value }))}
+              onEndDateChange={(value) => setFilters((current) => ({ ...current, createdTo: value }))}
+              onClear={() => setFilters((current) => ({ ...current, createdFrom: "", createdTo: "" }))}
+              startLabel="Cadastro de"
+              endLabel="Cadastro ate"
+            />
+          }
+        >
+          <ListFilterGrid columns="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <ListFilterField label="Proposta">
+              <TableFilterInput
+                value={filters.proposta}
+                onChange={(value) => setFilters((current) => ({ ...current, proposta: value }))}
+                placeholder="Filtrar proposta"
+              />
+            </ListFilterField>
 
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setDialogOpen(false)}>
-                Cancelar
-              </Button>
-              <Button onClick={handleSave} disabled={saving}>
-                {saving ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Salvando...
-                  </>
-                ) : (
-                  "Salvar"
-                )}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
+            <ListFilterField label="Cliente">
+              <TableFilterInput
+                value={filters.cliente}
+                onChange={(value) => setFilters((current) => ({ ...current, cliente: value }))}
+                placeholder="Filtrar cliente"
+              />
+            </ListFilterField>
 
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-4 md:flex-row">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar por nome ou cliente..."
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  className="pl-10"
-                />
-              </div>
-
-              <Select value={clienteFilter} onValueChange={setClienteFilter}>
-                <SelectTrigger className="w-full md:w-[220px]">
-                  <SelectValue placeholder="Cliente" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos">Todos os clientes</SelectItem>
-                  {clientes.map((cliente) => (
-                    <SelectItem key={cliente.id} value={cliente.id.toString()}>
-                      {cliente.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              <Select value={archiveFilter} onValueChange={(value) => setArchiveFilter(value as keyof typeof ARCHIVE_FILTER_LABELS)}>
-                <SelectTrigger className="w-full md:w-[180px]">
-                  <SelectValue placeholder="Arquivamento" />
+            <ListFilterField label="Visualizacao">
+              <Select
+                value={filters.archive}
+                onValueChange={(value) =>
+                  setFilters((current) => ({ ...current, archive: value as keyof typeof ARCHIVE_FILTER_LABELS }))
+                }
+              >
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="Ativos" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ativos">Ativos</SelectItem>
@@ -387,63 +385,58 @@ export default function PropostasPage() {
                   <SelectItem value="todos">Todos</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortOption)}>
-                <SelectTrigger className="w-full md:w-[220px]">
-                  <SelectValue placeholder="Ordenacao" />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(SORT_OPTIONS).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <DateRangeFilter
-              startDate={dateFrom}
-              endDate={dateTo}
-              onStartDateChange={setDateFrom}
-              onEndDateChange={setDateTo}
-              onClear={() => {
-                setDateFrom("")
-                setDateTo("")
-              }}
-              startLabel="Cadastro de"
-              endLabel="Cadastro ate"
-            />
+            </ListFilterField>
+          </ListFilterGrid>
+        </ListFilterPanel>
+        {filteredPropostas.length === 0 ? (
+          <div className="py-12 text-center text-muted-foreground">
+            <FileText className="mx-auto mb-2 h-12 w-12 opacity-50" />
+            <p>{filters.archive === "arquivados" ? "Nenhuma proposta arquivada." : "Nenhuma proposta cadastrada."}</p>
+            {filters.archive !== "arquivados" ? (
+              <Button variant="link" onClick={openDialog}>
+                Cadastrar primeira proposta
+              </Button>
+            ) : null}
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Lista de propostas</CardTitle>
-          <CardDescription>
-            {filteredPropostas.length} proposta(s) cadastrada(s) • mostrando {ARCHIVE_FILTER_LABELS[archiveFilter].toLowerCase()}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {filteredPropostas.length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground">
-              <FileText className="mx-auto mb-2 h-12 w-12 opacity-50" />
-              <p>{archiveFilter === "arquivados" ? "Nenhuma proposta arquivada." : "Nenhuma proposta cadastrada."}</p>
-              {archiveFilter !== "arquivados" && (
-                <Button variant="link" onClick={openDialog}>
-                  Cadastrar primeira proposta
-                </Button>
-              )}
-            </div>
-          ) : (
+        ) : (
+          <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Proposta</TableHead>
-                  <TableHead>Cliente</TableHead>
+                  <TableHead>
+                    <SortableTableHead
+                      label="Proposta"
+                      isActive={sort.column === "proposta"}
+                      direction={sort.direction}
+                      onClick={() => toggleSort("proposta")}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <SortableTableHead
+                      label="Cliente"
+                      isActive={sort.column === "cliente"}
+                      direction={sort.direction}
+                      onClick={() => toggleSort("cliente")}
+                    />
+                  </TableHead>
                   <TableHead>Periodo</TableHead>
-                  <TableHead>Previsto</TableHead>
+                  <TableHead>
+                    <SortableTableHead
+                      label="Previsto"
+                      isActive={sort.column === "previsto"}
+                      direction={sort.direction}
+                      onClick={() => toggleSort("previsto")}
+                    />
+                  </TableHead>
                   <TableHead>Perdas/reposicao</TableHead>
+                  <TableHead>
+                    <SortableTableHead
+                      label="Cadastro"
+                      isActive={sort.column === "cadastro"}
+                      direction={sort.direction}
+                      onClick={() => toggleSort("cadastro")}
+                    />
+                  </TableHead>
                   <TableHead className="text-right">Acoes</TableHead>
                 </TableRow>
               </TableHeader>
@@ -453,7 +446,7 @@ export default function PropostasPage() {
                     <TableCell>
                       <div className="flex flex-wrap items-center gap-2 font-medium">
                         <span>{proposta.nome}</span>
-                        {proposta.arquivado && <Badge variant="outline">Arquivada</Badge>}
+                        {proposta.arquivado ? <Badge variant="outline">Arquivada</Badge> : null}
                       </div>
                     </TableCell>
                     <TableCell>{proposta.cliente_nome}</TableCell>
@@ -471,6 +464,7 @@ export default function PropostasPage() {
                     </TableCell>
                     <TableCell>{formatCurrency(proposta.valor_previsto)}</TableCell>
                     <TableCell>{formatCurrency(proposta.custo_perdas)}</TableCell>
+                    <TableCell>{formatCadastro(proposta.created_at)}</TableCell>
                     <TableCell className="text-right">
                       <Link href={`/propostas/${proposta.id}`}>
                         <Button variant="ghost" size="sm">
@@ -483,9 +477,9 @@ export default function PropostasPage() {
                 ))}
               </TableBody>
             </Table>
-          )}
-        </CardContent>
-      </Card>
+          </div>
+        )}
+      </SectionCard>
     </div>
   )
 }
@@ -499,15 +493,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-function StaticValue({
-  label,
-  value,
-  hint,
-}: {
-  label: string
-  value: string
-  hint: string
-}) {
+function StaticValue({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
     <div className="space-y-2">
       <Label>{label}</Label>
@@ -531,16 +517,26 @@ function formatCurrency(value: number) {
   }).format(Number(value || 0))
 }
 
-function sortPropostas(left: Proposta, right: Proposta, sortBy: SortOption) {
-  switch (sortBy) {
-    case "cliente_az":
-      return (left.cliente_nome ?? "").localeCompare(right.cliente_nome ?? "", "pt-BR")
-    case "cadastro_desc":
-      return new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
-    case "cadastro_asc":
-      return new Date(left.created_at).getTime() - new Date(right.created_at).getTime()
-    case "proposta_az":
+function formatCadastro(value: string) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(new Date(value))
+}
+
+function sortPropostas(left: Proposta, right: Proposta, sort: { column: SortColumn; direction: SortDirection }) {
+  const modifier = sort.direction === "asc" ? 1 : -1
+
+  switch (sort.column) {
+    case "cliente":
+      return ((left.cliente_nome ?? "").localeCompare(right.cliente_nome ?? "", "pt-BR")) * modifier
+    case "cadastro":
+      return (new Date(left.created_at).getTime() - new Date(right.created_at).getTime()) * modifier
+    case "previsto":
+      return (Number(left.valor_previsto) - Number(right.valor_previsto)) * modifier
+    case "proposta":
     default:
-      return left.nome.localeCompare(right.nome, "pt-BR")
+      return left.nome.localeCompare(right.nome, "pt-BR") * modifier
   }
 }

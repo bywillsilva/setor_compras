@@ -21,6 +21,7 @@ import {
   TriangleAlert,
   UserRound,
 } from "lucide-react"
+import { useCurrentSession } from "@/components/auth-provider"
 import { RowActionsMenu } from "@/components/shared/row-actions-menu"
 import { DeliveryStatusBadge } from "@/components/compras/delivery-status-badge"
 import { Badge } from "@/components/ui/badge"
@@ -51,6 +52,7 @@ type PropostaResumo = {
 
 export default function ClienteDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
+  const session = useCurrentSession()
   const router = useRouter()
   const [cliente, setCliente] = useState<Cliente | null>(null)
   const [propostas, setPropostas] = useState<Proposta[]>([])
@@ -67,6 +69,7 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
     contato: "",
     email: "",
   })
+  const isAdmin = session?.perfil === "admin"
 
   useEffect(() => {
     let active = true
@@ -233,6 +236,39 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
     setSaving(true)
 
     try {
+      if (!isAdmin) {
+        const motivo = window.prompt("Descreva o motivo da alteracao para enviar ao administrador.")
+        if (motivo === null) {
+          return
+        }
+
+        const response = await fetch("/api/solicitacoes-sensiveis", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            entidade: "cliente",
+            entidade_id: Number(id),
+            acao: "editar",
+            motivo: motivo.trim() || "Ajuste de cadastro do cliente.",
+            payload: {
+              nome: formData.nome.trim(),
+              documento: formData.documento || null,
+              contato: formData.contato || null,
+              email: formData.email || null,
+            },
+          }),
+        })
+        const payload = await response.json().catch(() => null)
+
+        if (!response.ok) {
+          throw new Error(payload?.error || "Erro ao solicitar alteracao do cliente.")
+        }
+
+        alert("Solicitacao enviada ao administrador.")
+        cancelEditing()
+        return
+      }
+
       const response = await fetch(`/api/clientes/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -269,13 +305,39 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
   }
 
   async function handleDelete() {
-    if (!confirm("Deseja realmente excluir este cliente? A exclusao so e permitida quando nao houver propostas ou compras vinculadas.")) {
-      return
-    }
-
     setDeleting(true)
 
     try {
+      if (!isAdmin) {
+        const motivo = window.prompt("Descreva o motivo da exclusao para enviar ao administrador.")
+        if (motivo === null) {
+          return
+        }
+
+        const response = await fetch("/api/solicitacoes-sensiveis", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            entidade: "cliente",
+            entidade_id: Number(id),
+            acao: "excluir",
+            motivo: motivo.trim() || "Exclusao solicitada para o cliente.",
+          }),
+        })
+        const payload = await response.json().catch(() => null)
+
+        if (!response.ok) {
+          throw new Error(payload?.error || "Erro ao solicitar exclusao do cliente.")
+        }
+
+        alert("Solicitacao enviada ao administrador.")
+        return
+      }
+
+      if (!confirm("Deseja realmente excluir este cliente? A exclusao so e permitida quando nao houver propostas ou compras vinculadas.")) {
+        return
+      }
+
       const response = await fetch(`/api/clientes/${id}`, { method: "DELETE" })
       const payload = await response.json().catch(() => null)
 
@@ -388,13 +450,13 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
                     Salvando...
                   </>
                 ) : (
-                  "Salvar"
+                  isAdmin ? "Salvar" : "Enviar para aprovacao"
                 )}
               </Button>
             </>
           ) : (
             <RowActionsMenu label={`Acoes do cliente ${cliente.nome}`}>
-              <DropdownMenuItem onClick={startEditing}>Editar cadastro</DropdownMenuItem>
+              <DropdownMenuItem onClick={startEditing}>{isAdmin ? "Editar cadastro" : "Solicitar alteracao"}</DropdownMenuItem>
               <DropdownMenuItem onClick={handleArchiveToggle} disabled={togglingArchive}>
                 {togglingArchive ? (
                   <>
@@ -409,7 +471,7 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onClick={handleDelete} disabled={deleting}>
-                Excluir cliente
+                {isAdmin ? "Excluir cliente" : "Solicitar exclusao"}
               </DropdownMenuItem>
             </RowActionsMenu>
           )}

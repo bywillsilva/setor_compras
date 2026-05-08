@@ -4,6 +4,7 @@ import { use, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { ArrowLeft, CheckCircle2, Loader2, Paperclip, RefreshCcw, Trash2 } from "lucide-react"
 import { useCurrentSession } from "@/components/auth-provider"
+import { CompraRateioFields, type CompraRateioFormState } from "@/components/compras/compra-rateio-fields"
 import { hasFeatureAccess } from "@/lib/auth/permissions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -49,10 +50,21 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
   const [uploadingAttachments, setUploadingAttachments] = useState(false)
   const [deletingAttachmentId, setDeletingAttachmentId] = useState<number | null>(null)
   const [motivoRetificacao, setMotivoRetificacao] = useState("")
+  const [savingQuoteData, setSavingQuoteData] = useState(false)
+  const [quoteData, setQuoteData] = useState<CompraRateioFormState>({
+    valor_categoria_perfis: "",
+    valor_categoria_vidros: "",
+    valor_categoria_acessorios: "",
+    valor_categoria_perdas: "",
+    valor_categoria_outros: "",
+  })
+  const canViewAsCompras = Boolean(session && hasFeatureAccess(session.perfil, "compras", session.features))
   const canManageAttachments = Boolean(
     session &&
-      hasFeatureAccess(session.perfil, "solicitacoes", session.features),
+      (hasFeatureAccess(session.perfil, "solicitacoes", session.features) ||
+        hasFeatureAccess(session.perfil, "compras", session.features)),
   )
+  const canDeleteAttachments = session?.perfil === "admin"
 
   useEffect(() => {
     fetchSolicitacao()
@@ -67,6 +79,13 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
 
       const payload = await response.json()
       setCompra(payload)
+      setQuoteData({
+        valor_categoria_perfis: payload.valor_categoria_perfis?.toString() ?? "",
+        valor_categoria_vidros: payload.valor_categoria_vidros?.toString() ?? "",
+        valor_categoria_acessorios: payload.valor_categoria_acessorios?.toString() ?? "",
+        valor_categoria_perdas: payload.valor_categoria_perdas?.toString() ?? "",
+        valor_categoria_outros: payload.valor_categoria_outros?.toString() ?? "",
+      })
     } catch (error) {
       console.error(error)
     } finally {
@@ -167,6 +186,35 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
     return `/api/compras/${compra?.id ?? id}/anexos/${anexo.id}/arquivo`
   }
 
+  async function handleSaveQuoteData() {
+    setSavingQuoteData(true)
+
+    try {
+      const response = await fetch(`/api/compras/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          valor_categoria_perfis: toNumber(quoteData.valor_categoria_perfis),
+          valor_categoria_vidros: toNumber(quoteData.valor_categoria_vidros),
+          valor_categoria_acessorios: toNumber(quoteData.valor_categoria_acessorios),
+          valor_categoria_perdas: toNumber(quoteData.valor_categoria_perdas),
+          valor_categoria_outros: toNumber(quoteData.valor_categoria_outros),
+        }),
+      })
+      const payload = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "Erro ao salvar os dados da cotacao.")
+      }
+
+      await fetchSolicitacao()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao salvar os dados da cotacao.")
+    } finally {
+      setSavingQuoteData(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
@@ -188,6 +236,7 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
   }
 
   const canApproveAsRequester = session?.userId === compra.solicitante_id && compra.etapa_fluxo === "analise_solicitante"
+  const canEditQuoteData = canViewAsCompras && compra.status !== "pedido_autorizado"
   const propostaOrcamento = compra.proposta_orcamento
   const orcamentoCategorias = propostaOrcamento
     ? [
@@ -283,6 +332,37 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
         </Card>
 
         <div className="space-y-6">
+          {canEditQuoteData && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Dados da compra para a cotacao</CardTitle>
+                <CardDescription>
+                  O solicitante nao preenche este rateio. Essa distribuicao e informada pelo comprador durante a cotacao.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <CompraRateioFields
+                  values={quoteData}
+                  onChange={(field, value) => setQuoteData((current) => ({ ...current, [field]: value }))}
+                  description="Preencha a distribuicao desta compra entre perfis, vidros, acessorios, perdas/reposicao e outros assim que a cotacao estiver sendo montada."
+                />
+
+                <div className="flex justify-end">
+                  <Button type="button" onClick={handleSaveQuoteData} disabled={savingQuoteData}>
+                    {savingQuoteData ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Salvando...
+                      </>
+                    ) : (
+                      "Salvar dados da cotacao"
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle>Acoes desta etapa</CardTitle>
@@ -430,7 +510,7 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
                           </a>
                         </Button>
                       )}
-                      {canManageAttachments && (
+                      {canDeleteAttachments && (
                         <Button
                           type="button"
                           variant="ghost"
@@ -476,6 +556,11 @@ function formatCurrency(value: number) {
     style: "currency",
     currency: "BRL",
   }).format(Number(value ?? 0))
+}
+
+function toNumber(value: string) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : 0
 }
 
 function SignatureTag({

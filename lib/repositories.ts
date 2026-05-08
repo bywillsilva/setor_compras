@@ -50,6 +50,10 @@ import type {
   Proposta,
   PropostaFormData,
   PurchaseFilters,
+  SolicitacaoSensivel,
+  SolicitacaoSensivelAcao,
+  SolicitacaoSensivelEntidade,
+  SolicitacaoSensivelStatus,
   SituacaoEntrega,
   StatusEntrega,
   StatusPedido,
@@ -76,7 +80,7 @@ interface ReportFilters {
   status?: StatusPedido
 }
 
-const REQUIRED_TABLES = ['clientes', 'usuarios', 'propostas', 'compras', 'historico_compras', 'anexos'] as const
+const REQUIRED_TABLES = ['clientes', 'usuarios', 'propostas', 'compras', 'historico_compras', 'anexos', 'solicitacoes_sensiveis'] as const
 const REQUIRED_SCHEMA_COLUMNS: Record<(typeof REQUIRED_TABLES)[number], string[]> = {
   clientes: ['id', 'nome', 'documento', 'contato', 'email', 'arquivado', 'created_at', 'updated_at'],
   usuarios: ['id', 'nome', 'email', 'senha_hash', 'perfil', 'ativo', 'created_at', 'updated_at'],
@@ -138,6 +142,25 @@ const REQUIRED_SCHEMA_COLUMNS: Record<(typeof REQUIRED_TABLES)[number], string[]
   ],
   historico_compras: ['id', 'compra_id', 'evento', 'data', 'usuario'],
   anexos: ['id', 'compra_id', 'tipo', 'arquivo_url', 'nome_arquivo', 'created_at'],
+  solicitacoes_sensiveis: [
+    'id',
+    'entidade',
+    'entidade_id',
+    'acao',
+    'status',
+    'motivo',
+    'payload',
+    'solicitante_id',
+    'solicitante_nome',
+    'solicitante_perfil',
+    'aprovado_por',
+    'aprovado_em',
+    'recusado_por',
+    'recusado_em',
+    'observacao_admin',
+    'created_at',
+    'updated_at',
+  ],
 }
 
 type PerfilFeatureMatrix = Record<PerfilUsuario, AppFeature[]>
@@ -802,6 +825,179 @@ export async function setPropostaArchivedState(id: number, arquivado: boolean) {
   }
 
   return { archived: arquivado }
+}
+
+export async function createSensitiveChangeRequest(input: {
+  entidade: SolicitacaoSensivelEntidade
+  entidade_id: number
+  acao: SolicitacaoSensivelAcao
+  motivo?: string | null
+  payload?: Record<string, unknown> | null
+  solicitante_id: number
+  solicitante_nome: string
+  solicitante_perfil: PerfilUsuario
+}) {
+  const motivo = nullableString(input.motivo)
+  const payload = input.payload && Object.keys(input.payload).length > 0 ? input.payload : null
+
+  if (getDatabaseType() === 'mysql') {
+    const result = await mysqlExecute(
+      `INSERT INTO solicitacoes_sensiveis (
+        entidade, entidade_id, acao, status, motivo, payload, solicitante_id, solicitante_nome, solicitante_perfil
+      ) VALUES (?, ?, ?, 'pendente', ?, ?, ?, ?, ?)`,
+      [
+        input.entidade,
+        input.entidade_id,
+        input.acao,
+        motivo,
+        payload ? JSON.stringify(payload) : null,
+        input.solicitante_id,
+        input.solicitante_nome,
+        input.solicitante_perfil,
+      ],
+    )
+    return result.insertId
+  }
+
+  const client = getSupabaseOrThrow()
+  const { data, error } = await client
+    .from('solicitacoes_sensiveis')
+    .insert({
+      entidade: input.entidade,
+      entidade_id: input.entidade_id,
+      acao: input.acao,
+      status: 'pendente',
+      motivo,
+      payload,
+      solicitante_id: input.solicitante_id,
+      solicitante_nome: input.solicitante_nome,
+      solicitante_perfil: input.solicitante_perfil,
+    })
+    .select('id')
+    .single()
+  throwIfSupabaseError(error)
+  return Number(data.id)
+}
+
+export async function listSensitiveChangeRequests(filters: {
+  status?: SolicitacaoSensivelStatus
+  solicitanteId?: number
+} = {}) {
+  if (getDatabaseType() === 'mysql') {
+    let sql = 'SELECT * FROM solicitacoes_sensiveis WHERE 1 = 1'
+    const params: unknown[] = []
+
+    if (filters.status) {
+      sql += ' AND status = ?'
+      params.push(filters.status)
+    }
+
+    if (filters.solicitanteId) {
+      sql += ' AND solicitante_id = ?'
+      params.push(filters.solicitanteId)
+    }
+
+    sql += ' ORDER BY created_at DESC'
+    const rows = await mysqlSelect(sql, params)
+    return rows.map(normalizeSolicitacaoSensivel)
+  }
+
+  const client = getSupabaseOrThrow()
+  let query = client.from('solicitacoes_sensiveis').select('*').order('created_at', { ascending: false })
+
+  if (filters.status) {
+    query = query.eq('status', filters.status)
+  }
+
+  if (filters.solicitanteId) {
+    query = query.eq('solicitante_id', filters.solicitanteId)
+  }
+
+  const { data, error } = await query
+  throwIfSupabaseError(error)
+  return (data ?? []).map((row: Row) => normalizeSolicitacaoSensivel(row))
+}
+
+export async function approveSensitiveChangeRequest(id: number, usuario: string, observacaoAdmin?: string | null) {
+  const request = await getSensitiveChangeRequestById(id)
+
+  if (!request) {
+    throw new Error('Solicitacao nao encontrada.')
+  }
+
+  if (request.status !== 'pendente') {
+    throw new Error('Esta solicitacao ja foi concluida.')
+  }
+
+  await applySensitiveChangeRequest(request, usuario)
+
+  const observacao = nullableString(observacaoAdmin)
+  const approvedAt = format(new Date(), 'yyyy-MM-dd HH:mm:ss')
+
+  if (getDatabaseType() === 'mysql') {
+    await mysqlExecute(
+      `UPDATE solicitacoes_sensiveis
+       SET status = 'aprovada', aprovado_por = ?, aprovado_em = ?, observacao_admin = ?, recusado_por = NULL, recusado_em = NULL
+       WHERE id = ?`,
+      [usuario, approvedAt, observacao, id],
+    )
+  } else {
+    const client = getSupabaseOrThrow()
+    const { error } = await client
+      .from('solicitacoes_sensiveis')
+      .update({
+        status: 'aprovada',
+        aprovado_por: usuario,
+        aprovado_em: approvedAt,
+        observacao_admin: observacao,
+        recusado_por: null,
+        recusado_em: null,
+      })
+      .eq('id', id)
+    throwIfSupabaseError(error)
+  }
+
+  return { approved: true }
+}
+
+export async function rejectSensitiveChangeRequest(id: number, usuario: string, observacaoAdmin?: string | null) {
+  const request = await getSensitiveChangeRequestById(id)
+
+  if (!request) {
+    throw new Error('Solicitacao nao encontrada.')
+  }
+
+  if (request.status !== 'pendente') {
+    throw new Error('Esta solicitacao ja foi concluida.')
+  }
+
+  const observacao = nullableString(observacaoAdmin)
+  const rejectedAt = format(new Date(), 'yyyy-MM-dd HH:mm:ss')
+
+  if (getDatabaseType() === 'mysql') {
+    await mysqlExecute(
+      `UPDATE solicitacoes_sensiveis
+       SET status = 'recusada', recusado_por = ?, recusado_em = ?, observacao_admin = ?, aprovado_por = NULL, aprovado_em = NULL
+       WHERE id = ?`,
+      [usuario, rejectedAt, observacao, id],
+    )
+  } else {
+    const client = getSupabaseOrThrow()
+    const { error } = await client
+      .from('solicitacoes_sensiveis')
+      .update({
+        status: 'recusada',
+        recusado_por: usuario,
+        recusado_em: rejectedAt,
+        observacao_admin: observacao,
+        aprovado_por: null,
+        aprovado_em: null,
+      })
+      .eq('id', id)
+    throwIfSupabaseError(error)
+  }
+
+  return { rejected: true }
 }
 
 export async function listCompras(filters: PurchaseFilters = {}): Promise<Compra[]> {
@@ -1704,6 +1900,50 @@ async function listAnexoSummaryRowsSupabase(compraIds: number[]) {
   const { data, error } = await client.from('anexos').select('compra_id,tipo').in('compra_id', compraIds)
   throwIfSupabaseError(error)
   return (data ?? []) as Row[]
+}
+
+async function getSensitiveChangeRequestById(id: number) {
+  if (getDatabaseType() === 'mysql') {
+    const rows = await mysqlSelect('SELECT * FROM solicitacoes_sensiveis WHERE id = ? LIMIT 1', [id])
+    return rows[0] ? normalizeSolicitacaoSensivel(rows[0]) : null
+  }
+
+  const client = getSupabaseOrThrow()
+  const { data, error } = await client.from('solicitacoes_sensiveis').select('*').eq('id', id).maybeSingle()
+  throwIfSupabaseError(error)
+  return data ? normalizeSolicitacaoSensivel(data as Row) : null
+}
+
+async function applySensitiveChangeRequest(request: SolicitacaoSensivel, usuario: string) {
+  if (request.entidade === 'cliente') {
+    if (request.acao === 'excluir') {
+      await deleteCliente(request.entidade_id)
+      return
+    }
+
+    await updateCliente(request.entidade_id, sanitizeSensitiveClientePayload(request.payload))
+    return
+  }
+
+  if (request.entidade === 'proposta') {
+    if (request.acao === 'excluir') {
+      await deleteProposta(request.entidade_id)
+      return
+    }
+
+    await updateProposta(request.entidade_id, sanitizeSensitivePropostaPayload(request.payload))
+    return
+  }
+
+  if (request.acao === 'excluir') {
+    await permanentlyDeleteCompra(request.entidade_id)
+    return
+  }
+
+  await updateCompra(request.entidade_id, {
+    ...sanitizeSensitiveCompraPayload(request.payload),
+    usuario,
+  })
 }
 
 export async function getAnexoById(compraId: number, anexoId: number): Promise<Anexo | null> {
@@ -2631,6 +2871,28 @@ async function setupMySQLDatabase() {
       )
     `)
 
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS solicitacoes_sensiveis (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        entidade ENUM('cliente', 'proposta', 'compra') NOT NULL,
+        entidade_id INT NOT NULL,
+        acao ENUM('editar', 'excluir') NOT NULL,
+        status ENUM('pendente', 'aprovada', 'recusada') DEFAULT 'pendente',
+        motivo TEXT NULL,
+        payload JSON NULL,
+        solicitante_id INT NOT NULL,
+        solicitante_nome VARCHAR(255) NOT NULL,
+        solicitante_perfil ENUM('admin', 'comprador', 'orcamentista', 'solicitante', 'financeiro') NOT NULL,
+        aprovado_por VARCHAR(255) NULL,
+        aprovado_em TIMESTAMP NULL,
+        recusado_por VARCHAR(255) NULL,
+        recusado_em TIMESTAMP NULL,
+        observacao_admin TEXT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `)
+
     await addColumnIfMissing(connection, 'clientes', 'documento', 'VARCHAR(20) NULL')
     await addColumnIfMissing(connection, 'clientes', 'contato', 'VARCHAR(100) NULL')
     await addColumnIfMissing(connection, 'clientes', 'arquivado', 'BOOLEAN DEFAULT FALSE')
@@ -2695,6 +2957,15 @@ async function setupMySQLDatabase() {
     await addColumnIfMissing(connection, 'perfil_permissoes', 'permitido', 'BOOLEAN DEFAULT TRUE')
     await addColumnIfMissing(connection, 'perfil_permissoes', 'created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
     await addColumnIfMissing(connection, 'perfil_permissoes', 'updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP')
+    await addColumnIfMissing(connection, 'solicitacoes_sensiveis', 'motivo', 'TEXT NULL')
+    await addColumnIfMissing(connection, 'solicitacoes_sensiveis', 'payload', 'JSON NULL')
+    await addColumnIfMissing(connection, 'solicitacoes_sensiveis', 'aprovado_por', 'VARCHAR(255) NULL')
+    await addColumnIfMissing(connection, 'solicitacoes_sensiveis', 'aprovado_em', 'TIMESTAMP NULL')
+    await addColumnIfMissing(connection, 'solicitacoes_sensiveis', 'recusado_por', 'VARCHAR(255) NULL')
+    await addColumnIfMissing(connection, 'solicitacoes_sensiveis', 'recusado_em', 'TIMESTAMP NULL')
+    await addColumnIfMissing(connection, 'solicitacoes_sensiveis', 'observacao_admin', 'TEXT NULL')
+    await addColumnIfMissing(connection, 'solicitacoes_sensiveis', 'created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+    await addColumnIfMissing(connection, 'solicitacoes_sensiveis', 'updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP')
 
     if (await hasColumn(connection, 'clientes', 'cnpj')) {
       await connection.execute('UPDATE clientes SET documento = COALESCE(documento, cnpj) WHERE documento IS NULL')
@@ -2935,6 +3206,7 @@ function getSupabaseOrThrow(): any {
 function throwIfSupabaseError(error: { message: string } | null) {
   if (error) {
     const message = error.message
+    const lowerMessage = message.toLowerCase()
 
     if (message.includes("usuarios_perfil_check")) {
       throw new Error(
@@ -2978,6 +3250,18 @@ function throwIfSupabaseError(error: { message: string } | null) {
       )
     }
 
+    if (
+      lowerMessage.includes("solicitacoes_sensiveis") &&
+      (lowerMessage.includes("does not exist") ||
+        lowerMessage.includes("could not find the table") ||
+        lowerMessage.includes("schema cache") ||
+        lowerMessage.includes("column"))
+    ) {
+      throw new Error(
+        "A fila administrativa de alteracoes sensiveis ainda nao esta criada ou atualizada no Supabase. Execute scripts/migrations/supabase/2026-05-08-sensitive-change-requests.sql e tente novamente.",
+      )
+    }
+
     throw new Error(message)
   }
 }
@@ -3005,6 +3289,136 @@ function normalizeUsuario(row: Row): Usuario {
     ativo: normalizeBoolean(row.ativo),
     created_at: toDateTimeString(row.created_at),
     updated_at: toDateTimeString(row.updated_at),
+  }
+}
+
+function normalizeSolicitacaoSensivel(row: Row): SolicitacaoSensivel {
+  return {
+    id: toNumber(row.id),
+    entidade: normalizeSolicitacaoEntidade(row.entidade),
+    entidade_id: toNumber(row.entidade_id),
+    acao: normalizeSolicitacaoAcao(row.acao),
+    status: normalizeSolicitacaoStatus(row.status),
+    motivo: nullableString(row.motivo),
+    payload: parseSolicitacaoPayload(row.payload),
+    solicitante_id: toNumber(row.solicitante_id),
+    solicitante_nome: nullableString(row.solicitante_nome) ?? 'Usuario',
+    solicitante_perfil: normalizePerfilUsuario(row.solicitante_perfil),
+    aprovado_por: nullableString(row.aprovado_por),
+    aprovado_em: nullableString(row.aprovado_em),
+    recusado_por: nullableString(row.recusado_por),
+    recusado_em: nullableString(row.recusado_em),
+    observacao_admin: nullableString(row.observacao_admin),
+    created_at: toDateTimeString(row.created_at),
+    updated_at: toDateTimeString(row.updated_at),
+  }
+}
+
+function parseSolicitacaoPayload(value: unknown) {
+  if (!value) {
+    return null
+  }
+
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value) as Record<string, unknown>
+    } catch {
+      return null
+    }
+  }
+
+  if (typeof value === 'object') {
+    return value as Record<string, unknown>
+  }
+
+  return null
+}
+
+function normalizeSolicitacaoEntidade(value: unknown): SolicitacaoSensivelEntidade {
+  const current = String(value ?? '').toLowerCase()
+
+  if (current === 'cliente') {
+    return 'cliente'
+  }
+
+  if (current === 'proposta') {
+    return 'proposta'
+  }
+
+  return 'compra'
+}
+
+function normalizeSolicitacaoAcao(value: unknown): SolicitacaoSensivelAcao {
+  return String(value ?? '').toLowerCase() === 'excluir' ? 'excluir' : 'editar'
+}
+
+function normalizeSolicitacaoStatus(value: unknown): SolicitacaoSensivelStatus {
+  const current = String(value ?? '').toLowerCase()
+
+  if (current === 'aprovada') {
+    return 'aprovada'
+  }
+
+  if (current === 'recusada') {
+    return 'recusada'
+  }
+
+  return 'pendente'
+}
+
+function sanitizeSensitiveClientePayload(payload: Record<string, unknown> | null) {
+  const nome = nullableString(payload?.nome)
+
+  if (!nome) {
+    throw new Error('A solicitacao de alteracao do cliente esta sem nome valido.')
+  }
+
+  return {
+    nome,
+    documento: nullableString(payload?.documento),
+    contato: nullableString(payload?.contato),
+    email: nullableString(payload?.email),
+  } as Pick<Cliente, 'nome' | 'documento' | 'contato' | 'email'>
+}
+
+function sanitizeSensitivePropostaPayload(payload: Record<string, unknown> | null): PropostaFormData {
+  const cliente_id = toNumber(payload?.cliente_id)
+  const nome = nullableString(payload?.nome)
+
+  if (!cliente_id || !nome) {
+    throw new Error('A solicitacao de alteracao da proposta esta incompleta.')
+  }
+
+  return {
+    cliente_id,
+    nome,
+    data_inicio: nullableString(payload?.data_inicio),
+    data_fim: nullableString(payload?.data_fim),
+    valor_previsto_perfis: toNumber(payload?.valor_previsto_perfis),
+    valor_previsto_vidros: toNumber(payload?.valor_previsto_vidros),
+    valor_previsto_acessorios: toNumber(payload?.valor_previsto_acessorios),
+    valor_previsto_outros: toNumber(payload?.valor_previsto_outros),
+    custo_perdas: toNumber(payload?.custo_perdas),
+  }
+}
+
+function sanitizeSensitiveCompraPayload(payload: Record<string, unknown> | null): Partial<CompraFormData> {
+  const fornecedor = nullableString(payload?.fornecedor)
+  const descricao = nullableString(payload?.descricao)
+
+  if (!fornecedor || !descricao) {
+    throw new Error('A solicitacao de alteracao da compra esta incompleta.')
+  }
+
+  return {
+    fornecedor,
+    descricao,
+    data_envio_fornecedor: nullableString(payload?.data_envio_fornecedor),
+    valor_categoria_perfis: toNumber(payload?.valor_categoria_perfis),
+    valor_categoria_vidros: toNumber(payload?.valor_categoria_vidros),
+    valor_categoria_acessorios: toNumber(payload?.valor_categoria_acessorios),
+    valor_categoria_perdas: toNumber(payload?.valor_categoria_perdas),
+    valor_categoria_outros: toNumber(payload?.valor_categoria_outros),
   }
 }
 

@@ -6,6 +6,9 @@ export type CategoriaCompra = 'perfis' | 'vidros' | 'acessorios' | 'perdas' | 'o
 export type TipoAnexo = 'cotacao' | 'nf' | 'boleto' | 'outro'
 export type SituacaoEntrega = 'pendente' | 'entregue' | 'atrasado' | 'proximo' | 'no_prazo'
 export type PerfilUsuario = 'admin' | 'comprador' | 'orcamentista' | 'solicitante' | 'financeiro'
+export type SolicitacaoSensivelEntidade = 'cliente' | 'proposta' | 'compra'
+export type SolicitacaoSensivelAcao = 'editar' | 'excluir'
+export type SolicitacaoSensivelStatus = 'pendente' | 'aprovada' | 'recusada'
 export type AppFeature =
   | 'dashboard'
   | 'solicitacoes'
@@ -267,4 +270,24 @@ export interface HistoricoReportItem extends HistoricoCompra {
   cliente_nome: string
   proposta_nome: string
   fornecedor: string
+}
+
+export interface SolicitacaoSensivel {
+  id: number
+  entidade: SolicitacaoSensivelEntidade
+  entidade_id: number
+  acao: SolicitacaoSensivelAcao
+  status: SolicitacaoSensivelStatus
+  motivo: string | null
+  payload: Record<string, unknown> | null
+  solicitante_id: number
+  solicitante_nome: string
+  solicitante_perfil: PerfilUsuario
+  aprovado_por: string | null
+  aprovado_em: string | null
+  recusado_por: string | null
+  recusado_em: string | null
+  observacao_admin: string | null
+  created_at: string
+  updated_at: string
 }

@@ -3,8 +3,8 @@
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { ArrowLeft, Loader2, Paperclip, Save } from "lucide-react"
+import { PageHeader, FormSectionCard } from "@/components/shared/page-layout"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -134,25 +134,24 @@ export default function NovaSolicitacaoPage() {
 
   return (
     <div className="space-y-6 p-6">
-      <div className="flex items-center gap-4">
-        <Link href="/solicitacoes">
-          <Button variant="ghost" size="icon">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </Link>
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Nova solicitacao</h1>
-          <p className="text-muted-foreground">Registre a necessidade de compra e anexe o material de referencia para o setor de compras.</p>
-        </div>
-      </div>
+      <PageHeader
+        title="Nova solicitacao"
+        description="Registre a necessidade de compra e anexe o material de referencia para o setor de compras."
+        actions={
+          <Link href="/solicitacoes">
+            <Button variant="outline">
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Voltar
+            </Button>
+          </Link>
+        }
+      />
 
-      <form onSubmit={handleSubmit}>
-        <Card>
-          <CardHeader>
-            <CardTitle>Dados da solicitacao</CardTitle>
-            <CardDescription>O pedido sera criado como solicitacao registrada e seguira o fluxo normal.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <FormSectionCard
+          title="Dados da solicitacao"
+          description="O pedido sera criado como solicitacao registrada e seguira o fluxo normal."
+        >
             <div className="grid gap-6 md:grid-cols-2">
               <div className="space-y-2">
                 <Label>Cliente *</Label>
@@ -224,8 +223,14 @@ export default function NovaSolicitacaoPage() {
                 Esse campo e opcional. Quando houver desenho, memorial, PDF ou imagem, priorize o anexo da solicitacao.
               </p>
             </div>
+        </FormSectionCard>
 
-            <div className="space-y-3 rounded-lg border border-dashed border-primary/30 bg-primary/5 p-4">
+        <FormSectionCard
+          title="Anexos da solicitacao"
+          description="Envie aqui o material que o comprador vai usar como base para cotacao."
+          className="border-dashed border-primary/30 bg-primary/5"
+        >
+            <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <Paperclip className="h-4 w-4 text-primary" />
                 <Label htmlFor="cotacao_files" className="text-sm font-medium">
@@ -245,20 +250,19 @@ export default function NovaSolicitacaoPage() {
                 <p className="text-xs font-medium text-foreground">{files.length} arquivo(s) selecionado(s).</p>
               )}
             </div>
+        </FormSectionCard>
 
-            <div className="flex justify-end gap-3 border-t pt-4">
-              <Link href="/solicitacoes">
-                <Button type="button" variant="outline">
-                  Cancelar
-                </Button>
-              </Link>
-              <Button type="submit" disabled={saving}>
-                {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                {saving ? "Salvando..." : "Salvar solicitacao"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="flex justify-end gap-3">
+          <Link href="/solicitacoes">
+            <Button type="button" variant="outline">
+              Cancelar
+            </Button>
+          </Link>
+          <Button type="submit" disabled={saving}>
+            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+            {saving ? "Salvando..." : "Salvar solicitacao"}
+          </Button>
+        </div>
       </form>
     </div>
   )

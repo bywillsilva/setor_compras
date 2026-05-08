@@ -22,6 +22,7 @@ import {
   TriangleAlert,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { useCurrentSession } from "@/components/auth-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -66,6 +67,7 @@ type PropostaFormState = {
 
 export default function PropostaDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
+  const session = useCurrentSession()
   const router = useRouter()
   const [proposta, setProposta] = useState<Proposta | null>(null)
   const [clientes, setClientes] = useState<Cliente[]>([])
@@ -76,6 +78,7 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [formData, setFormData] = useState<PropostaFormState>(emptyForm())
+  const isAdmin = session?.perfil === "admin"
 
   useEffect(() => {
     fetchData()
@@ -171,6 +174,44 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
     setSaving(true)
 
     try {
+      if (!isAdmin) {
+        const motivo = window.prompt("Descreva o motivo da alteracao para enviar ao administrador.")
+        if (motivo === null) {
+          return
+        }
+
+        const response = await fetch("/api/solicitacoes-sensiveis", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            entidade: "proposta",
+            entidade_id: proposta.id,
+            acao: "editar",
+            motivo: motivo.trim() || "Ajuste de cadastro da proposta.",
+            payload: {
+              cliente_id: Number(formData.cliente_id),
+              nome: formData.nome.trim(),
+              data_inicio: formData.data_inicio || null,
+              data_fim: formData.data_fim || null,
+              valor_previsto_perfis: toNumber(formData.valor_previsto_perfis),
+              valor_previsto_vidros: toNumber(formData.valor_previsto_vidros),
+              valor_previsto_acessorios: toNumber(formData.valor_previsto_acessorios),
+              valor_previsto_outros: toNumber(formData.valor_previsto_outros),
+              custo_perdas: toNumber(formData.custo_perdas),
+            },
+          }),
+        })
+        const payload = await response.json().catch(() => null)
+
+        if (!response.ok) {
+          throw new Error(payload?.error || "Erro ao solicitar alteracao da proposta.")
+        }
+
+        alert("Solicitacao enviada ao administrador.")
+        cancelEditing()
+        return
+      }
+
       const response = await fetch(`/api/propostas/${proposta.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -206,13 +247,39 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
       return
     }
 
-    if (!confirm("Deseja excluir esta proposta permanentemente?")) {
-      return
-    }
-
     setDeleting(true)
 
     try {
+      if (!isAdmin) {
+        const motivo = window.prompt("Descreva o motivo da exclusao para enviar ao administrador.")
+        if (motivo === null) {
+          return
+        }
+
+        const response = await fetch("/api/solicitacoes-sensiveis", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            entidade: "proposta",
+            entidade_id: proposta.id,
+            acao: "excluir",
+            motivo: motivo.trim() || "Exclusao solicitada para a proposta.",
+          }),
+        })
+        const payload = await response.json().catch(() => null)
+
+        if (!response.ok) {
+          throw new Error(payload?.error || "Erro ao solicitar exclusao da proposta.")
+        }
+
+        alert("Solicitacao enviada ao administrador.")
+        return
+      }
+
+      if (!confirm("Deseja excluir esta proposta permanentemente?")) {
+        return
+      }
+
       const response = await fetch(`/api/propostas/${id}`, { method: "DELETE" })
       const payload = await response.json()
 
@@ -339,13 +406,13 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={startEditing}>Editar proposta</DropdownMenuItem>
+              <DropdownMenuItem onClick={startEditing}>{isAdmin ? "Editar proposta" : "Solicitar alteracao"}</DropdownMenuItem>
               <DropdownMenuItem onClick={handleArchiveToggle} disabled={togglingArchive}>
                 {proposta.arquivado ? "Desarquivar proposta" : "Arquivar proposta"}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onClick={handleDelete} disabled={deleting}>
-                Excluir proposta
+                {isAdmin ? "Excluir proposta" : "Solicitar exclusao"}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -355,8 +422,12 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
       {editing && (
         <Card className="border-primary/20">
           <CardHeader>
-            <CardTitle>Edicao da proposta</CardTitle>
-            <CardDescription>Edite a proposta com mais seguranca a partir do detalhe, evitando acoes acidentais na lista.</CardDescription>
+            <CardTitle>{isAdmin ? "Edicao da proposta" : "Solicitacao de alteracao da proposta"}</CardTitle>
+            <CardDescription>
+              {isAdmin
+                ? "Edite a proposta com mais seguranca a partir do detalhe, evitando acoes acidentais na lista."
+                : "Revise os dados e envie esta alteracao para aprovacao administrativa antes de atualizar a proposta no sistema."}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="space-y-2">
@@ -486,7 +557,7 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
                 ) : (
                   <>
                     <Save className="mr-2 h-4 w-4" />
-                    Salvar proposta
+                    {isAdmin ? "Salvar proposta" : "Enviar para aprovacao"}
                   </>
                 )}
               </Button>

@@ -5,8 +5,8 @@ import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { ArrowLeft, Loader2, Paperclip, Save } from "lucide-react"
 import { CompraRateioFields, type CompraRateioFormState } from "@/components/compras/compra-rateio-fields"
+import { FormSectionCard, PageHeader } from "@/components/shared/page-layout"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -15,15 +15,10 @@ import type { Cliente, Proposta } from "@/lib/types"
 
 export default function NovaCompraPage() {
   return (
-    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Carregando formulário...</div>}>
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Carregando formulario...</div>}>
       <NovaCompraContent />
     </Suspense>
   )
-}
-
-function toNumber(value: string) {
-  const number = Number(value)
-  return Number.isFinite(number) ? number : 0
 }
 
 function NovaCompraContent() {
@@ -42,7 +37,12 @@ function NovaCompraContent() {
     fornecedor: string
     descricao: string
     data_envio_fornecedor: string
-  } & CompraRateioFormState>({
+    valor_categoria_perfis: string
+    valor_categoria_vidros: string
+    valor_categoria_acessorios: string
+    valor_categoria_perdas: string
+    valor_categoria_outros: string
+  }>({
     cliente_id: searchParams.get("cliente_id") ?? "",
     proposta_id: searchParams.get("proposta_id") ?? "",
     fornecedor: "",
@@ -63,7 +63,7 @@ function NovaCompraContent() {
       }
     }
 
-    fetchClientes()
+    void fetchClientes()
   }, [])
 
   useEffect(() => {
@@ -79,7 +79,7 @@ function NovaCompraContent() {
       }
     }
 
-    fetchPropostas()
+    void fetchPropostas()
   }, [selectedCliente])
 
   function handleClienteChange(value: string) {
@@ -92,7 +92,7 @@ function NovaCompraContent() {
     clearError("cliente_id")
   }
 
-  function handleChange(field: string, value: string) {
+  function handleChange(field: keyof typeof formData, value: string) {
     setFormData((current) => ({ ...current, [field]: value }))
     clearError(field)
   }
@@ -119,7 +119,7 @@ function NovaCompraContent() {
     }
 
     if (!formData.descricao.trim()) {
-      nextErrors.descricao = "Informe a descrição da compra."
+      nextErrors.descricao = "Informe a descricao da compra."
     }
 
     setErrors(nextErrors)
@@ -173,7 +173,7 @@ function NovaCompraContent() {
 
           if (!uploadResponse.ok) {
             const uploadPayload = await uploadResponse.json().catch(() => null)
-            throw new Error(uploadPayload?.error || "Compra criada, mas os anexos não puderam ser enviados.")
+            throw new Error(uploadPayload?.error || "Compra criada, mas os anexos nao puderam ser enviados.")
           }
         } catch (uploadError) {
           alert(uploadError instanceof Error ? uploadError.message : "Compra criada, mas houve erro ao enviar anexos.")
@@ -192,154 +192,161 @@ function NovaCompraContent() {
 
   return (
     <div className="space-y-6 p-6">
-      <div className="flex items-center gap-4">
-        <Link href="/compras">
-          <Button variant="ghost" size="icon">
-            <ArrowLeft className="h-4 w-4" />
+      <PageHeader
+        title="Nova compra"
+        description="Cadastre o pedido inicial com cliente, proposta, fornecedor e material a ser cotado."
+        actions={
+          <Link href="/compras">
+            <Button variant="outline">
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Voltar
+            </Button>
+          </Link>
+        }
+      />
+
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <FormSectionCard
+          title="Dados do pedido"
+          description="O pedido sera criado automaticamente com status Cotacao."
+        >
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Cliente *</Label>
+              <Select value={formData.cliente_id} onValueChange={handleClienteChange}>
+                <SelectTrigger className={errors.cliente_id ? "border-destructive" : ""}>
+                  <SelectValue placeholder="Selecione o cliente" />
+                </SelectTrigger>
+                <SelectContent>
+                  {clientes.map((cliente) => (
+                    <SelectItem key={cliente.id} value={cliente.id.toString()}>
+                      {cliente.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {errors.cliente_id && <p className="text-sm text-destructive">{errors.cliente_id}</p>}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Proposta (obra) *</Label>
+              <Select
+                value={formData.proposta_id}
+                onValueChange={(value) => handleChange("proposta_id", value)}
+                disabled={!selectedCliente}
+              >
+                <SelectTrigger className={errors.proposta_id ? "border-destructive" : ""}>
+                  <SelectValue placeholder={selectedCliente ? "Selecione a proposta" : "Selecione o cliente primeiro"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {propostas.map((proposta) => (
+                    <SelectItem key={proposta.id} value={proposta.id.toString()}>
+                      {proposta.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {errors.proposta_id && <p className="text-sm text-destructive">{errors.proposta_id}</p>}
+            </div>
+          </div>
+
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="data_envio">Data de envio ao fornecedor</Label>
+              <Input
+                id="data_envio"
+                type="date"
+                value={formData.data_envio_fornecedor}
+                onChange={(event) => handleChange("data_envio_fornecedor", event.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="fornecedor">Fornecedor *</Label>
+            <Input
+              id="fornecedor"
+              value={formData.fornecedor}
+              onChange={(event) => handleChange("fornecedor", event.target.value)}
+              placeholder="Nome do fornecedor"
+              className={errors.fornecedor ? "border-destructive" : ""}
+            />
+            {errors.fornecedor && <p className="text-sm text-destructive">{errors.fornecedor}</p>}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="descricao">Descricao da compra *</Label>
+            <Textarea
+              id="descricao"
+              rows={5}
+              value={formData.descricao}
+              onChange={(event) => handleChange("descricao", event.target.value)}
+              placeholder="Descreva os itens, quantidades, referencias e contexto da compra."
+              className={errors.descricao ? "border-destructive" : ""}
+            />
+            {errors.descricao && <p className="text-sm text-destructive">{errors.descricao}</p>}
+          </div>
+
+          <CompraRateioFields
+            values={formData}
+            onChange={(field, value) => setFormData((current) => ({ ...current, [field]: value }))}
+            description="Se o comprador ja souber como esta compra sera distribuida, pode informar agora. Se preferir, esse rateio ainda pode ser ajustado depois na fase de cotacao."
+          />
+        </FormSectionCard>
+
+        <FormSectionCard
+          title="Anexos da cotacao"
+          description="Envie aqui o material de apoio que precisa acompanhar o pedido inicial."
+          className="border-dashed border-primary/30 bg-primary/5"
+        >
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Paperclip className="h-4 w-4 text-primary" />
+              <Label htmlFor="cotacao_files" className="text-sm font-medium">
+                Arquivos da cotacao
+              </Label>
+            </div>
+            <Input
+              id="cotacao_files"
+              type="file"
+              multiple
+              onChange={(event) => setQuoteFiles(Array.from(event.target.files ?? []))}
+            />
+            <p className="text-xs text-muted-foreground">
+              Envie aqui o material cotado, planilhas, PDFs ou imagens que devem acompanhar o pedido inicial.
+            </p>
+            {quoteFiles.length > 0 && (
+              <p className="text-xs font-medium text-foreground">{quoteFiles.length} arquivo(s) selecionado(s).</p>
+            )}
+          </div>
+        </FormSectionCard>
+
+        <div className="flex justify-end gap-3">
+          <Link href="/compras">
+            <Button type="button" variant="outline">
+              Cancelar
+            </Button>
+          </Link>
+          <Button type="submit" disabled={loading}>
+            {loading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Salvando...
+              </>
+            ) : (
+              <>
+                <Save className="mr-2 h-4 w-4" />
+                Criar pedido
+              </>
+            )}
           </Button>
-        </Link>
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Nova Compra</h1>
-          <p className="text-muted-foreground">Cadastre um novo pedido com vínculo de cliente, proposta e categoria</p>
         </div>
-      </div>
-
-      <form onSubmit={handleSubmit}>
-        <Card>
-          <CardHeader>
-            <CardTitle>Informações do pedido</CardTitle>
-            <CardDescription>
-              O pedido será criado automaticamente com status <strong>Cotação</strong>.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="grid gap-6 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Cliente *</Label>
-                <Select value={formData.cliente_id} onValueChange={handleClienteChange}>
-                  <SelectTrigger className={errors.cliente_id ? "border-destructive" : ""}>
-                    <SelectValue placeholder="Selecione o cliente" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clientes.map((cliente) => (
-                      <SelectItem key={cliente.id} value={cliente.id.toString()}>
-                        {cliente.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {errors.cliente_id && <p className="text-sm text-destructive">{errors.cliente_id}</p>}
-              </div>
-
-              <div className="space-y-2">
-                <Label>Proposta (obra) *</Label>
-                <Select
-                  value={formData.proposta_id}
-                  onValueChange={(value) => handleChange("proposta_id", value)}
-                  disabled={!selectedCliente}
-                >
-                  <SelectTrigger className={errors.proposta_id ? "border-destructive" : ""}>
-                    <SelectValue placeholder={selectedCliente ? "Selecione a proposta" : "Selecione o cliente primeiro"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {propostas.map((proposta) => (
-                      <SelectItem key={proposta.id} value={proposta.id.toString()}>
-                        {proposta.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {errors.proposta_id && <p className="text-sm text-destructive">{errors.proposta_id}</p>}
-              </div>
-            </div>
-
-            <div className="grid gap-6 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="data_envio">Data de envio ao fornecedor</Label>
-                <Input
-                  id="data_envio"
-                  type="date"
-                  value={formData.data_envio_fornecedor}
-                  onChange={(event) => handleChange("data_envio_fornecedor", event.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="fornecedor">Fornecedor *</Label>
-              <Input
-                id="fornecedor"
-                value={formData.fornecedor}
-                onChange={(event) => handleChange("fornecedor", event.target.value)}
-                placeholder="Nome do fornecedor"
-                className={errors.fornecedor ? "border-destructive" : ""}
-              />
-              {errors.fornecedor && <p className="text-sm text-destructive">{errors.fornecedor}</p>}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="descricao">Descrição da compra *</Label>
-              <Textarea
-                id="descricao"
-                rows={5}
-                value={formData.descricao}
-                onChange={(event) => handleChange("descricao", event.target.value)}
-                placeholder="Descreva os itens, quantidades, referências e contexto da compra"
-                className={errors.descricao ? "border-destructive" : ""}
-              />
-                {errors.descricao && <p className="text-sm text-destructive">{errors.descricao}</p>}
-              </div>
-
-              <CompraRateioFields
-                values={formData}
-                onChange={handleChange}
-                description="Distribua o valor desta compra entre perfis, vidros, acessorios, perdas/reposicao e outros sempre que esse detalhamento ja estiver definido."
-              />
-
-              <div className="space-y-3 rounded-lg border border-dashed border-primary/30 bg-primary/5 p-4">
-                <div className="flex items-center gap-2">
-                <Paperclip className="h-4 w-4 text-primary" />
-                <Label htmlFor="cotacao_files" className="text-sm font-medium">
-                  Anexos da cotação
-                </Label>
-              </div>
-              <Input
-                id="cotacao_files"
-                type="file"
-                multiple
-                onChange={(event) => setQuoteFiles(Array.from(event.target.files ?? []))}
-              />
-              <p className="text-xs text-muted-foreground">
-                Envie aqui o material cotado, planilhas, PDFs ou imagens que devem acompanhar o pedido inicial.
-              </p>
-              {quoteFiles.length > 0 && (
-                <p className="text-xs font-medium text-foreground">{quoteFiles.length} arquivo(s) selecionado(s).</p>
-              )}
-            </div>
-
-            <div className="flex justify-end gap-3 border-t pt-4">
-              <Link href="/compras">
-                <Button type="button" variant="outline">
-                  Cancelar
-                </Button>
-              </Link>
-              <Button type="submit" disabled={loading}>
-                {loading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Salvando...
-                  </>
-                ) : (
-                  <>
-                    <Save className="mr-2 h-4 w-4" />
-                    Criar pedido
-                  </>
-                )}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
       </form>
     </div>
   )
+}
+
+function toNumber(value: string) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : 0
 }

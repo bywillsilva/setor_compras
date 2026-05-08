@@ -91,6 +91,26 @@ CREATE TABLE IF NOT EXISTS anexos (
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS solicitacoes_sensiveis (
+  id BIGSERIAL PRIMARY KEY,
+  entidade TEXT NOT NULL CHECK (entidade IN ('cliente', 'proposta', 'compra')),
+  entidade_id BIGINT NOT NULL,
+  acao TEXT NOT NULL CHECK (acao IN ('editar', 'excluir')),
+  status TEXT NOT NULL DEFAULT 'pendente' CHECK (status IN ('pendente', 'aprovada', 'recusada')),
+  motivo TEXT NULL,
+  payload JSONB NULL,
+  solicitante_id BIGINT NOT NULL,
+  solicitante_nome TEXT NOT NULL,
+  solicitante_perfil TEXT NOT NULL,
+  aprovado_por TEXT NULL,
+  aprovado_em TIMESTAMPTZ NULL,
+  recusado_por TEXT NULL,
+  recusado_em TIMESTAMPTZ NULL,
+  observacao_admin TEXT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 ALTER TABLE clientes ADD COLUMN IF NOT EXISTS arquivado BOOLEAN DEFAULT FALSE;
 ALTER TABLE propostas ADD COLUMN IF NOT EXISTS arquivado BOOLEAN DEFAULT FALSE;
 ALTER TABLE compras ADD COLUMN IF NOT EXISTS arquivado BOOLEAN DEFAULT FALSE;
@@ -102,6 +122,15 @@ ALTER TABLE compras ADD COLUMN IF NOT EXISTS valor_categoria_outros NUMERIC(15, 
 ALTER TABLE compras ADD COLUMN IF NOT EXISTS etapa_autorizacao TEXT DEFAULT 'nenhuma';
 ALTER TABLE anexos ADD COLUMN IF NOT EXISTS nome_arquivo VARCHAR(255);
 ALTER TABLE anexos ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE solicitacoes_sensiveis ADD COLUMN IF NOT EXISTS motivo TEXT;
+ALTER TABLE solicitacoes_sensiveis ADD COLUMN IF NOT EXISTS payload JSONB;
+ALTER TABLE solicitacoes_sensiveis ADD COLUMN IF NOT EXISTS aprovado_por TEXT;
+ALTER TABLE solicitacoes_sensiveis ADD COLUMN IF NOT EXISTS aprovado_em TIMESTAMPTZ;
+ALTER TABLE solicitacoes_sensiveis ADD COLUMN IF NOT EXISTS recusado_por TEXT;
+ALTER TABLE solicitacoes_sensiveis ADD COLUMN IF NOT EXISTS recusado_em TIMESTAMPTZ;
+ALTER TABLE solicitacoes_sensiveis ADD COLUMN IF NOT EXISTS observacao_admin TEXT;
+ALTER TABLE solicitacoes_sensiveis ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE solicitacoes_sensiveis ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
 
 ALTER TABLE compras DROP CONSTRAINT IF EXISTS compras_categoria_check;
 UPDATE compras
@@ -217,6 +246,12 @@ EXECUTE FUNCTION update_updated_at_column();
 DROP TRIGGER IF EXISTS update_compras_updated_at ON compras;
 CREATE TRIGGER update_compras_updated_at
 BEFORE UPDATE ON compras
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_solicitacoes_sensiveis_updated_at ON solicitacoes_sensiveis;
+CREATE TRIGGER update_solicitacoes_sensiveis_updated_at
+BEFORE UPDATE ON solicitacoes_sensiveis
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_at_column();
 -- Upgrade do fluxo por etapas e assinaturas (2026-05-07)
