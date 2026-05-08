@@ -1582,6 +1582,10 @@ export async function requestCompraFinanceApproval(id: number, usuario: string) 
   return { requested: true }
 }
 
+function shouldSkipRequesterApproval(compra: Pick<Compra, 'solicitante_id'>) {
+  return !compra.solicitante_id
+}
+
 export async function markCompraQuotationSent(
   id: number,
   usuario: string,
@@ -1633,16 +1637,28 @@ export async function markCompraQuotationReceived(id: number, usuario: string) {
   }
 
   const receivedAt = format(new Date(), 'yyyy-MM-dd')
+  const skipRequesterApproval = shouldSkipRequesterApproval(compra)
 
   await updateCompraWorkflowFields(id, {
     status: 'em_analise',
-    etapa_fluxo: 'analise_solicitante',
+    etapa_autorizacao: skipRequesterApproval ? 'solicitada' : compra.etapa_autorizacao,
+    etapa_fluxo: skipRequesterApproval ? 'aguardando_admin' : 'analise_solicitante',
     cotacao_recebida_em: receivedAt,
     cotacao_recebida_por: usuario,
   })
 
+  if (skipRequesterApproval) {
+    await addHistoricoEvento(
+      id,
+      'Cotacao recebida e enviada diretamente para aprovacao do ADM, sem etapa do solicitante por se tratar de compra direta',
+      usuario,
+    )
+    await addHistoricoEvento(id, 'Solicitacao de autorizacao enviada ao administrador', usuario)
+    return { received: true, skippedRequesterApproval: true, requestedAdminApproval: true }
+  }
+
   await addHistoricoEvento(id, 'Cotacao recebida e encaminhada para aprovacao do solicitante', usuario)
-  return { received: true }
+  return { received: true, skippedRequesterApproval: false, requestedAdminApproval: false }
 }
 
 export async function approveCompraByRequester(id: number, usuario: string) {
@@ -3447,6 +3463,7 @@ function resolveCompraEtapaFluxo(
   rawEtapaAutorizacao: EtapaAutorizacao,
   rawEtapaFluxo: EtapaFluxoCompra,
 ): EtapaFluxoCompra {
+  const hasRequester = nullableNumber(row.solicitante_id) !== null
   const hasQuoteSent = Boolean(nullableString(row.cotacao_enviada_por) || toDateOnlyString(row.data_envio_fornecedor))
   const hasQuoteReceived = Boolean(nullableString(row.cotacao_recebida_por) || toDateOnlyString(row.cotacao_recebida_em))
   const hasRequesterApproval = Boolean(
@@ -3486,6 +3503,10 @@ function resolveCompraEtapaFluxo(
 
   if (rawStatus === 'retificacao' || rawEtapaFluxo === 'retificacao') {
     return 'retificacao'
+  }
+
+  if (!hasRequester && (rawEtapaFluxo === 'analise_solicitante' || rawEtapaFluxo === 'aprovada_solicitante' || hasQuoteReceived)) {
+    return 'aguardando_admin'
   }
 
   if (hasRequesterApproval || rawEtapaFluxo === 'aprovada_solicitante') {

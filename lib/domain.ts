@@ -63,6 +63,14 @@ export const ETAPA_FLUXO_LABELS: Record<EtapaFluxoCompra, string> = {
   pedido_autorizado: "Pedido autorizado",
 }
 
+export function getEtapaFluxoLabel(compra: Pick<Compra, "etapa_fluxo" | "solicitante_id">) {
+  if (compra.etapa_fluxo === "aprovada_solicitante" && !compra.solicitante_id) {
+    return "Pronta para ADM"
+  }
+
+  return ETAPA_FLUXO_LABELS[compra.etapa_fluxo]
+}
+
 export const ETAPA_FLUXO_BADGE_CLASSES: Record<EtapaFluxoCompra, string> = {
   solicitacao_registrada: "bg-slate-100 text-slate-700",
   cotacao_em_andamento: "bg-blue-100 text-blue-800",

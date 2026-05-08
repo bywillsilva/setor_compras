@@ -28,6 +28,7 @@ import {
   CATEGORIA_LABELS,
   ETAPA_FLUXO_BADGE_CLASSES,
   ETAPA_FLUXO_LABELS,
+  getEtapaFluxoLabel,
   STATUS_LABELS,
 } from "@/lib/domain"
 import type { Compra } from "@/lib/types"
@@ -94,7 +95,7 @@ export default function ComprasPage() {
         throw new Error(payload?.error || "Erro ao atualizar fluxo da compra.")
       }
 
-      alert(successMessage)
+      alert(payload?.message || successMessage)
       await fetchCompras(filters.archive)
     } catch (error) {
       alert(error instanceof Error ? error.message : "Erro ao atualizar fluxo da compra.")
@@ -351,6 +352,7 @@ export default function ComprasPage() {
               <TableBody>
                 {filteredCompras.map((compra) => {
                   const isProcessing = processingId === compra.id
+                  const skipRequesterApproval = !compra.solicitante_id
                   const documentosPendentes = [!compra.possui_nf ? "NF" : null, !compra.possui_boleto ? "boleto" : null].filter(Boolean)
                   const aguardandoRegistroFinanceiro =
                     compra.status === "pedido_autorizado" &&
@@ -388,7 +390,7 @@ export default function ComprasPage() {
                         <div className="min-w-[280px] space-y-2">
                           <div className="flex flex-wrap items-center gap-2">
                             <Badge className={ETAPA_FLUXO_BADGE_CLASSES[compra.etapa_fluxo]}>
-                              {ETAPA_FLUXO_LABELS[compra.etapa_fluxo]}
+                              {getEtapaFluxoLabel(compra)}
                             </Badge>
                             {compra.status === "pedido_autorizado" ? <DeliveryStatusBadge compra={compra} /> : null}
                           </div>
@@ -458,12 +460,18 @@ export default function ComprasPage() {
                                     runWorkflowAction(
                                       compra.id,
                                       `/api/compras/${compra.id}/recebimento-cotacao`,
-                                      "Cotacao enviada para aprovacao do solicitante.",
+                                      skipRequesterApproval
+                                        ? "Cotacao registrada e enviada diretamente para aprovacao do ADM."
+                                        : "Cotacao enviada para aprovacao do solicitante.",
                                     )
                                   }
                                 >
                                   {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                                  {isProcessing ? "Solicitando..." : "Solicitar aprovacao do solicitante"}
+                                  {isProcessing
+                                    ? "Solicitando..."
+                                    : skipRequesterApproval
+                                      ? "Enviar cotacao para aprovacao do ADM"
+                                      : "Solicitar aprovacao do solicitante"}
                                 </DropdownMenuItem>
                               ) : compra.etapa_fluxo === "analise_solicitante" ? (
                                 <DropdownMenuItem disabled>
@@ -575,7 +583,9 @@ function getCompraFlowNote(compra: Compra) {
     case "retificacao":
       return "Solicitante pediu ajuste antes do envio para a aprovacao administrativa."
     case "aprovada_solicitante":
-      return "Solicitante aprovou a cotacao; o proximo passo e enviar para o ADM."
+      return compra.solicitante_id
+        ? "Solicitante aprovou a cotacao; o proximo passo e enviar para o ADM."
+        : "Compra direta do comprador pronta para envio ao ADM."
     case "aguardando_admin":
       return "Aguardando a assinatura administrativa para seguir com a compra."
     case "aprovada_admin":

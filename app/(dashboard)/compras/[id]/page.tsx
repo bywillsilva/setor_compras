@@ -51,6 +51,7 @@ import {
   CATEGORIA_LABELS,
   ETAPA_FLUXO_BADGE_CLASSES,
   ETAPA_FLUXO_LABELS,
+  getEtapaFluxoLabel,
   getDeliverySituation,
   getCompraCategoriasAtivas,
   STATUS_BADGE_CLASSES,
@@ -341,7 +342,7 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
         throw new Error(payload?.error || "Erro ao atualizar o fluxo do pedido.")
       }
 
-      alert(successMessage)
+      alert(payload?.message || successMessage)
       await fetchCompra()
     } catch (error) {
       alert(error instanceof Error ? error.message : "Erro ao atualizar o fluxo do pedido.")
@@ -509,7 +510,7 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-bold text-foreground">Pedido #{compra.id}</h1>
               <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
-              <Badge className={ETAPA_FLUXO_BADGE_CLASSES[compra.etapa_fluxo]}>{ETAPA_FLUXO_LABELS[compra.etapa_fluxo]}</Badge>
+              <Badge className={ETAPA_FLUXO_BADGE_CLASSES[compra.etapa_fluxo]}>{getEtapaFluxoLabel(compra)}</Badge>
               {compra.arquivado && <Badge variant="outline">Arquivado</Badge>}
               {compra.status === "pedido_autorizado" && <DeliveryStatusBadge compra={compra} />}
             </div>
@@ -542,14 +543,20 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
               onClick={() =>
                 runWorkflowAction(
                   `/api/compras/${compra.id}/recebimento-cotacao`,
-                  "Cotacao enviada para aprovacao do solicitante.",
+                  !compra.solicitante_id
+                    ? "Cotacao registrada e enviada diretamente para aprovacao do ADM."
+                    : "Cotacao enviada para aprovacao do solicitante.",
                   "solicitante",
                 )
               }
               disabled={workflowProcessing === "solicitante"}
             >
               <Send className="mr-2 h-4 w-4" />
-              {workflowProcessing === "solicitante" ? "Solicitando..." : "Solicitar aprovacao do solicitante"}
+              {workflowProcessing === "solicitante"
+                ? "Solicitando..."
+                : !compra.solicitante_id
+                  ? "Enviar cotacao para aprovacao do ADM"
+                  : "Solicitar aprovacao do solicitante"}
             </Button>
           ) : compra.status !== "pedido_autorizado" && compra.etapa_fluxo === "analise_solicitante" ? (
             <Button variant="outline" disabled>
@@ -753,7 +760,7 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
                 <Info label="Proposta">{compra.proposta_nome}</Info>
                 <Info label="Categoria principal">{CATEGORIA_LABELS[compra.categoria]}</Info>
                 <Info label="Categorias ativas">{categoriasAtivasLabel}</Info>
-                <Info label="Etapa do fluxo">{ETAPA_FLUXO_LABELS[compra.etapa_fluxo]}</Info>
+                <Info label="Etapa do fluxo">{getEtapaFluxoLabel(compra)}</Info>
                 <Info label="Status da entrega">{deliveryLabel}</Info>
                 <Info label="Criado em">{formatDateTime(compra.data_criacao)}</Info>
                 <Info label="Ultima atualizacao">{formatDateTime(compra.updated_at)}</Info>
