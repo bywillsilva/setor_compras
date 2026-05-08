@@ -52,6 +52,7 @@ import {
   ETAPA_FLUXO_BADGE_CLASSES,
   ETAPA_FLUXO_LABELS,
   getEtapaFluxoLabel,
+  isCompraLockedAfterAdminApproval,
   getDeliverySituation,
   getCompraCategoriasAtivas,
   STATUS_BADGE_CLASSES,
@@ -97,6 +98,10 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
   const canApproveAdm = Boolean(
     session && hasFeatureAccess(session.perfil, "solicitacoes_autorizacao", session.features),
   )
+  const requiresAdminApprovalForSensitiveChanges = Boolean(
+    compra && !isAdmin && isCompraLockedAfterAdminApproval(compra),
+  )
+  const canManageAttachmentDeletion = Boolean(isAdmin || canManageCotacaoData)
   const [formData, setFormData] = useState<{
     fornecedor: string
     descricao: string
@@ -146,7 +151,7 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
     setSaving(true)
 
     try {
-      if (!isAdmin && (!canManageCotacaoData || compra?.status === "pedido_autorizado")) {
+      if (!isAdmin && (!canManageCotacaoData || requiresAdminApprovalForSensitiveChanges)) {
         const motivo = window.prompt("Descreva o motivo da alteracao para enviar ao administrador.")
         if (motivo === null) {
           return
@@ -413,6 +418,10 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
   }
 
   async function handleDeleteAttachment(anexo: Anexo) {
+    if (!compra) {
+      return
+    }
+
     if (!confirm(`Deseja excluir o anexo "${anexo.nome_arquivo}"?`)) {
       return
     }
@@ -420,6 +429,37 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
     setDeletingAttachmentId(anexo.id)
 
     try {
+      if (!isAdmin && requiresAdminApprovalForSensitiveChanges) {
+        const motivo = window.prompt("Descreva o motivo da exclusao do anexo para enviar ao administrador.")
+        if (motivo === null) {
+          return
+        }
+
+        const response = await fetch("/api/solicitacoes-sensiveis", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            entidade: "compra",
+            entidade_id: compra.id,
+            acao: "editar",
+            motivo: motivo.trim() || `Exclusao solicitada para o anexo ${anexo.nome_arquivo}.`,
+            payload: {
+              operation: "delete_attachment",
+              attachment_id: anexo.id,
+              attachment_name: anexo.nome_arquivo,
+            },
+          }),
+        })
+        const payload = await response.json().catch(() => null)
+
+        if (!response.ok) {
+          throw new Error(payload?.error || "Erro ao solicitar exclusao do anexo.")
+        }
+
+        alert("Solicitacao enviada ao administrador.")
+        return
+      }
+
       const response = await fetch(`/api/compras/${id}/anexos/${anexo.id}`, {
         method: "DELETE",
       })
@@ -932,7 +972,7 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
                             </a>
                           </Button>
                         )}
-                        {isAdmin && (
+                        {canManageAttachmentDeletion && (
                           <Button
                             type="button"
                             variant="ghost"
@@ -943,13 +983,13 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
                           >
                             {deletingAttachmentId === anexo.id ? (
                               <>
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                Excluindo...
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                {requiresAdminApprovalForSensitiveChanges && !isAdmin ? "Solicitando..." : "Excluindo..."}
                               </>
                             ) : (
                               <>
                                 <Trash2 className="mr-2 h-4 w-4" />
-                                Excluir
+                                {requiresAdminApprovalForSensitiveChanges && !isAdmin ? "Solicitar exclusao" : "Excluir"}
                               </>
                             )}
                           </Button>

@@ -2,6 +2,7 @@ import { rm } from 'fs/promises'
 import path from 'path'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAnyFeature, requireFeature } from '@/lib/auth/api'
+import { isCompraLockedAfterAdminApproval } from '@/lib/domain'
 import { getCompraDetail, permanentlyDeleteCompra, setCompraArchivedState, updateCompra } from '@/lib/repositories'
 
 export const runtime = 'nodejs'
@@ -92,9 +93,14 @@ export async function PUT(
       })
     }
 
-    if (isQuoteOperationalUpdate && guard.session.perfil !== 'admin' && compraAtual?.status === 'pedido_autorizado') {
+    if (
+      isQuoteOperationalUpdate &&
+      guard.session.perfil !== 'admin' &&
+      compraAtual &&
+      isCompraLockedAfterAdminApproval(compraAtual)
+    ) {
       return NextResponse.json(
-        { error: 'Depois da autorizacao final, alteracoes da cotacao exigem aprovacao administrativa.' },
+        { error: 'Depois da aprovacao do ADM, alteracoes na compra exigem aprovacao administrativa.' },
         { status: 403 },
       )
     }

@@ -17,6 +17,7 @@ import {
   CATEGORIA_LABELS,
   ETAPA_FLUXO_BADGE_CLASSES,
   ETAPA_FLUXO_LABELS,
+  isCompraLockedAfterAdminApproval,
   STATUS_BADGE_CLASSES,
   STATUS_LABELS,
   TIPO_ANEXO_LABELS,
@@ -64,7 +65,15 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
       (hasFeatureAccess(session.perfil, "solicitacoes", session.features) ||
         hasFeatureAccess(session.perfil, "compras", session.features)),
   )
-  const canDeleteAttachments = session?.perfil === "admin"
+  const canDeleteAttachments = Boolean(
+    compra &&
+      (session?.perfil === "admin" ||
+        (canViewAsCompras && !isCompraLockedAfterAdminApproval(compra)) ||
+        (canViewAsCompras && isCompraLockedAfterAdminApproval(compra))),
+  )
+  const requiresAdminApprovalForSensitiveChanges = Boolean(
+    compra && session?.perfil !== "admin" && canViewAsCompras && isCompraLockedAfterAdminApproval(compra),
+  )
 
   useEffect(() => {
     fetchSolicitacao()
@@ -158,6 +167,10 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
   }
 
   async function handleDeleteAttachment(anexo: Anexo) {
+    if (!compra) {
+      return
+    }
+
     if (!confirm(`Deseja excluir o anexo "${anexo.nome_arquivo}"?`)) {
       return
     }
@@ -165,6 +178,37 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
     setDeletingAttachmentId(anexo.id)
 
     try {
+      if (requiresAdminApprovalForSensitiveChanges) {
+        const motivo = window.prompt("Descreva o motivo da exclusao do anexo para enviar ao administrador.")
+        if (motivo === null) {
+          return
+        }
+
+        const response = await fetch("/api/solicitacoes-sensiveis", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            entidade: "compra",
+            entidade_id: compra.id,
+            acao: "editar",
+            motivo: motivo.trim() || `Exclusao solicitada para o anexo ${anexo.nome_arquivo}.`,
+            payload: {
+              operation: "delete_attachment",
+              attachment_id: anexo.id,
+              attachment_name: anexo.nome_arquivo,
+            },
+          }),
+        })
+        const payload = await response.json().catch(() => null)
+
+        if (!response.ok) {
+          throw new Error(payload?.error || "Erro ao solicitar exclusao do anexo.")
+        }
+
+        alert("Solicitacao enviada ao administrador.")
+        return
+      }
+
       const response = await fetch(`/api/compras/${id}/anexos/${anexo.id}`, {
         method: "DELETE",
       })
@@ -190,6 +234,39 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
     setSavingQuoteData(true)
 
     try {
+      if (requiresAdminApprovalForSensitiveChanges) {
+        const motivo = window.prompt("Descreva o motivo da alteracao para enviar ao administrador.")
+        if (motivo === null) {
+          return
+        }
+
+        const response = await fetch("/api/solicitacoes-sensiveis", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            entidade: "compra",
+            entidade_id: Number(id),
+            acao: "editar",
+            motivo: motivo.trim() || "Ajuste do rateio da compra solicitado ao administrador.",
+            payload: {
+              valor_categoria_perfis: toNumber(quoteData.valor_categoria_perfis),
+              valor_categoria_vidros: toNumber(quoteData.valor_categoria_vidros),
+              valor_categoria_acessorios: toNumber(quoteData.valor_categoria_acessorios),
+              valor_categoria_perdas: toNumber(quoteData.valor_categoria_perdas),
+              valor_categoria_outros: toNumber(quoteData.valor_categoria_outros),
+            },
+          }),
+        })
+        const payload = await response.json().catch(() => null)
+
+        if (!response.ok) {
+          throw new Error(payload?.error || "Erro ao solicitar alteracao da cotacao.")
+        }
+
+        alert("Solicitacao enviada ao administrador.")
+        return
+      }
+
       const response = await fetch(`/api/compras/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -522,7 +599,10 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
                           {deletingAttachmentId === anexo.id ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
                           ) : (
-                            <Trash2 className="h-4 w-4" />
+                            <div className="flex items-center gap-1">
+                              <Trash2 className="h-4 w-4" />
+                              <span>{requiresAdminApprovalForSensitiveChanges ? "Solicitar" : "Excluir"}</span>
+                            </div>
                           )}
                         </Button>
                       )}

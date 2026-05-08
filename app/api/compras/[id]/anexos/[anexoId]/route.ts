@@ -4,6 +4,7 @@ import { deleteSupabaseAttachmentObject } from '@/lib/attachment-storage'
 import { getRequestSession } from '@/lib/auth/api'
 import { hasFeatureAccess } from '@/lib/auth/permissions'
 import { parseSupabaseAttachmentUrl, resolveLocalAttachmentPath } from '@/lib/attachments'
+import { isCompraLockedAfterAdminApproval } from '@/lib/domain'
 import { deleteAnexo, getAnexoById, getCompraById } from '@/lib/repositories'
 
 export const runtime = 'nodejs'
@@ -21,8 +22,24 @@ export async function DELETE(
     }
 
     const session = await getRequestSession(request)
-    if (!session || session.perfil !== 'admin') {
-      return NextResponse.json({ error: 'A exclusao de anexos exige autorizacao administrativa.' }, { status: 403 })
+    if (!session) {
+      return NextResponse.json({ error: 'Sessao expirada. Faca login novamente.' }, { status: 401 })
+    }
+
+    const compra = await getCompraById(compraId)
+    if (!compra) {
+      return NextResponse.json({ error: 'Compra nao encontrada.' }, { status: 404 })
+    }
+
+    if (session.perfil !== 'admin') {
+      const canManageAsComprador = hasFeatureAccess(session.perfil, 'compras', session.features)
+
+      if (!canManageAsComprador || isCompraLockedAfterAdminApproval(compra)) {
+        return NextResponse.json(
+          { error: 'Depois da aprovacao do ADM, a exclusao de anexos exige autorizacao administrativa.' },
+          { status: 403 },
+        )
+      }
     }
 
     const attachmentId = Number(anexoId)

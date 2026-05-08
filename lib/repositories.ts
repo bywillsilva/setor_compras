@@ -1,7 +1,8 @@
-import { access } from 'fs/promises'
+import { access, rm } from 'fs/promises'
 import path from 'path'
 import { format, isAfter, isBefore, parseISO, subMonths } from 'date-fns'
 import type { PoolConnection, ResultSetHeader } from 'mysql2/promise'
+import { deleteSupabaseAttachmentObject } from '@/lib/attachment-storage'
 import {
   isExternalAttachmentUrl,
   isSupabaseAttachmentUrl,
@@ -1956,10 +1957,46 @@ async function applySensitiveChangeRequest(request: SolicitacaoSensivel, usuario
     return
   }
 
+  if (request.payload?.operation === 'delete_attachment') {
+    const attachmentId = toNumber(request.payload.attachment_id)
+
+    if (!attachmentId) {
+      throw new Error('A solicitacao de exclusao do anexo nao informou o anexo corretamente.')
+    }
+
+    const anexo = await getAnexoById(request.entidade_id, attachmentId)
+    if (!anexo) {
+      throw new Error('O anexo solicitado para exclusao nao foi encontrado.')
+    }
+
+    await deleteAnexo(request.entidade_id, attachmentId)
+    await deleteStoredAttachmentAsset(anexo)
+    await addHistoricoEvento(
+      request.entidade_id,
+      `Anexo ${anexo.nome_arquivo} removido com aprovacao administrativa`,
+      usuario,
+    )
+    return
+  }
+
   await updateCompra(request.entidade_id, {
     ...sanitizeSensitiveCompraPayload(request.payload),
     usuario,
   })
+}
+
+async function deleteStoredAttachmentAsset(anexo: Anexo) {
+  const supabaseObject = parseSupabaseAttachmentUrl(anexo.arquivo_url)
+
+  if (supabaseObject) {
+    await deleteSupabaseAttachmentObject(supabaseObject.bucket, supabaseObject.objectPath)
+    return
+  }
+
+  const attachmentPath = resolveLocalAttachmentPath(anexo.arquivo_url)
+  if (attachmentPath) {
+    await rm(attachmentPath, { force: true }).catch(() => undefined)
+  }
 }
 
 export async function getAnexoById(compraId: number, anexoId: number): Promise<Anexo | null> {

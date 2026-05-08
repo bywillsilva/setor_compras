@@ -71,6 +71,18 @@ export function getEtapaFluxoLabel(compra: Pick<Compra, "etapa_fluxo" | "solicit
   return ETAPA_FLUXO_LABELS[compra.etapa_fluxo]
 }
 
+export function isCompraLockedAfterAdminApproval(
+  compra: Pick<Compra, "etapa_fluxo" | "aprovado_admin_em" | "aprovado_admin_por">,
+) {
+  if (compra.aprovado_admin_em || compra.aprovado_admin_por) {
+    return true
+  }
+
+  return ["aprovada_admin", "aguardando_financeiro", "liberada_para_fornecedor", "pedido_autorizado"].includes(
+    compra.etapa_fluxo,
+  )
+}
+
 export const ETAPA_FLUXO_BADGE_CLASSES: Record<EtapaFluxoCompra, string> = {
   solicitacao_registrada: "bg-slate-100 text-slate-700",
   cotacao_em_andamento: "bg-blue-100 text-blue-800",
