@@ -12,6 +12,7 @@ import { PageHeader, SectionCard, SummaryMetricCard } from "@/components/shared/
 import { RowActionsMenu } from "@/components/shared/row-actions-menu"
 import { TableTextPreview } from "@/components/shared/table-text-preview"
 import { SortableTableHead, TableFilterInput, type SortDirection } from "@/components/shared/table-tools"
+import { useLiveRefresh } from "@/components/shared/use-live-refresh"
 import { Badge } from "@/components/ui/badge"
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import {
@@ -54,7 +55,7 @@ export default function FinanceiroPage() {
   async function fetchData() {
     try {
       setLoading(true)
-      const response = await fetch("/api/compras")
+      const response = await fetch("/api/compras", { cache: "no-store" })
       if (!response.ok) {
         throw new Error("Erro ao carregar fila financeira.")
       }
@@ -70,6 +71,11 @@ export default function FinanceiroPage() {
   useEffect(() => {
     void fetchData()
   }, [])
+
+  useLiveRefresh(fetchData, {
+    enabled: processingId === null,
+    intervalMs: 12000,
+  })
 
   async function runAction(compraId: number, path: string, successMessage: string, body?: Record<string, unknown>) {
     setProcessingId(compraId)

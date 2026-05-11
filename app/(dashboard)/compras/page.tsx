@@ -12,6 +12,7 @@ import { PageHeader, SectionCard } from "@/components/shared/page-layout"
 import { RowActionsMenu } from "@/components/shared/row-actions-menu"
 import { TableTextPreview } from "@/components/shared/table-text-preview"
 import { SortableTableHead, TableFilterInput, type SortDirection } from "@/components/shared/table-tools"
+import { useLiveRefresh } from "@/components/shared/use-live-refresh"
 import { DeliveryStatusBadge } from "@/components/compras/delivery-status-badge"
 import { hasFeatureAccess } from "@/lib/auth/permissions"
 import { Badge } from "@/components/ui/badge"
@@ -71,7 +72,7 @@ export default function ComprasPage() {
     try {
       setLoading(true)
       const query = selectedArchiveFilter === "ativos" ? "" : `?arquivados=${selectedArchiveFilter}`
-      const comprasResponse = await fetch(`/api/compras${query}`)
+      const comprasResponse = await fetch(`/api/compras${query}`, { cache: "no-store" })
 
       if (comprasResponse.ok) {
         setCompras(await comprasResponse.json())
@@ -84,6 +85,11 @@ export default function ComprasPage() {
   useEffect(() => {
     void fetchCompras(filters.archive)
   }, [filters.archive])
+
+  useLiveRefresh(() => fetchCompras(filters.archive), {
+    enabled: processingId === null,
+    intervalMs: 12000,
+  })
 
   async function runWorkflowAction(compraId: number, path: string, successMessage: string) {
     setProcessingId(compraId)

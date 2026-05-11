@@ -25,6 +25,7 @@ import {
 import { useCurrentSession } from "@/components/auth-provider"
 import { CompraRateioFields, type CompraRateioFormState } from "@/components/compras/compra-rateio-fields"
 import { DeliveryStatusBadge } from "@/components/compras/delivery-status-badge"
+import { useLiveRefresh } from "@/components/shared/use-live-refresh"
 import { hasFeatureAccess } from "@/lib/auth/permissions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -121,9 +122,23 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
     fetchCompra()
   }, [id])
 
+  useLiveRefresh(fetchCompra, {
+    enabled:
+      !editing &&
+      !saving &&
+      !deleting &&
+      !togglingArchive &&
+      !uploadingAttachments &&
+      deletingAttachmentId === null &&
+      workflowProcessing === null &&
+      !requestingAuthorization &&
+      !requestingFinance,
+    intervalMs: 10000,
+  })
+
   async function fetchCompra() {
     try {
-      const response = await fetch(`/api/compras/${id}`)
+      const response = await fetch(`/api/compras/${id}`, { cache: "no-store" })
       if (!response.ok) {
         throw new Error("Compra nao encontrada.")
       }

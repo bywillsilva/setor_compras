@@ -16,6 +16,7 @@ import {
 } from "lucide-react"
 import { useCurrentSession } from "@/components/auth-provider"
 import { DashboardChart } from "@/components/dashboard-chart"
+import { useLiveRefresh } from "@/components/shared/use-live-refresh"
 import { SetupBanner } from "@/components/setup-banner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -31,57 +32,63 @@ export default function DashboardPage() {
   const [dbConfigured, setDbConfigured] = useState<boolean | null>(null)
   const [pendingSensitiveApprovals, setPendingSensitiveApprovals] = useState(0)
 
-  useEffect(() => {
-    async function checkSetup() {
-      try {
-        const setupResponse = await fetch("/api/setup")
-        const setupData = await setupResponse.json()
-        setDbConfigured(setupData.configured)
+  async function loadDashboard() {
+    try {
+      setError(null)
+      const setupResponse = await fetch("/api/setup", { cache: "no-store" })
+      const setupData = await setupResponse.json()
+      setDbConfigured(setupData.configured)
 
-        if (!setupData.configured) {
-          setLoading(false)
-          return
-        }
-
-        const dashboardResponse = await fetch("/api/dashboard")
-        if (!dashboardResponse.ok) {
-          throw new Error("Erro ao carregar dados do dashboard.")
-        }
-
-        setData(await dashboardResponse.json())
-      } catch (currentError) {
-        setError(currentError instanceof Error ? currentError.message : "Erro desconhecido.")
-      } finally {
+      if (!setupData.configured) {
         setLoading(false)
+        return
       }
+
+      const dashboardResponse = await fetch("/api/dashboard", { cache: "no-store" })
+      if (!dashboardResponse.ok) {
+        throw new Error("Erro ao carregar dados do dashboard.")
+      }
+
+      setData(await dashboardResponse.json())
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "Erro desconhecido.")
+    } finally {
+      setLoading(false)
     }
+  }
 
-    checkSetup()
-  }, [])
-
-  useEffect(() => {
+  async function loadSensitiveApprovals() {
     if (session?.perfil !== "admin") {
       setPendingSensitiveApprovals(0)
       return
     }
 
-    async function loadSensitiveApprovals() {
-      try {
-        const response = await fetch("/api/solicitacoes-sensiveis?status=pendente", { cache: "no-store" })
-        const payload = await response.json().catch(() => null)
+    try {
+      const response = await fetch("/api/solicitacoes-sensiveis?status=pendente", { cache: "no-store" })
+      const payload = await response.json().catch(() => null)
 
-        if (!response.ok) {
-          return
-        }
-
-        setPendingSensitiveApprovals(Array.isArray(payload) ? payload.length : 0)
-      } catch {
-        setPendingSensitiveApprovals(0)
+      if (!response.ok) {
+        return
       }
-    }
 
+      setPendingSensitiveApprovals(Array.isArray(payload) ? payload.length : 0)
+    } catch {
+      setPendingSensitiveApprovals(0)
+    }
+  }
+
+  useEffect(() => {
+    void loadDashboard()
+  }, [])
+
+  useEffect(() => {
     void loadSensitiveApprovals()
   }, [session?.perfil])
+
+  useLiveRefresh(async () => {
+    await loadDashboard()
+    await loadSensitiveApprovals()
+  }, { intervalMs: 15000 })
 
   if (loading) {
     return (

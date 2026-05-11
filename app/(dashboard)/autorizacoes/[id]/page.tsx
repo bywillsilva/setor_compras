@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, CheckCircle2, Loader2, Save } from "lucide-react"
+import { useLiveRefresh } from "@/components/shared/use-live-refresh"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -30,26 +31,31 @@ export default function AutorizacaoDetailPage({ params }: { params: Promise<{ id
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [previsaoEntrega, setPrevisaoEntrega] = useState("")
 
-  useEffect(() => {
-    async function fetchCompra() {
-      try {
-        const response = await fetch(`/api/compras/${id}`)
-        if (!response.ok) {
-          throw new Error("Pedido nao encontrado.")
-        }
-
-        const payload = await response.json()
-        setCompra(payload)
-        setPrevisaoEntrega(payload.previsao_entrega ?? "")
-      } catch (error) {
-        console.error(error)
-      } finally {
-        setLoading(false)
+  async function fetchCompra() {
+    try {
+      const response = await fetch(`/api/compras/${id}`, { cache: "no-store" })
+      if (!response.ok) {
+        throw new Error("Pedido nao encontrado.")
       }
-    }
 
-    fetchCompra()
+      const payload = await response.json()
+      setCompra(payload)
+      setPrevisaoEntrega(payload.previsao_entrega ?? "")
+    } catch (error) {
+      console.error(error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void fetchCompra()
   }, [id])
+
+  useLiveRefresh(fetchCompra, {
+    enabled: !saving,
+    intervalMs: 10000,
+  })
 
   async function handleSave() {
     const nextErrors: Record<string, string> = {}

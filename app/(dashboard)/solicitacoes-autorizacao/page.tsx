@@ -12,6 +12,7 @@ import { PageHeader, SectionCard, SummaryMetricCard } from "@/components/shared/
 import { RowActionsMenu } from "@/components/shared/row-actions-menu"
 import { TableTextPreview } from "@/components/shared/table-text-preview"
 import { SortableTableHead, TableFilterInput, type SortDirection } from "@/components/shared/table-tools"
+import { useLiveRefresh } from "@/components/shared/use-live-refresh"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
@@ -57,7 +58,10 @@ export default function SolicitacoesAutorizacaoPage() {
   async function fetchData() {
     try {
       setLoading(true)
-      const [comprasResponse, clientesResponse] = await Promise.all([fetch("/api/compras"), fetch("/api/clientes")])
+      const [comprasResponse, clientesResponse] = await Promise.all([
+        fetch("/api/compras", { cache: "no-store" }),
+        fetch("/api/clientes", { cache: "no-store" }),
+      ])
 
       if (comprasResponse.ok) {
         setCompras(await comprasResponse.json())
@@ -74,6 +78,8 @@ export default function SolicitacoesAutorizacaoPage() {
   useEffect(() => {
     void fetchData()
   }, [])
+
+  useLiveRefresh(fetchData, { intervalMs: 12000 })
 
   const filteredCompras = useMemo(() => {
     return compras

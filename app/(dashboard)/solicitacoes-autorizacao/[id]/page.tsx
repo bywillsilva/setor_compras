@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, Loader2, Save, ShieldCheck } from "lucide-react"
+import { useLiveRefresh } from "@/components/shared/use-live-refresh"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -29,29 +30,34 @@ export default function SolicitacaoAutorizacaoDetailPage({ params }: { params: P
     valor_total: "",
   })
 
-  useEffect(() => {
-    async function fetchCompra() {
-      try {
-        const response = await fetch(`/api/compras/${id}`)
-        if (!response.ok) {
-          throw new Error("Pedido nao encontrado.")
-        }
-
-        const payload = await response.json()
-        setCompra(payload)
-        setFormData({
-          numero_pedido: payload.numero_pedido ?? "",
-          valor_total: payload.valor_total?.toString() ?? "",
-        })
-      } catch (error) {
-        console.error(error)
-      } finally {
-        setLoading(false)
+  async function fetchCompra() {
+    try {
+      const response = await fetch(`/api/compras/${id}`, { cache: "no-store" })
+      if (!response.ok) {
+        throw new Error("Pedido nao encontrado.")
       }
-    }
 
-    fetchCompra()
+      const payload = await response.json()
+      setCompra(payload)
+      setFormData({
+        numero_pedido: payload.numero_pedido ?? "",
+        valor_total: payload.valor_total?.toString() ?? "",
+      })
+    } catch (error) {
+      console.error(error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void fetchCompra()
   }, [id])
+
+  useLiveRefresh(fetchCompra, {
+    enabled: !saving && !rejecting,
+    intervalMs: 10000,
+  })
 
   function validate() {
     const nextErrors: Record<string, string> = {}

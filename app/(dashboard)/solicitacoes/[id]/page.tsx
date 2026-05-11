@@ -5,6 +5,7 @@ import Link from "next/link"
 import { ArrowLeft, CheckCircle2, Loader2, Paperclip, RefreshCcw, Trash2 } from "lucide-react"
 import { useCurrentSession } from "@/components/auth-provider"
 import { CompraRateioFields, type CompraRateioFormState } from "@/components/compras/compra-rateio-fields"
+import { useLiveRefresh } from "@/components/shared/use-live-refresh"
 import { hasFeatureAccess } from "@/lib/auth/permissions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -79,9 +80,14 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
     fetchSolicitacao()
   }, [id])
 
+  useLiveRefresh(fetchSolicitacao, {
+    enabled: !processing && !savingQuoteData && !uploadingAttachments && deletingAttachmentId === null,
+    intervalMs: 10000,
+  })
+
   async function fetchSolicitacao() {
     try {
-      const response = await fetch(`/api/solicitacoes/${id}`)
+      const response = await fetch(`/api/solicitacoes/${id}`, { cache: "no-store" })
       if (!response.ok) {
         throw new Error("Solicitacao nao encontrada.")
       }

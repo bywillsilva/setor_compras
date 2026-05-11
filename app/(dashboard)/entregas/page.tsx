@@ -11,6 +11,7 @@ import { PageHeader, SectionCard, SummaryMetricCard } from "@/components/shared/
 import { RowActionsMenu } from "@/components/shared/row-actions-menu"
 import { TableTextPreview } from "@/components/shared/table-text-preview"
 import { SortableTableHead, TableFilterInput, type SortDirection } from "@/components/shared/table-tools"
+import { useLiveRefresh } from "@/components/shared/use-live-refresh"
 import { DeliveryStatusBadge } from "@/components/compras/delivery-status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -45,28 +46,31 @@ export default function EntregasPage() {
     direction: "asc",
   })
 
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        const [comprasResponse, clientesResponse] = await Promise.all([
-          fetch("/api/compras?status=pedido_autorizado"),
-          fetch("/api/clientes"),
-        ])
+  async function fetchData() {
+    try {
+      setLoading(true)
+      const [comprasResponse, clientesResponse] = await Promise.all([
+        fetch("/api/compras?status=pedido_autorizado", { cache: "no-store" }),
+        fetch("/api/clientes", { cache: "no-store" }),
+      ])
 
-        if (comprasResponse.ok) {
-          setCompras(await comprasResponse.json())
-        }
-
-        if (clientesResponse.ok) {
-          setClientes(await clientesResponse.json())
-        }
-      } finally {
-        setLoading(false)
+      if (comprasResponse.ok) {
+        setCompras(await comprasResponse.json())
       }
-    }
 
+      if (clientesResponse.ok) {
+        setClientes(await clientesResponse.json())
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
     void fetchData()
   }, [])
+
+  useLiveRefresh(fetchData, { intervalMs: 12000 })
 
   const metrics = useMemo(
     () => ({

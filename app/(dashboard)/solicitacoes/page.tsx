@@ -12,6 +12,7 @@ import { PageHeader, SectionCard, SummaryMetricCard } from "@/components/shared/
 import { RowActionsMenu } from "@/components/shared/row-actions-menu"
 import { TableTextPreview } from "@/components/shared/table-text-preview"
 import { SortableTableHead, TableFilterInput, type SortDirection } from "@/components/shared/table-tools"
+import { useLiveRefresh } from "@/components/shared/use-live-refresh"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
@@ -57,7 +58,7 @@ export default function SolicitacoesPage() {
   async function fetchSolicitacoes() {
     try {
       setLoading(true)
-      const response = await fetch("/api/solicitacoes")
+      const response = await fetch("/api/solicitacoes", { cache: "no-store" })
       if (!response.ok) {
         throw new Error("Erro ao carregar solicitacoes.")
       }
@@ -73,6 +74,11 @@ export default function SolicitacoesPage() {
   useEffect(() => {
     void fetchSolicitacoes()
   }, [])
+
+  useLiveRefresh(fetchSolicitacoes, {
+    enabled: processingId === null,
+    intervalMs: 12000,
+  })
 
   async function handleApprove(compraId: number) {
     setProcessingId(compraId)

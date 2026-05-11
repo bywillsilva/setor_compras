@@ -7,6 +7,7 @@ import { format, parseISO } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import { AlertTriangle, ArrowLeft, CheckCircle2, Eye, Loader2, RotateCcw, Save, Truck } from "lucide-react"
 import { RowActionsMenu } from "@/components/shared/row-actions-menu"
+import { useLiveRefresh } from "@/components/shared/use-live-refresh"
 import { DeliveryStatusBadge } from "@/components/compras/delivery-status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -36,31 +37,36 @@ export default function EntregaDetailPage({ params }: { params: Promise<{ id: st
     motivo_revisao: "",
   })
 
-  useEffect(() => {
-    async function fetchCompra() {
-      try {
-        const response = await fetch(`/api/compras/${id}`)
-        if (!response.ok) {
-          throw new Error("Compra nao encontrada.")
-        }
-
-        const payload = await response.json()
-        setCompra(payload)
-        setFormData({
-          numero_pedido: payload.numero_pedido ?? "",
-          previsao_entrega: payload.previsao_entrega ?? "",
-          data_entrega_real: payload.data_entrega_real ?? "",
-          motivo_revisao: "",
-        })
-      } catch (error) {
-        console.error(error)
-      } finally {
-        setLoading(false)
+  async function fetchCompra() {
+    try {
+      const response = await fetch(`/api/compras/${id}`, { cache: "no-store" })
+      if (!response.ok) {
+        throw new Error("Compra nao encontrada.")
       }
-    }
 
-    fetchCompra()
+      const payload = await response.json()
+      setCompra(payload)
+      setFormData({
+        numero_pedido: payload.numero_pedido ?? "",
+        previsao_entrega: payload.previsao_entrega ?? "",
+        data_entrega_real: payload.data_entrega_real ?? "",
+        motivo_revisao: "",
+      })
+    } catch (error) {
+      console.error(error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void fetchCompra()
   }, [id])
+
+  useLiveRefresh(fetchCompra, {
+    enabled: !saving && !reverting,
+    intervalMs: 10000,
+  })
 
   const situacao = useMemo(() => (compra ? getDeliverySituation(compra) : "pendente"), [compra])
 

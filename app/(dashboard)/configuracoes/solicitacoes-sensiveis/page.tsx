@@ -6,6 +6,7 @@ import { format, parseISO } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import { ArrowLeft, CheckCircle2, Loader2, ShieldAlert, XCircle } from "lucide-react"
 import { useCurrentSession } from "@/components/auth-provider"
+import { useLiveRefresh } from "@/components/shared/use-live-refresh"
 import { PERFIL_LABELS } from "@/lib/auth/permissions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -63,6 +64,11 @@ export default function SolicitacoesSensiveisPage() {
       void fetchRequests(status)
     }
   }, [session?.perfil, status])
+
+  useLiveRefresh(() => fetchRequests(status), {
+    enabled: session?.perfil === "admin" && processingId === null,
+    intervalMs: 12000,
+  })
 
   async function fetchRequests(currentStatus: "todos" | SolicitacaoSensivelStatus) {
     setLoading(true)
