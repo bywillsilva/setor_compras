@@ -55,9 +55,13 @@ export default function SolicitacoesPage() {
 
   const canCreateSolicitacao = Boolean(session && hasFeatureAccess(session.perfil, "solicitacoes", session.features))
 
-  async function fetchSolicitacoes() {
+  async function fetchSolicitacoes(options: { silent?: boolean } = {}) {
+    const { silent = false } = options
+
     try {
-      setLoading(true)
+      if (!silent) {
+        setLoading(true)
+      }
       const response = await fetch("/api/solicitacoes", { cache: "no-store" })
       if (!response.ok) {
         throw new Error("Erro ao carregar solicitacoes.")
@@ -67,7 +71,9 @@ export default function SolicitacoesPage() {
     } catch (error) {
       console.error(error)
     } finally {
-      setLoading(false)
+      if (!silent) {
+        setLoading(false)
+      }
     }
   }
 
@@ -75,7 +81,7 @@ export default function SolicitacoesPage() {
     void fetchSolicitacoes()
   }, [])
 
-  useLiveRefresh(fetchSolicitacoes, {
+  useLiveRefresh(() => fetchSolicitacoes({ silent: true }), {
     enabled: processingId === null,
     intervalMs: 12000,
   })

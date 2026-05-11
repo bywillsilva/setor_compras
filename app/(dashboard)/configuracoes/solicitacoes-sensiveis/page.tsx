@@ -65,13 +65,20 @@ export default function SolicitacoesSensiveisPage() {
     }
   }, [session?.perfil, status])
 
-  useLiveRefresh(() => fetchRequests(status), {
+  useLiveRefresh(() => fetchRequests(status, { silent: true }), {
     enabled: session?.perfil === "admin" && processingId === null,
     intervalMs: 12000,
   })
 
-  async function fetchRequests(currentStatus: "todos" | SolicitacaoSensivelStatus) {
-    setLoading(true)
+  async function fetchRequests(
+    currentStatus: "todos" | SolicitacaoSensivelStatus,
+    options: { silent?: boolean } = {},
+  ) {
+    const { silent = false } = options
+
+    if (!silent) {
+      setLoading(true)
+    }
     setLoadError(null)
 
     try {
@@ -89,7 +96,9 @@ export default function SolicitacoesSensiveisPage() {
       setLoadError(message)
       setRequests([])
     } finally {
-      setLoading(false)
+      if (!silent) {
+        setLoading(false)
+      }
     }
   }
 

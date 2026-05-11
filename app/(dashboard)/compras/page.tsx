@@ -68,9 +68,16 @@ export default function ComprasPage() {
   )
   const canFinalizeFornecedor = Boolean(session && hasFeatureAccess(session.perfil, "autorizacoes", session.features))
 
-  async function fetchCompras(selectedArchiveFilter = filters.archive) {
+  async function fetchCompras(
+    selectedArchiveFilter = filters.archive,
+    options: { silent?: boolean } = {},
+  ) {
+    const { silent = false } = options
+
     try {
-      setLoading(true)
+      if (!silent) {
+        setLoading(true)
+      }
       const query = selectedArchiveFilter === "ativos" ? "" : `?arquivados=${selectedArchiveFilter}`
       const comprasResponse = await fetch(`/api/compras${query}`, { cache: "no-store" })
 
@@ -78,7 +85,9 @@ export default function ComprasPage() {
         setCompras(await comprasResponse.json())
       }
     } finally {
-      setLoading(false)
+      if (!silent) {
+        setLoading(false)
+      }
     }
   }
 
@@ -86,7 +95,7 @@ export default function ComprasPage() {
     void fetchCompras(filters.archive)
   }, [filters.archive])
 
-  useLiveRefresh(() => fetchCompras(filters.archive), {
+  useLiveRefresh(() => fetchCompras(filters.archive, { silent: true }), {
     enabled: processingId === null,
     intervalMs: 12000,
   })

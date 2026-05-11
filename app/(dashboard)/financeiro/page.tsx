@@ -52,9 +52,13 @@ export default function FinanceiroPage() {
   })
   const canViewCompras = Boolean(session && hasFeatureAccess(session.perfil, "compras", session.features))
 
-  async function fetchData() {
+  async function fetchData(options: { silent?: boolean } = {}) {
+    const { silent = false } = options
+
     try {
-      setLoading(true)
+      if (!silent) {
+        setLoading(true)
+      }
       const response = await fetch("/api/compras", { cache: "no-store" })
       if (!response.ok) {
         throw new Error("Erro ao carregar fila financeira.")
@@ -64,7 +68,9 @@ export default function FinanceiroPage() {
     } catch (error) {
       console.error(error)
     } finally {
-      setLoading(false)
+      if (!silent) {
+        setLoading(false)
+      }
     }
   }
 
@@ -72,7 +78,7 @@ export default function FinanceiroPage() {
     void fetchData()
   }, [])
 
-  useLiveRefresh(fetchData, {
+  useLiveRefresh(() => fetchData({ silent: true }), {
     enabled: processingId === null,
     intervalMs: 12000,
   })

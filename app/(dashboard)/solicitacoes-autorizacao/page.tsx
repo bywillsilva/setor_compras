@@ -55,9 +55,13 @@ export default function SolicitacoesAutorizacaoPage() {
   })
   const canViewCompras = Boolean(session && hasFeatureAccess(session.perfil, "compras", session.features))
 
-  async function fetchData() {
+  async function fetchData(options: { silent?: boolean } = {}) {
+    const { silent = false } = options
+
     try {
-      setLoading(true)
+      if (!silent) {
+        setLoading(true)
+      }
       const [comprasResponse, clientesResponse] = await Promise.all([
         fetch("/api/compras", { cache: "no-store" }),
         fetch("/api/clientes", { cache: "no-store" }),
@@ -71,7 +75,9 @@ export default function SolicitacoesAutorizacaoPage() {
         setClientes(await clientesResponse.json())
       }
     } finally {
-      setLoading(false)
+      if (!silent) {
+        setLoading(false)
+      }
     }
   }
 
@@ -79,7 +85,7 @@ export default function SolicitacoesAutorizacaoPage() {
     void fetchData()
   }, [])
 
-  useLiveRefresh(fetchData, { intervalMs: 12000 })
+  useLiveRefresh(() => fetchData({ silent: true }), { intervalMs: 12000 })
 
   const filteredCompras = useMemo(() => {
     return compras

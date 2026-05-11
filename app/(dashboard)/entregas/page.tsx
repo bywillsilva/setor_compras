@@ -46,9 +46,13 @@ export default function EntregasPage() {
     direction: "asc",
   })
 
-  async function fetchData() {
+  async function fetchData(options: { silent?: boolean } = {}) {
+    const { silent = false } = options
+
     try {
-      setLoading(true)
+      if (!silent) {
+        setLoading(true)
+      }
       const [comprasResponse, clientesResponse] = await Promise.all([
         fetch("/api/compras?status=pedido_autorizado", { cache: "no-store" }),
         fetch("/api/clientes", { cache: "no-store" }),
@@ -62,7 +66,9 @@ export default function EntregasPage() {
         setClientes(await clientesResponse.json())
       }
     } finally {
-      setLoading(false)
+      if (!silent) {
+        setLoading(false)
+      }
     }
   }
 
@@ -70,7 +76,7 @@ export default function EntregasPage() {
     void fetchData()
   }, [])
 
-  useLiveRefresh(fetchData, { intervalMs: 12000 })
+  useLiveRefresh(() => fetchData({ silent: true }), { intervalMs: 12000 })
 
   const metrics = useMemo(
     () => ({
