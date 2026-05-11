@@ -1217,7 +1217,7 @@ export async function updateCompra(
     input.data_envio_fornecedor !== undefined ? nullableString(input.data_envio_fornecedor) : atual.data_envio_fornecedor
   const estaConcluindoAutorizacao = atual.status !== 'pedido_autorizado' && proximoStatus === 'pedido_autorizado'
 
-  if (proximoStatus === 'em_analise') {
+  if (input.status !== undefined && input.status !== atual.status && proximoStatus === 'em_analise') {
     if (!proximoNumeroPedido || !proximoValorTotal || proximoValorTotal <= 0) {
       throw new Error('Para colocar o pedido em análise, informe o número do pedido e o valor total.')
     }

@@ -10,6 +10,7 @@ import { DateRangeFilter } from "@/components/shared/date-range-filter"
 import { ListFilterField, ListFilterGrid, ListFilterPanel } from "@/components/shared/list-filter-panel"
 import { PageHeader, SectionCard } from "@/components/shared/page-layout"
 import { RowActionsMenu } from "@/components/shared/row-actions-menu"
+import { TableTextPreview } from "@/components/shared/table-text-preview"
 import { SortableTableHead, TableFilterInput, type SortDirection } from "@/components/shared/table-tools"
 import { DeliveryStatusBadge } from "@/components/compras/delivery-status-badge"
 import { hasFeatureAccess } from "@/lib/auth/permissions"
@@ -376,13 +377,13 @@ export default function ComprasPage() {
                       <TableCell>
                         <div className="min-w-[190px] space-y-1">
                           <div className="font-medium">{compra.cliente_nome}</div>
-                          <div className="text-xs text-muted-foreground">{compra.proposta_nome}</div>
+                          <TableTextPreview text={compra.proposta_nome} fallback="Sem proposta" className="max-w-[190px]" />
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="min-w-[190px] space-y-1">
                           <div className="font-medium text-foreground">{compra.fornecedor}</div>
-                          <div className="text-xs text-muted-foreground">{compra.descricao}</div>
+                          <TableTextPreview text={compra.descricao} className="max-w-[190px]" />
                           <Badge variant="outline">{CATEGORIA_LABELS[compra.categoria]}</Badge>
                         </div>
                       </TableCell>

@@ -10,6 +10,7 @@ import { DateRangeFilter } from "@/components/shared/date-range-filter"
 import { ListFilterField, ListFilterGrid, ListFilterPanel } from "@/components/shared/list-filter-panel"
 import { PageHeader, SectionCard, SummaryMetricCard } from "@/components/shared/page-layout"
 import { RowActionsMenu } from "@/components/shared/row-actions-menu"
+import { TableTextPreview } from "@/components/shared/table-text-preview"
 import { SortableTableHead, TableFilterInput, type SortDirection } from "@/components/shared/table-tools"
 import { Badge } from "@/components/ui/badge"
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
@@ -401,7 +402,11 @@ function FinanceTable({
               <TableCell>
                 <div className="space-y-1">
                   <div className="font-medium">{compra.cliente_nome}</div>
-                  <div className="text-xs text-muted-foreground">{compra.proposta_nome}</div>
+                  <TableTextPreview
+                    text={compra.proposta_nome}
+                    fallback="Sem proposta"
+                    className="max-w-[190px]"
+                  />
                 </div>
               </TableCell>
               <TableCell>{formatCurrency(compra.valor_total ?? 0)}</TableCell>

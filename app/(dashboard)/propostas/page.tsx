@@ -8,6 +8,7 @@ import { Eye, FileText, Loader2, Plus } from "lucide-react"
 import { DateRangeFilter } from "@/components/shared/date-range-filter"
 import { ListFilterField, ListFilterGrid, ListFilterPanel } from "@/components/shared/list-filter-panel"
 import { PageHeader, SectionCard } from "@/components/shared/page-layout"
+import { SearchableSelect } from "@/components/shared/searchable-select"
 import { SortableTableHead, TableFilterInput, type SortDirection } from "@/components/shared/table-tools"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -22,13 +23,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import type { Cliente, Proposta } from "@/lib/types"
 
@@ -207,21 +202,20 @@ export default function PropostasPage() {
               <div className="space-y-5 py-4">
                 <div className="space-y-2">
                   <Label>Cliente *</Label>
-                  <Select
+                  <SearchableSelect
                     value={formData.cliente_id}
                     onValueChange={(value) => setFormData((current) => ({ ...current, cliente_id: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione o cliente" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {clientes.filter((cliente) => !cliente.arquivado).map((cliente) => (
-                        <SelectItem key={cliente.id} value={cliente.id.toString()}>
-                          {cliente.nome}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    options={clientes
+                      .filter((cliente) => !cliente.arquivado)
+                      .map((cliente) => ({
+                        value: cliente.id.toString(),
+                        label: cliente.nome,
+                        description: cliente.documento,
+                      }))}
+                    placeholder="Selecione o cliente"
+                    searchPlaceholder="Pesquisar cliente..."
+                    emptyLabel="Nenhum cliente encontrado."
+                  />
                 </div>
 
                 <div className="space-y-2">

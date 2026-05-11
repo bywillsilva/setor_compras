@@ -10,6 +10,7 @@ import { DateRangeFilter } from "@/components/shared/date-range-filter"
 import { ListFilterField, ListFilterGrid, ListFilterPanel } from "@/components/shared/list-filter-panel"
 import { PageHeader, SectionCard, SummaryMetricCard } from "@/components/shared/page-layout"
 import { RowActionsMenu } from "@/components/shared/row-actions-menu"
+import { TableTextPreview } from "@/components/shared/table-text-preview"
 import { SortableTableHead, TableFilterInput, type SortDirection } from "@/components/shared/table-tools"
 import { Badge } from "@/components/ui/badge"
 import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
@@ -272,7 +273,11 @@ export default function AutorizacoesPage() {
                       <TableCell>
                         <div className="space-y-1">
                           <div className="font-mono text-sm font-medium">#{compra.id}</div>
-                          <div className="text-xs text-muted-foreground">{compra.proposta_nome}</div>
+                          <TableTextPreview
+                            text={compra.proposta_nome}
+                            fallback="Sem proposta"
+                            className="max-w-[190px]"
+                          />
                         </div>
                       </TableCell>
                       <TableCell className="font-medium">{compra.cliente_nome}</TableCell>

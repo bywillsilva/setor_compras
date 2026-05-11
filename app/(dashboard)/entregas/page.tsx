@@ -9,6 +9,7 @@ import { DateRangeFilter } from "@/components/shared/date-range-filter"
 import { ListFilterField, ListFilterGrid, ListFilterPanel } from "@/components/shared/list-filter-panel"
 import { PageHeader, SectionCard, SummaryMetricCard } from "@/components/shared/page-layout"
 import { RowActionsMenu } from "@/components/shared/row-actions-menu"
+import { TableTextPreview } from "@/components/shared/table-text-preview"
 import { SortableTableHead, TableFilterInput, type SortDirection } from "@/components/shared/table-tools"
 import { DeliveryStatusBadge } from "@/components/compras/delivery-status-badge"
 import { Badge } from "@/components/ui/badge"
@@ -261,7 +262,11 @@ export default function EntregasPage() {
                     <TableCell>
                       <div className="space-y-1">
                         <div>{compra.fornecedor}</div>
-                        <div className="text-xs text-muted-foreground">{compra.proposta_nome}</div>
+                        <TableTextPreview
+                          text={compra.proposta_nome}
+                          fallback="Sem proposta"
+                          className="max-w-[190px]"
+                        />
                       </div>
                     </TableCell>
                     <TableCell>

@@ -6,10 +6,10 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { ArrowLeft, Loader2, Paperclip, Save } from "lucide-react"
 import { CompraRateioFields, type CompraRateioFormState } from "@/components/compras/compra-rateio-fields"
 import { FormSectionCard, PageHeader } from "@/components/shared/page-layout"
+import { SearchableSelect } from "@/components/shared/searchable-select"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import type { Cliente, Proposta } from "@/lib/types"
 
@@ -213,39 +213,38 @@ function NovaCompraContent() {
           <div className="grid gap-6 md:grid-cols-2">
             <div className="space-y-2">
               <Label>Cliente *</Label>
-              <Select value={formData.cliente_id} onValueChange={handleClienteChange}>
-                <SelectTrigger className={errors.cliente_id ? "border-destructive" : ""}>
-                  <SelectValue placeholder="Selecione o cliente" />
-                </SelectTrigger>
-                <SelectContent>
-                  {clientes.map((cliente) => (
-                    <SelectItem key={cliente.id} value={cliente.id.toString()}>
-                      {cliente.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={formData.cliente_id}
+                onValueChange={handleClienteChange}
+                options={clientes.map((cliente) => ({
+                  value: cliente.id.toString(),
+                  label: cliente.nome,
+                  description: cliente.documento,
+                }))}
+                placeholder="Selecione o cliente"
+                searchPlaceholder="Pesquisar cliente..."
+                emptyLabel="Nenhum cliente encontrado."
+                className={errors.cliente_id ? "border-destructive" : ""}
+              />
               {errors.cliente_id && <p className="text-sm text-destructive">{errors.cliente_id}</p>}
             </div>
 
             <div className="space-y-2">
               <Label>Proposta (obra) *</Label>
-              <Select
+              <SearchableSelect
                 value={formData.proposta_id}
                 onValueChange={(value) => handleChange("proposta_id", value)}
+                options={propostas.map((proposta) => ({
+                  value: proposta.id.toString(),
+                  label: proposta.nome,
+                  description: clientes.find((cliente) => cliente.id === proposta.cliente_id)?.nome ?? null,
+                }))}
+                placeholder={selectedCliente ? "Selecione a proposta" : "Selecione o cliente primeiro"}
+                searchPlaceholder="Pesquisar proposta..."
+                emptyLabel="Nenhuma proposta encontrada."
                 disabled={!selectedCliente}
-              >
-                <SelectTrigger className={errors.proposta_id ? "border-destructive" : ""}>
-                  <SelectValue placeholder={selectedCliente ? "Selecione a proposta" : "Selecione o cliente primeiro"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {propostas.map((proposta) => (
-                    <SelectItem key={proposta.id} value={proposta.id.toString()}>
-                      {proposta.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                className={errors.proposta_id ? "border-destructive" : ""}
+              />
               {errors.proposta_id && <p className="text-sm text-destructive">{errors.proposta_id}</p>}
             </div>
           </div>
