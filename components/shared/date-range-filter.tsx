@@ -32,16 +32,16 @@ export function DateRangeFilter({
         <PopoverTrigger asChild>
           <Button
             type="button"
-            variant="ghost"
+            variant="outline"
             size="sm"
-            className={`h-8 gap-2 px-2 ${hasActiveFilter ? "text-foreground" : "text-muted-foreground"}`}
+            className={`h-9 gap-2 rounded-lg border-border/70 px-3 shadow-none ${hasActiveFilter ? "bg-muted/30 text-foreground" : "text-muted-foreground"}`}
           >
             <CalendarRange className="h-4 w-4" />
             {hasActiveFilter ? `${startDate || "Inicio"} ate ${endDate || "Hoje"}` : "Filtrar por data"}
           </Button>
         </PopoverTrigger>
 
-        <PopoverContent align="start" className="w-[320px] space-y-4">
+        <PopoverContent align="start" className="w-[320px] space-y-4 rounded-xl border-border/70 p-4">
           <div>
             <p className="text-sm font-medium text-foreground">Filtrar por data</p>
             <p className="text-xs text-muted-foreground">Defina um periodo apenas quando precisar refinar a consulta.</p>

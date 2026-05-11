@@ -166,10 +166,11 @@ const REQUIRED_SCHEMA_COLUMNS: Record<(typeof REQUIRED_TABLES)[number], string[]
 
 type PerfilFeatureMatrix = Record<PerfilUsuario, AppFeature[]>
 
-const REQUIRED_TABLES_WITH_PERMISSIONS = [...REQUIRED_TABLES, 'perfil_permissoes'] as const
+const REQUIRED_TABLES_WITH_PERMISSIONS = [...REQUIRED_TABLES, 'perfil_permissoes', 'usuario_permissoes'] as const
 const REQUIRED_SCHEMA_COLUMNS_WITH_PERMISSIONS: Record<(typeof REQUIRED_TABLES_WITH_PERMISSIONS)[number], string[]> = {
   ...REQUIRED_SCHEMA_COLUMNS,
   perfil_permissoes: ['id', 'perfil', 'feature', 'permitido', 'created_at', 'updated_at'],
+  usuario_permissoes: ['id', 'usuario_id', 'feature', 'permitido', 'created_at', 'updated_at'],
 }
 
 let perfilFeatureMatrixCache:
@@ -348,6 +349,77 @@ export async function listFeaturesByPerfil(perfil: PerfilUsuario) {
   }
 }
 
+export async function listFeaturesByUsuario(userId: number, perfil: PerfilUsuario) {
+  try {
+    const features = await listUsuarioFeaturesInternal(userId)
+
+    if (!features || features.length === 0) {
+      return await listFeaturesByPerfil(perfil)
+    }
+
+    return normalizeFeatureList(features, perfil)
+  } catch (error) {
+    console.warn(
+      'Falha ao consultar permissoes do usuario no banco. Aplicando permissoes do perfil temporariamente.',
+      error,
+    )
+    return listFeaturesByPerfil(perfil)
+  }
+}
+
+export async function saveUsuarioFeatures(userId: number, perfil: PerfilUsuario, features: AppFeature[]) {
+  const dbType = getDatabaseType()
+
+  if (dbType === 'none') {
+    throw new Error('Nenhum banco de dados configurado para salvar permissoes de usuario.')
+  }
+
+  const normalizedFeatures = normalizeFeatureList(features, perfil)
+
+  if (dbType === 'mysql') {
+    const pool = getMySQLPool()
+    if (!pool) {
+      throw new Error('MySQL nao configurado para salvar permissoes de usuario.')
+    }
+
+    const connection = await pool.getConnection()
+    try {
+      await connection.beginTransaction()
+      await connection.execute('DELETE FROM usuario_permissoes WHERE usuario_id = ?', [userId])
+
+      for (const feature of normalizedFeatures) {
+        await connection.execute(
+          'INSERT INTO usuario_permissoes (usuario_id, feature, permitido) VALUES (?, ?, 1)',
+          [userId, feature],
+        )
+      }
+
+      await connection.commit()
+    } catch (error) {
+      await connection.rollback()
+      throw error
+    } finally {
+      connection.release()
+    }
+  } else {
+    const client = getSupabaseOrThrow()
+    const { error: deleteError } = await client.from('usuario_permissoes').delete().eq('usuario_id', userId)
+    throwIfSupabaseError(deleteError)
+
+    if (normalizedFeatures.length > 0) {
+      const rows = normalizedFeatures.map((feature) => ({
+        usuario_id: userId,
+        feature,
+        permitido: true,
+      }))
+      const { error: insertError } = await client.from('usuario_permissoes').insert(rows)
+      throwIfSupabaseError(insertError)
+    }
+  }
+
+  return normalizedFeatures
+}
+
 export async function savePerfilFeatureMatrix(input: PerfilFeatureMatrix) {
   const dbType = getDatabaseType()
 
@@ -468,13 +540,16 @@ export async function createUsuario(input: UsuarioFormData) {
     throw new Error('Ja existe um usuario com este email.')
   }
 
-  return createUsuarioInternal({
+  const id = await createUsuarioInternal({
     nome: input.nome.trim(),
     email,
     senha_hash: hashPassword(String(input.senha)),
     perfil: input.perfil,
     ativo: input.ativo,
   })
+
+  await saveUsuarioFeatures(id, input.perfil, input.features ?? (await listFeaturesByPerfil(input.perfil)))
+  return id
 }
 
 export async function updateUsuario(id: number, input: UsuarioFormData) {
@@ -506,6 +581,11 @@ export async function updateUsuario(id: number, input: UsuarioFormData) {
         id,
       ])
     }
+    if (input.features) {
+      await saveUsuarioFeatures(id, input.perfil, input.features)
+    } else if (usuarioAtual.perfil !== input.perfil) {
+      await saveUsuarioFeatures(id, input.perfil, await listFeaturesByPerfil(input.perfil))
+    }
     return
   }
 
@@ -523,6 +603,12 @@ export async function updateUsuario(id: number, input: UsuarioFormData) {
 
   const { error } = await client.from('usuarios').update(updatePayload).eq('id', id)
   throwIfSupabaseError(error)
+
+  if (input.features) {
+    await saveUsuarioFeatures(id, input.perfil, input.features)
+  } else if (usuarioAtual.perfil !== input.perfil) {
+    await saveUsuarioFeatures(id, input.perfil, await listFeaturesByPerfil(input.perfil))
+  }
 }
 
 async function getUsuarioByEmailInternal(email: string): Promise<Usuario | null> {
@@ -535,6 +621,43 @@ async function getUsuarioByEmailInternal(email: string): Promise<Usuario | null>
   const { data, error } = await client.from('usuarios').select('*').eq('email', email).maybeSingle()
   throwIfSupabaseError(error)
   return data ? normalizeUsuario(data as Row) : null
+}
+
+async function listUsuarioFeaturesInternal(userId: number): Promise<AppFeature[] | null> {
+  try {
+    if (getDatabaseType() === 'mysql') {
+      const rows = await mysqlSelect('SELECT feature FROM usuario_permissoes WHERE usuario_id = ? AND permitido = 1', [userId])
+      return rows.map((row) => normalizeAppFeature(row.feature))
+    }
+
+    if (getDatabaseType() === 'supabase') {
+      const client = getSupabaseOrThrow()
+      const { data, error } = await client
+        .from('usuario_permissoes')
+        .select('feature')
+        .eq('usuario_id', userId)
+        .eq('permitido', true)
+
+      if (error) {
+        if (error.code === '42P01' || error.message.toLowerCase().includes('does not exist')) {
+          return null
+        }
+
+        throw new Error(error.message)
+      }
+
+      return (data ?? []).map((row: Row) => normalizeAppFeature(row.feature))
+    }
+
+    return null
+  } catch (error) {
+    const message = error instanceof Error ? error.message.toLowerCase() : ''
+    if (message.includes('usuario_permissoes') && (message.includes('does not exist') || message.includes("doesn't exist"))) {
+      return null
+    }
+
+    throw error
+  }
 }
 
 export async function listClientes(filters: { includeArchived?: boolean; onlyArchived?: boolean } = {}): Promise<Cliente[]> {
@@ -3312,6 +3435,18 @@ function throwIfSupabaseError(error: { message: string } | null) {
     ) {
       throw new Error(
         "A fila administrativa de alteracoes sensiveis ainda nao esta criada ou atualizada no Supabase. Execute scripts/migrations/supabase/2026-05-08-sensitive-change-requests.sql e tente novamente.",
+      )
+    }
+
+    if (
+      lowerMessage.includes("usuario_permissoes") &&
+      (lowerMessage.includes("does not exist") ||
+        lowerMessage.includes("could not find the table") ||
+        lowerMessage.includes("schema cache") ||
+        lowerMessage.includes("column"))
+    ) {
+      throw new Error(
+        "As permissoes por usuario ainda nao estao criadas ou atualizadas no Supabase. Execute scripts/migrations/supabase/2026-05-11-user-feature-access.sql e tente novamente.",
       )
     }
 

@@ -45,10 +45,10 @@ export default function OrcamentosPage() {
     void fetchOrcamentos()
   }, [])
 
-  const pendingPropostas = useMemo(() => propostas.filter((proposta) => isOrcamentoPendente(proposta)), [propostas])
+  const activePropostas = useMemo(() => propostas.filter((proposta) => !proposta.arquivado), [propostas])
 
   const filteredPropostas = useMemo(() => {
-    return [...pendingPropostas]
+    return [...activePropostas]
       .filter((proposta) => {
         const matchesProposta =
           !filters.proposta || proposta.nome.toLowerCase().includes(filters.proposta.toLowerCase())
@@ -60,14 +60,33 @@ export default function OrcamentosPage() {
         return matchesProposta && matchesCliente && matchesCreatedFrom && matchesCreatedTo
       })
       .sort((left, right) => sortPropostas(left, right, sort))
-  }, [filters, pendingPropostas, sort])
+  }, [activePropostas, filters, sort])
+
+  const pendingPropostas = useMemo(
+    () => activePropostas.filter((proposta) => isOrcamentoPendente(proposta)),
+    [activePropostas],
+  )
+  const launchedPropostas = useMemo(
+    () => activePropostas.filter((proposta) => !isOrcamentoPendente(proposta)),
+    [activePropostas],
+  )
+  const filteredPendingPropostas = useMemo(
+    () => filteredPropostas.filter((proposta) => isOrcamentoPendente(proposta)),
+    [filteredPropostas],
+  )
+  const filteredLaunchedPropostas = useMemo(
+    () => filteredPropostas.filter((proposta) => !isOrcamentoPendente(proposta)),
+    [filteredPropostas],
+  )
 
   const resumo = useMemo(
     () => ({
       pendentes: pendingPropostas.length,
+      lancados: launchedPropostas.length,
       filtradas: filteredPropostas.length,
+      clientesComOrcamento: new Set(launchedPropostas.map((proposta) => proposta.cliente_nome).filter(Boolean)).size,
     }),
-    [filteredPropostas.length, pendingPropostas.length],
+    [filteredPropostas.length, launchedPropostas, pendingPropostas.length],
   )
 
   function toggleSort(column: SortColumn) {
@@ -86,20 +105,26 @@ export default function OrcamentosPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <PageHeader
         title="Orcamentos"
-        description="A fila mostra apenas propostas que ainda aguardam o lancamento do previsto de materiais."
+        description="Acompanhe as propostas pendentes e revise os orcamentos ja lancados sem sair da mesma area."
       />
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryMetricCard title="Pendentes" value={resumo.pendentes} description="Propostas aguardando orcamento inicial" />
-        <SummaryMetricCard title="Na visao atual" value={resumo.filtradas} description="Pendencias depois dos filtros aplicados" />
+        <SummaryMetricCard title="Lancados" value={resumo.lancados} description="Propostas com previsto ja registrado" />
+        <SummaryMetricCard
+          title="Clientes atendidos"
+          value={resumo.clientesComOrcamento}
+          description="Clientes com pelo menos um orcamento preenchido"
+        />
+        <SummaryMetricCard title="Na visao atual" value={resumo.filtradas} description="Propostas apos os filtros aplicados" />
       </div>
 
       <SectionCard
-        title="Fila pendente de orcamentos"
-        description={`${filteredPropostas.length} proposta(s) aguardando o preenchimento do previsto`}
+        title="Filtros da area"
+        description="Use os filtros para localizar pendencias e revisar orcamentos ja preenchidos."
       >
         <ListFilterPanel
           trailing={
@@ -132,7 +157,13 @@ export default function OrcamentosPage() {
             </ListFilterField>
           </ListFilterGrid>
         </ListFilterPanel>
-        {filteredPropostas.length === 0 ? (
+      </SectionCard>
+
+      <SectionCard
+        title="Fila pendente de orcamentos"
+        description={`${filteredPendingPropostas.length} proposta(s) aguardando o preenchimento do previsto`}
+      >
+        {filteredPendingPropostas.length === 0 ? (
           <div className="rounded-lg border border-dashed p-12 text-center text-muted-foreground">
             Nenhuma proposta pendente para o filtro atual.
           </div>
@@ -178,7 +209,7 @@ export default function OrcamentosPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredPropostas.map((proposta) => (
+                {filteredPendingPropostas.map((proposta) => (
                   <TableRow key={proposta.id}>
                     <TableCell>
                       <div className="flex flex-wrap items-center gap-2 font-medium">
@@ -212,15 +243,96 @@ export default function OrcamentosPage() {
           </div>
         )}
       </SectionCard>
+
+      <SectionCard
+        title="Orcamentos ja lancados"
+        description={`${filteredLaunchedPropostas.length} proposta(s) disponiveis para revisao futura`}
+      >
+        {filteredLaunchedPropostas.length === 0 ? (
+          <div className="rounded-lg border border-dashed p-12 text-center text-muted-foreground">
+            Nenhum orcamento lancado para o filtro atual.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>
+                    <SortableTableHead
+                      label="Proposta"
+                      isActive={sort.column === "proposta"}
+                      direction={sort.direction}
+                      onClick={() => toggleSort("proposta")}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <SortableTableHead
+                      label="Cliente"
+                      isActive={sort.column === "cliente"}
+                      direction={sort.direction}
+                      onClick={() => toggleSort("cliente")}
+                    />
+                  </TableHead>
+                  <TableHead>Previsto atual</TableHead>
+                  <TableHead>
+                    <SortableTableHead
+                      label="Criacao"
+                      isActive={sort.column === "criacao"}
+                      direction={sort.direction}
+                      onClick={() => toggleSort("criacao")}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <SortableTableHead
+                      label="Atualizacao"
+                      isActive={sort.column === "atualizacao"}
+                      direction={sort.direction}
+                      onClick={() => toggleSort("atualizacao")}
+                    />
+                  </TableHead>
+                  <TableHead className="text-right">Acoes</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredLaunchedPropostas.map((proposta) => (
+                  <TableRow key={proposta.id}>
+                    <TableCell>
+                      <div className="flex flex-wrap items-center gap-2 font-medium">
+                        <span>{proposta.nome}</span>
+                        <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-700">
+                          Lancado
+                        </Badge>
+                      </div>
+                    </TableCell>
+                    <TableCell>{proposta.cliente_nome}</TableCell>
+                    <TableCell>
+                      <div className="space-y-1 text-sm text-muted-foreground">
+                        <div>Previsto total registrado</div>
+                        <div className="font-medium text-foreground">{formatCurrency(proposta.valor_previsto)}</div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{formatDate(proposta.created_at)}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{formatDate(proposta.updated_at)}</TableCell>
+                    <TableCell className="text-right">
+                      <Link href={`/orcamentos/${proposta.id}`}>
+                        <Button variant="ghost" size="sm">
+                          <Eye className="mr-2 h-4 w-4" />
+                          Revisar
+                        </Button>
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </SectionCard>
     </div>
   )
 }
 
 function isOrcamentoPendente(proposta: Proposta) {
-  if (proposta.arquivado) {
-    return false
-  }
-
   const totalPrevisto =
     Number(proposta.valor_previsto_perfis || 0) +
     Number(proposta.valor_previsto_vidros || 0) +
@@ -236,6 +348,13 @@ function formatDate(value: string) {
     month: "2-digit",
     year: "numeric",
   }).format(new Date(value))
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(value || 0)
 }
 
 function sortPropostas(

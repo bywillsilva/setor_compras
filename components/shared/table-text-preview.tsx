@@ -16,7 +16,10 @@ export function TableTextPreview({
   const content = text?.trim() || fallback
 
   return (
-    <div title={content} className={cn("max-w-[220px] truncate text-xs text-muted-foreground", className)}>
+    <div
+      title={content}
+      className={cn("max-w-[220px] whitespace-normal break-words line-clamp-2 text-xs leading-5 text-muted-foreground", className)}
+    >
       {content}
     </div>
   )

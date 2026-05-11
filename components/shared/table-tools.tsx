@@ -38,7 +38,11 @@ export function SortableTableHead({
       variant="ghost"
       size="sm"
       onClick={onClick}
-      className={cn("h-auto px-0 py-0 text-left font-medium hover:bg-transparent", className)}
+      className={cn(
+        "h-auto px-0 py-0 text-left text-muted-foreground font-medium hover:bg-transparent hover:text-foreground",
+        isActive && "text-foreground",
+        className,
+      )}
     >
       <span>{label}</span>
       {isActive ? (
@@ -69,7 +73,7 @@ export function TableFilterInput({
       value={value}
       onChange={(event) => onChange(event.target.value)}
       placeholder={placeholder}
-      className={cn("h-8 min-w-0 text-xs", className)}
+      className={cn("h-9 min-w-0 rounded-lg border-border/70 bg-background text-sm shadow-none", className)}
     />
   )
 }

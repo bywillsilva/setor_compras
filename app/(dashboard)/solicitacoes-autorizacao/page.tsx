@@ -142,7 +142,7 @@ export default function SolicitacoesAutorizacaoPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <PageHeader
         title="Aprovacao ADM"
         description="Pedidos aprovados pelo solicitante e aguardando a liberacao do administrativo."

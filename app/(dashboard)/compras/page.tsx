@@ -185,7 +185,7 @@ export default function ComprasPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <PageHeader
         title="Compras"
         description="Fila operacional do comprador, desde a solicitacao inicial ate a entrega do material."

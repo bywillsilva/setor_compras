@@ -57,7 +57,7 @@ export function DashboardShell({
             collapsed ? "md:ml-20" : "md:ml-64",
           )}
         >
-          {isCurrentPathAllowed ? children : null}
+          {isCurrentPathAllowed ? <div className="mx-auto w-full max-w-[1680px]">{children}</div> : null}
         </main>
       </div>
     </AuthProvider>

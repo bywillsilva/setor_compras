@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getDefaultFeaturesForPerfil } from '@/lib/auth/permissions'
 import { verifyPassword } from '@/lib/auth/password'
 import { createSessionToken, SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS } from '@/lib/auth/session'
-import { ensureDefaultAdminUser, getUsuarioByEmail, listFeaturesByPerfil } from '@/lib/repositories'
+import { ensureDefaultAdminUser, getUsuarioByEmail, listFeaturesByUsuario } from '@/lib/repositories'
 
 export const runtime = 'nodejs'
 
@@ -25,10 +25,10 @@ export async function POST(request: NextRequest) {
 
     let features = getDefaultFeaturesForPerfil(usuario.perfil)
     try {
-      features = await listFeaturesByPerfil(usuario.perfil)
+      features = await listFeaturesByUsuario(usuario.id, usuario.perfil)
     } catch (permissionError) {
       console.warn(
-        'Falha ao carregar permissoes por perfil no login. Aplicando permissoes padrao temporariamente.',
+        'Falha ao carregar permissoes do usuario no login. Aplicando permissoes padrao temporariamente.',
         permissionError,
       )
     }

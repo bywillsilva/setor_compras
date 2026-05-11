@@ -36,6 +36,7 @@ export default function EntregaDetailPage({ params }: { params: Promise<{ id: st
     data_entrega_real: "",
     motivo_revisao: "",
   })
+  const [isDirty, setIsDirty] = useState(false)
 
   async function fetchCompra() {
     try {
@@ -52,6 +53,7 @@ export default function EntregaDetailPage({ params }: { params: Promise<{ id: st
         data_entrega_real: payload.data_entrega_real ?? "",
         motivo_revisao: "",
       })
+      setIsDirty(false)
     } catch (error) {
       console.error(error)
     } finally {
@@ -64,7 +66,7 @@ export default function EntregaDetailPage({ params }: { params: Promise<{ id: st
   }, [id])
 
   useLiveRefresh(fetchCompra, {
-    enabled: !saving && !reverting,
+    enabled: !saving && !reverting && !isDirty,
     intervalMs: 10000,
   })
 
@@ -113,6 +115,7 @@ export default function EntregaDetailPage({ params }: { params: Promise<{ id: st
         throw new Error(payload.error || "Erro ao salvar entrega.")
       }
 
+      setIsDirty(false)
       router.push("/entregas")
       router.refresh()
     } catch (error) {
@@ -168,7 +171,7 @@ export default function EntregaDetailPage({ params }: { params: Promise<{ id: st
 
   if (!compra) {
     return (
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
         <Card className="border-destructive">
           <CardHeader>
             <CardTitle className="text-destructive">Pedido nao encontrado</CardTitle>
@@ -180,7 +183,7 @@ export default function EntregaDetailPage({ params }: { params: Promise<{ id: st
 
   if (compra.status !== "pedido_autorizado") {
     return (
-      <div className="space-y-6 p-6">
+      <div className="space-y-6 p-4 sm:p-6">
         <Card className="border-amber-300 bg-amber-50">
           <CardHeader>
             <CardTitle>Pedido ainda nao autorizado</CardTitle>
@@ -207,7 +210,7 @@ export default function EntregaDetailPage({ params }: { params: Promise<{ id: st
   const isDelivered = compra.status_entrega === "entregue"
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-4">
           <Link href="/entregas">
@@ -284,7 +287,10 @@ export default function EntregaDetailPage({ params }: { params: Promise<{ id: st
               <Field label="Numero do pedido">
                 <Input
                   value={formData.numero_pedido}
-                  onChange={(event) => setFormData((current) => ({ ...current, numero_pedido: event.target.value }))}
+                  onChange={(event) => {
+                    setIsDirty(true)
+                    setFormData((current) => ({ ...current, numero_pedido: event.target.value }))
+                  }}
                   placeholder="Ex: PED-2026-014"
                 />
               </Field>
@@ -295,7 +301,10 @@ export default function EntregaDetailPage({ params }: { params: Promise<{ id: st
                 <Input
                   type="date"
                   value={formData.previsao_entrega}
-                  onChange={(event) => setFormData((current) => ({ ...current, previsao_entrega: event.target.value }))}
+                  onChange={(event) => {
+                    setIsDirty(true)
+                    setFormData((current) => ({ ...current, previsao_entrega: event.target.value }))
+                  }}
                 />
               </Field>
 
@@ -305,13 +314,14 @@ export default function EntregaDetailPage({ params }: { params: Promise<{ id: st
             </div>
 
             <Field label="Data em que o material chegou">
-              <Input
-                type="date"
-                value={formData.data_entrega_real}
-                onChange={(event) =>
-                  setFormData((current) => ({ ...current, data_entrega_real: event.target.value }))
-                }
-              />
+                <Input
+                  type="date"
+                  value={formData.data_entrega_real}
+                  onChange={(event) => {
+                    setIsDirty(true)
+                    setFormData((current) => ({ ...current, data_entrega_real: event.target.value }))
+                  }}
+                />
               <p className="text-xs text-muted-foreground">
                 Ao salvar esta data, o pedido passa automaticamente para entregue. Se precisar corrigir depois, volte o pedido para pendente.
               </p>
@@ -320,7 +330,10 @@ export default function EntregaDetailPage({ params }: { params: Promise<{ id: st
             <Field label="Motivo da revisao">
               <Textarea
                 value={formData.motivo_revisao}
-                onChange={(event) => setFormData((current) => ({ ...current, motivo_revisao: event.target.value }))}
+                onChange={(event) => {
+                  setIsDirty(true)
+                  setFormData((current) => ({ ...current, motivo_revisao: event.target.value }))
+                }}
                 placeholder="Explique o motivo se voce alterar a previsao de entrega ou o numero do pedido."
               />
               <p className="text-xs text-muted-foreground">

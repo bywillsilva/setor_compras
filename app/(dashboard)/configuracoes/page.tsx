@@ -44,11 +44,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { PageHeader, SummaryMetricCard } from "@/components/shared/page-layout"
 import {
   FEATURE_DESCRIPTIONS,
   FEATURE_GROUPS,
   FEATURE_LABELS,
   LOCKED_ADMIN_FEATURES,
+  normalizeFeatureList,
   PERFIL_LABELS,
 } from "@/lib/auth/permissions"
 import type { AppFeature, PerfilUsuario, SolicitacaoSensivel } from "@/lib/types"
@@ -74,6 +76,12 @@ type UsuarioResumo = {
 }
 
 type PerfilFeatureMatrix = Record<PerfilUsuario, AppFeature[]>
+type UsuarioPermissoesPayload = {
+  userId: number
+  perfil: PerfilUsuario
+  features: AppFeature[]
+  profileFeatures: AppFeature[]
+}
 
 const PERFIS_ORDENADOS: PerfilUsuario[] = ["admin", "comprador", "orcamentista", "solicitante", "financeiro"]
 
@@ -102,6 +110,15 @@ export default function ConfiguracoesPage() {
   const [pendingSensitiveRequests, setPendingSensitiveRequests] = useState<SolicitacaoSensivel[]>([])
   const [loadingSensitiveRequests, setLoadingSensitiveRequests] = useState(false)
   const [sensitiveRequestsError, setSensitiveRequestsError] = useState<string | null>(null)
+  const [perfilDialogOpen, setPerfilDialogOpen] = useState(false)
+  const [editingPerfil, setEditingPerfil] = useState<PerfilUsuario | null>(null)
+  const [perfilDraft, setPerfilDraft] = useState<AppFeature[]>([])
+  const [userAccessDialogOpen, setUserAccessDialogOpen] = useState(false)
+  const [editingUserAccess, setEditingUserAccess] = useState<UsuarioResumo | null>(null)
+  const [userFeatureDraft, setUserFeatureDraft] = useState<AppFeature[]>([])
+  const [baseProfileFeatures, setBaseProfileFeatures] = useState<AppFeature[]>([])
+  const [loadingUserFeatures, setLoadingUserFeatures] = useState(false)
+  const [savingUserFeatures, setSavingUserFeatures] = useState(false)
 
   useEffect(() => {
     checkDatabase()
@@ -206,42 +223,14 @@ export default function ConfiguracoesPage() {
     }
   }
 
-  function handleTogglePermissao(perfil: PerfilUsuario, feature: AppFeature, checked: boolean) {
-    setPerfilPermissoes((current) => {
-      if (!current) {
-        return current
-      }
-
-      const currentFeatures = new Set(current[perfil] ?? [])
-      if (checked) {
-        currentFeatures.add(feature)
-      } else {
-        currentFeatures.delete(feature)
-      }
-
-      if (perfil === "admin" && LOCKED_ADMIN_FEATURES.includes(feature)) {
-        currentFeatures.add(feature)
-      }
-
-      return {
-        ...current,
-        [perfil]: Array.from(currentFeatures),
-      }
-    })
-  }
-
-  async function handleSavePermissoes() {
-    if (!perfilPermissoes) {
-      return
-    }
-
+  async function persistPerfilPermissoes(nextMatrix: PerfilFeatureMatrix) {
     setSavingPermissoes(true)
 
     try {
       const response = await fetch("/api/configuracoes/permissoes", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(perfilPermissoes),
+        body: JSON.stringify(nextMatrix),
       })
       const payload = await response.json().catch(() => null)
 
@@ -256,6 +245,51 @@ export default function ConfiguracoesPage() {
     } finally {
       setSavingPermissoes(false)
     }
+  }
+
+  function openPerfilDialog(perfil: PerfilUsuario) {
+    if (!perfilPermissoes) {
+      return
+    }
+
+    setEditingPerfil(perfil)
+    setPerfilDraft([...(perfilPermissoes[perfil] ?? [])])
+    setPerfilDialogOpen(true)
+  }
+
+  async function handleSavePerfilDialog() {
+    if (!perfilPermissoes || !editingPerfil) {
+      return
+    }
+
+    const nextMatrix = {
+      ...perfilPermissoes,
+      [editingPerfil]: normalizeFeatureList(perfilDraft, editingPerfil),
+    }
+
+    await persistPerfilPermissoes(nextMatrix)
+    setPerfilDialogOpen(false)
+  }
+
+  function toggleFeatureSelection(
+    currentFeatures: AppFeature[],
+    feature: AppFeature,
+    checked: boolean,
+    perfil: PerfilUsuario,
+  ) {
+    const next = new Set(currentFeatures)
+
+    if (checked) {
+      next.add(feature)
+    } else {
+      next.delete(feature)
+    }
+
+    if (perfil === "admin" && LOCKED_ADMIN_FEATURES.includes(feature)) {
+      next.add(feature)
+    }
+
+    return normalizeFeatureList(Array.from(next), perfil)
   }
 
   function openUserDialog(usuario?: UsuarioResumo) {
@@ -274,6 +308,62 @@ export default function ConfiguracoesPage() {
     }
 
     setDialogOpen(true)
+  }
+
+  async function openUserAccessDialog(usuario: UsuarioResumo) {
+    setEditingUserAccess(usuario)
+    setUserAccessDialogOpen(true)
+    setLoadingUserFeatures(true)
+
+    try {
+      const response = await fetch(`/api/usuarios/${usuario.id}/permissoes`, { cache: "no-store" })
+      const payload = (await response.json().catch(() => null)) as UsuarioPermissoesPayload | { error?: string } | null
+
+      if (!response.ok) {
+        throw new Error((payload as { error?: string } | null)?.error || "Erro ao carregar modulos do usuario.")
+      }
+
+      const featurePayload = payload as UsuarioPermissoesPayload | null
+      setUserFeatureDraft(Array.isArray(featurePayload?.features) ? featurePayload.features : [])
+      setBaseProfileFeatures(Array.isArray(featurePayload?.profileFeatures) ? featurePayload.profileFeatures : [])
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao carregar modulos do usuario.")
+      setUserAccessDialogOpen(false)
+      setEditingUserAccess(null)
+    } finally {
+      setLoadingUserFeatures(false)
+    }
+  }
+
+  async function handleSaveUserFeatures() {
+    if (!editingUserAccess) {
+      return
+    }
+
+    setSavingUserFeatures(true)
+
+    try {
+      const response = await fetch(`/api/usuarios/${editingUserAccess.id}/permissoes`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ features: userFeatureDraft }),
+      })
+      const payload = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "Erro ao salvar modulos do usuario.")
+      }
+
+      setUserAccessDialogOpen(false)
+      setEditingUserAccess(null)
+      setBaseProfileFeatures([])
+      setUserFeatureDraft([])
+      alert("Modulos do usuario atualizados com sucesso.")
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Erro ao salvar modulos do usuario.")
+    } finally {
+      setSavingUserFeatures(false)
+    }
   }
 
   async function handleSaveUsuario() {
@@ -324,12 +414,39 @@ export default function ConfiguracoesPage() {
     none: "Nao configurado",
   }
 
+  const totalUsuarios = usuarios.length
+  const usuariosAtivos = usuarios.filter((usuario) => usuario.ativo).length
+  const perfisBaseConfigurados = perfilPermissoes
+    ? PERFIS_ORDENADOS.filter((perfil) => (perfilPermissoes[perfil] ?? []).length > 0).length
+    : 0
+
   return (
-    <div className="space-y-6 p-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Configuracoes</h1>
-        <p className="text-muted-foreground">Banco de dados, acesso inicial e administracao do sistema.</p>
-      </div>
+    <div className="space-y-6 p-4 sm:p-6">
+      <PageHeader
+        title="Configuracoes"
+        description="Gerencie acessos, fila administrativa e verificacoes tecnicas do sistema."
+      />
+
+      {session?.perfil === "admin" ? (
+        <div className="grid gap-4 md:grid-cols-3">
+          <SummaryMetricCard
+            title="Usuarios ativos"
+            value={loadingUsuarios ? "..." : usuariosAtivos}
+            description="Acessos atualmente liberados para uso."
+          />
+          <SummaryMetricCard
+            title="Perfis base"
+            value={loadingPermissoes ? "..." : perfisBaseConfigurados}
+            description="Perfis padrao com modulos configurados."
+          />
+          <SummaryMetricCard
+            title="Fila administrativa"
+            value={loadingSensitiveRequests ? "..." : pendingSensitiveRequests.length}
+            description="Solicitacoes sensiveis aguardando decisao."
+            tone={pendingSensitiveRequests.length > 0 ? "warning" : "default"}
+          />
+        </div>
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -342,7 +459,7 @@ export default function ConfiguracoesPage() {
               </Badge>
             )}
           </CardTitle>
-          <CardDescription>Verifique a conexao e alinhe o banco com a estrutura atual do sistema.</CardDescription>
+          <CardDescription>Acompanhe o status tecnico do ambiente e alinhe o banco quando houver pendencias.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-2">
@@ -407,17 +524,9 @@ export default function ConfiguracoesPage() {
 
               {dbStatus.error && <p className="text-sm text-red-600">{dbStatus.error}</p>}
 
-              {dbStatus.existingTables && dbStatus.existingTables.length > 0 && (
-                <InfoBlock
-                  title="Tabelas existentes"
-                  badges={dbStatus.existingTables}
-                  className="bg-green-100 text-green-800"
-                />
-              )}
-
               {dbStatus.missingTables && dbStatus.missingTables.length > 0 && (
                 <InfoBlock
-                  title="Estruturas pendentes na versao atual"
+                  title="Pendencias encontradas"
                   badges={dbStatus.missingTables}
                   className="bg-red-100 text-red-800"
                 />
@@ -425,30 +534,14 @@ export default function ConfiguracoesPage() {
 
               {dbStatus.dbType === "supabase" && dbStatus.missingTables && dbStatus.missingTables.length > 0 && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-                  <p className="mb-2 text-sm text-amber-800">Primeira instalacao no Supabase:</p>
-                  <code className="block rounded bg-amber-100 p-2 text-xs text-amber-900">
-                    scripts/setup-database-supabase.sql
-                  </code>
-                  <p className="mb-2 mt-3 text-sm text-amber-800">Para alinhar uma base existente com a versao atual:</p>
-                  <code className="block rounded bg-amber-100 p-2 text-xs text-amber-900">
-                    scripts/migrations/supabase/2026-04-29-upgrade-current-schema.sql
-                  </code>
-                  <p className="mb-2 mt-3 text-sm text-amber-800">Para liberar permissoes por modulo entre perfis:</p>
-                  <code className="block rounded bg-amber-100 p-2 text-xs text-amber-900">
-                    scripts/migrations/supabase/2026-05-07-profile-feature-access.sql
-                  </code>
-                  <p className="mb-2 mt-3 text-sm text-amber-800">Para ativar o fluxo novo de solicitacoes, aprovacao ADM e financeiro:</p>
-                  <code className="block rounded bg-amber-100 p-2 text-xs text-amber-900">
-                    scripts/migrations/supabase/2026-05-07-workflow-signatures.sql
-                  </code>
-                  <p className="mb-2 mt-3 text-sm text-amber-800">Para habilitar a fila administrativa de alteracoes e exclusoes sensiveis:</p>
-                  <code className="block rounded bg-amber-100 p-2 text-xs text-amber-900">
-                    scripts/migrations/supabase/2026-05-08-sensitive-change-requests.sql
-                  </code>
-                  <p className="mb-2 mt-3 text-sm text-amber-800">Se quiser resetar tudo e recriar do zero:</p>
-                  <code className="block rounded bg-amber-100 p-2 text-xs text-amber-900">
-                    scripts/reset-database-supabase.sql
-                  </code>
+                  <p className="mb-3 text-sm font-medium text-amber-900">Acoes recomendadas no Supabase</p>
+                  <div className="space-y-3">
+                    <ScriptHint label="Base nova" script="scripts/setup-database-supabase.sql" />
+                    <ScriptHint label="Atualizacao estrutural" script="scripts/migrations/supabase/2026-04-29-upgrade-current-schema.sql" />
+                    <ScriptHint label="Fluxo de aprovacoes" script="scripts/migrations/supabase/2026-05-07-workflow-signatures.sql" />
+                    <ScriptHint label="Fila administrativa" script="scripts/migrations/supabase/2026-05-08-sensitive-change-requests.sql" />
+                    <ScriptHint label="Permissoes por usuario" script="scripts/migrations/supabase/2026-05-11-user-feature-access.sql" />
+                  </div>
                   <Button
                     variant="outline"
                     size="sm"
@@ -462,42 +555,6 @@ export default function ConfiguracoesPage() {
               )}
             </div>
           )}
-
-          <div className="rounded-lg bg-muted p-4">
-            <h4 className="mb-3 font-medium">Configuracao recomendada</h4>
-            <div className="space-y-4">
-              <div className="rounded-lg border bg-background p-3">
-                <h5 className="mb-2 flex items-center gap-2 font-medium text-primary">
-                  <Badge variant="outline" className="text-xs">
-                    Recomendado
-                  </Badge>
-                  Supabase
-                </h5>
-                <pre className="overflow-x-auto rounded bg-muted p-2 text-xs">
-{`NEXT_PUBLIC_SUPABASE_URL="https://seu-projeto.supabase.co"
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="sb_publishable_..."
-SUPABASE_SECRET_KEY="sb_secret_..."`}
-                </pre>
-              </div>
-
-              <div className="rounded-lg border bg-background p-3">
-                <h5 className="mb-2 font-medium text-primary">MySQL</h5>
-                <pre className="overflow-x-auto rounded bg-muted p-2 text-xs">
-{`DATABASE_URL="mysql://usuario:senha@host:porta/banco"`}
-                </pre>
-              </div>
-
-              <div className="rounded-lg border bg-background p-3">
-                <h5 className="mb-2 font-medium text-primary">Autenticacao inicial</h5>
-                <pre className="overflow-x-auto rounded bg-muted p-2 text-xs">
-{`AUTH_SECRET="gere-uma-chave-segura"
-APP_ADMIN_NAME="Administrador do Sistema"
-APP_ADMIN_EMAIL="admin@compras.local"
-APP_ADMIN_PASSWORD="admin123456"`}
-                </pre>
-              </div>
-            </div>
-          </div>
         </CardContent>
       </Card>
 
@@ -512,14 +569,12 @@ APP_ADMIN_PASSWORD="admin123456"`}
               </Badge>
             </CardTitle>
             <CardDescription>
-              Revise solicitacoes de exclusao e alteracao sensivel enviadas pelos outros setores antes de aplicar qualquer mudanca definitiva.
+              Acompanhe pedidos de exclusao e alteracao sensivel antes de liberar qualquer mudanca definitiva.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm text-muted-foreground">
-                Esta fila centraliza pedidos de alteracao e exclusao em clientes, propostas e compras para manter rastreabilidade e evitar mudancas sem aprovacao.
-              </p>
+              <p className="text-sm text-muted-foreground">Central de aprovacao para ajustes que exigem rastreabilidade.</p>
               <div className="flex gap-2">
                 <Button variant="outline" onClick={fetchPendingSensitiveRequests} disabled={loadingSensitiveRequests}>
                   {loadingSensitiveRequests ? (
@@ -581,10 +636,10 @@ APP_ADMIN_PASSWORD="admin123456"`}
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Settings2 className="h-5 w-5" />
-              Modulos por perfil
+              Perfis base de acesso
             </CardTitle>
             <CardDescription>
-              O administrador define quais modulos e acoes cada perfil pode acessar. As alteracoes passam a valer nas proximas navegacoes do usuario.
+              Defina o conjunto base de modulos para cada perfil. Ajustes finos ficam na configuracao individual do usuario.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -596,17 +651,7 @@ APP_ADMIN_PASSWORD="admin123456"`}
                     Recarregando...
                   </>
                 ) : (
-                  "Recarregar"
-                )}
-              </Button>
-              <Button onClick={handleSavePermissoes} disabled={!perfilPermissoes || loadingPermissoes || savingPermissoes}>
-                {savingPermissoes ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Salvando...
-                  </>
-                ) : (
-                  "Salvar permissoes"
+                  "Recarregar perfis"
                 )}
               </Button>
             </div>
@@ -616,55 +661,37 @@ APP_ADMIN_PASSWORD="admin123456"`}
                 <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
               </div>
             ) : (
-              <div className="space-y-4">
-                {PERFIS_ORDENADOS.map((perfil) => (
-                  <div key={perfil} className="rounded-xl border p-4">
-                    <div className="mb-4">
-                      <h3 className="font-semibold text-foreground">{PERFIL_LABELS[perfil]}</h3>
-                      <p className="text-sm text-muted-foreground">
-                        Selecione os modulos e as acoes que este perfil podera usar no sistema.
-                      </p>
-                    </div>
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {PERFIS_ORDENADOS.map((perfil) => {
+                  const perfilFeatures = perfilPermissoes[perfil] ?? []
 
-                    <div className="space-y-5">
-                      {FEATURE_GROUPS.map((group) => (
-                        <div key={group.id} className="space-y-3">
-                          <div className="text-sm font-medium text-foreground">{group.label}</div>
-                          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                            {group.features.map((feature) => {
-                              const checked = perfilPermissoes[perfil]?.includes(feature) ?? false
-                              const isLocked = perfil === "admin" && LOCKED_ADMIN_FEATURES.includes(feature)
-
-                              return (
-                                <label
-                                  key={`${perfil}-${feature}`}
-                                  className="flex items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/20"
-                                >
-                                  <Checkbox
-                                    checked={checked}
-                                    disabled={isLocked || savingPermissoes}
-                                    onCheckedChange={(value) => handleTogglePermissao(perfil, feature, value === true)}
-                                  />
-                                  <div className="space-y-1">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-sm font-medium text-foreground">{FEATURE_LABELS[feature]}</span>
-                                      {isLocked && (
-                                        <Badge variant="outline" className="text-[10px]">
-                                          Fixo no ADM
-                                        </Badge>
-                                      )}
-                                    </div>
-                                    <p className="text-xs text-muted-foreground">{FEATURE_DESCRIPTIONS[feature]}</p>
-                                  </div>
-                                </label>
-                              )
-                            })}
+                  return (
+                    <div key={perfil} className="rounded-xl border p-4">
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <h3 className="font-semibold text-foreground">{PERFIL_LABELS[perfil]}</h3>
+                            <Badge variant="outline">{perfilFeatures.length} modulos</Badge>
                           </div>
-                        </div>
-                      ))}
+                        <p className="text-sm text-muted-foreground">Base usada para novos usuarios deste perfil.</p>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {perfilFeatures.slice(0, 4).map((feature) => (
+                          <Badge key={`${perfil}-${feature}`} variant="secondary">
+                            {FEATURE_LABELS[feature]}
+                          </Badge>
+                        ))}
+                        {perfilFeatures.length > 4 ? (
+                          <Badge variant="outline">+{perfilFeatures.length - 4} restantes</Badge>
+                        ) : null}
+                      </div>
+
+                      <Button className="mt-4 w-full" variant="outline" onClick={() => openPerfilDialog(perfil)}>
+                        Configurar perfil base
+                      </Button>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </CardContent>
@@ -689,7 +716,7 @@ APP_ADMIN_PASSWORD="admin123456"`}
                     Novo usuario
                   </Button>
                 </DialogTrigger>
-                <DialogContent>
+                <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-lg">
                   <DialogHeader>
                     <DialogTitle>{editingUsuario ? "Editar usuario" : "Novo usuario"}</DialogTitle>
                     <DialogDescription>
@@ -780,6 +807,140 @@ APP_ADMIN_PASSWORD="admin123456"`}
               </Dialog>
             </div>
 
+            <Dialog
+              open={userAccessDialogOpen}
+              onOpenChange={(open) => {
+                setUserAccessDialogOpen(open)
+                if (!open) {
+                  setEditingUserAccess(null)
+                  setBaseProfileFeatures([])
+                  setUserFeatureDraft([])
+                }
+              }}
+            >
+              <DialogContent className="flex max-h-[88vh] w-[calc(100vw-1.5rem)] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+                <DialogHeader className="border-b px-5 py-4 text-left">
+                  <DialogTitle>Modulos por usuario</DialogTitle>
+                  <DialogDescription>
+                    Ajuste os acessos deste usuario sem mexer no perfil base dos demais.
+                  </DialogDescription>
+                </DialogHeader>
+
+                {loadingUserFeatures || !editingUserAccess ? (
+                  <div className="flex min-h-[220px] items-center justify-center px-5 py-6">
+                    <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
+                  </div>
+                ) : (
+                  <div className="flex-1 overflow-y-auto px-5 py-4">
+                    <div className="space-y-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border bg-muted/20 px-4 py-3">
+                        <div className="space-y-1">
+                          <div className="font-medium text-foreground">{editingUserAccess.nome}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {PERFIL_LABELS[editingUserAccess.perfil]} · {userFeatureDraft.length} acesso(s) liberado(s)
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary">{baseProfileFeatures.length} do perfil</Badge>
+                          <Button size="sm" variant="outline" onClick={() => setUserFeatureDraft([...baseProfileFeatures])}>
+                            Restaurar perfil
+                          </Button>
+                        </div>
+                      </div>
+
+                      <FeatureChecklist
+                        perfil={editingUserAccess.perfil}
+                        features={userFeatureDraft}
+                        disabled={savingUserFeatures}
+                        onToggle={(feature, checked) =>
+                          setUserFeatureDraft((current) =>
+                            toggleFeatureSelection(current, feature, checked, editingUserAccess.perfil),
+                          )
+                        }
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <DialogFooter className="border-t px-5 py-4">
+                  <Button variant="outline" onClick={() => setUserAccessDialogOpen(false)}>
+                    Cancelar
+                  </Button>
+                  <Button onClick={handleSaveUserFeatures} disabled={loadingUserFeatures || savingUserFeatures}>
+                    {savingUserFeatures ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Salvando...
+                      </>
+                    ) : (
+                      "Salvar modulos"
+                    )}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog
+              open={perfilDialogOpen}
+              onOpenChange={(open) => {
+                setPerfilDialogOpen(open)
+                if (!open) {
+                  setEditingPerfil(null)
+                  setPerfilDraft([])
+                }
+              }}
+            >
+              <DialogContent className="flex max-h-[88vh] w-[calc(100vw-1.5rem)] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+                <DialogHeader className="border-b px-5 py-4 text-left">
+                  <DialogTitle>Perfil base</DialogTitle>
+                  <DialogDescription>
+                    Ajuste o conjunto inicial de acessos para este perfil.
+                  </DialogDescription>
+                </DialogHeader>
+
+                {editingPerfil ? (
+                  <div className="flex-1 overflow-y-auto px-5 py-4">
+                    <div className="space-y-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border bg-muted/20 px-4 py-3">
+                        <div>
+                          <div className="font-medium text-foreground">{PERFIL_LABELS[editingPerfil]}</div>
+                          <div className="text-sm text-muted-foreground">
+                            Base aplicada a novos usuarios deste perfil.
+                          </div>
+                        </div>
+                        <Badge variant="secondary">{perfilDraft.length} acesso(s)</Badge>
+                      </div>
+
+                      <FeatureChecklist
+                        perfil={editingPerfil}
+                        features={perfilDraft}
+                        disabled={savingPermissoes}
+                        onToggle={(feature, checked) =>
+                          setPerfilDraft((current) => toggleFeatureSelection(current, feature, checked, editingPerfil))
+                        }
+                      />
+                    </div>
+                  </div>
+                ) : null}
+
+                <DialogFooter className="border-t px-5 py-4">
+                  <Button variant="outline" onClick={() => setPerfilDialogOpen(false)}>
+                    Cancelar
+                  </Button>
+                  <Button onClick={handleSavePerfilDialog} disabled={!editingPerfil || savingPermissoes}>
+                    {savingPermissoes ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Salvando...
+                      </>
+                    ) : (
+                      "Salvar perfil base"
+                    )}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
             {loadingUsuarios ? (
               <div className="flex min-h-[180px] items-center justify-center">
                 <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
@@ -805,9 +966,14 @@ APP_ADMIN_PASSWORD="admin123456"`}
                         <Badge variant={usuario.ativo ? "default" : "outline"}>{usuario.ativo ? "Ativo" : "Inativo"}</Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="sm" onClick={() => openUserDialog(usuario)}>
-                          Editar
-                        </Button>
+                        <div className="flex justify-end gap-2">
+                          <Button variant="outline" size="sm" onClick={() => openUserAccessDialog(usuario)}>
+                            Acessos
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => openUserDialog(usuario)}>
+                            Editar
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -818,19 +984,6 @@ APP_ADMIN_PASSWORD="admin123456"`}
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Informacoes do sistema</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2 text-sm">
-            <InfoLine label="Versao" value="1.0.0" />
-            <InfoLine label="Framework" value="Next.js 16" />
-            <InfoLine label="Banco de dados" value={dbStatus ? dbTypeLabel[dbStatus.dbType] : "Verificando..."} />
-            <InfoLine label="Perfil atual" value={session ? PERFIL_LABELS[session.perfil] : "Sem sessao"} />
-          </div>
-        </CardContent>
-      </Card>
     </div>
   )
 }
@@ -850,6 +1003,15 @@ function InfoBlock({ title, badges, className }: { title: string; badges: string
   )
 }
 
+function ScriptHint({ label, script }: { label: string; script: string }) {
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-medium uppercase tracking-wide text-amber-900/80">{label}</p>
+      <code className="block rounded bg-amber-100 px-2 py-1.5 text-xs text-amber-900">{script}</code>
+    </div>
+  )
+}
+
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="space-y-2">
@@ -859,11 +1021,61 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-function InfoLine({ label, value }: { label: string; value: string }) {
+function FeatureChecklist({
+  perfil,
+  features,
+  disabled,
+  onToggle,
+}: {
+  perfil: PerfilUsuario
+  features: AppFeature[]
+  disabled?: boolean
+  onToggle: (feature: AppFeature, checked: boolean) => void
+}) {
   return (
-    <div className="flex justify-between">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium">{value}</span>
+    <div className="space-y-4">
+      {FEATURE_GROUPS.map((group) => (
+        <div key={`${perfil}-${group.id}`} className="space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group.label}</div>
+            <Badge variant="outline" className="text-[10px]">
+              {group.features.filter((feature) => features.includes(feature)).length}/{group.features.length}
+            </Badge>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {group.features.map((feature) => {
+              const checked = features.includes(feature)
+              const isLocked = perfil === "admin" && LOCKED_ADMIN_FEATURES.includes(feature)
+
+              return (
+                <label
+                  key={`${perfil}-${feature}`}
+                  className="flex min-h-[60px] items-start gap-3 rounded-md border px-3 py-2.5 transition-colors hover:border-primary/30 hover:bg-muted/10"
+                >
+                  <Checkbox
+                    checked={checked}
+                    disabled={disabled || isLocked}
+                    onCheckedChange={(value) => onToggle(feature, value === true)}
+                  />
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-sm font-medium leading-tight text-foreground">{FEATURE_LABELS[feature]}</span>
+                      {isLocked ? (
+                        <Badge variant="outline" className="text-[10px]">
+                          Fixo no ADM
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <p className="line-clamp-2 text-[11px] leading-4 text-muted-foreground">
+                      {FEATURE_DESCRIPTIONS[feature]}
+                    </p>
+                  </div>
+                </label>
+              )
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

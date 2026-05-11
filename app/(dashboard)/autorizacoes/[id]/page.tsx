@@ -104,7 +104,7 @@ export default function AutorizacaoDetailPage({ params }: { params: Promise<{ id
 
   if (!compra) {
     return (
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
         <Card className="border-destructive">
           <CardHeader>
             <CardTitle className="text-destructive">Pedido nao encontrado</CardTitle>
@@ -116,7 +116,7 @@ export default function AutorizacaoDetailPage({ params }: { params: Promise<{ id
 
   if (compra.etapa_fluxo !== "liberada_para_fornecedor") {
     return (
-      <div className="space-y-6 p-6">
+      <div className="space-y-6 p-4 sm:p-6">
         <Card className="border-amber-300 bg-amber-50">
           <CardHeader>
             <CardTitle>Pedido ainda nao liberado</CardTitle>
@@ -138,7 +138,7 @@ export default function AutorizacaoDetailPage({ params }: { params: Promise<{ id
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <div className="flex items-center gap-4">
         <Link href="/autorizacoes">
           <Button variant="ghost" size="icon">

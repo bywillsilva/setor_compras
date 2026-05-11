@@ -138,6 +138,7 @@ export interface Usuario {
   email: string
   senha_hash: string
   perfil: PerfilUsuario
+  features?: AppFeature[]
   ativo: boolean
   created_at: string
   updated_at: string
@@ -155,6 +156,7 @@ export interface UsuarioFormData {
   senha?: string | null
   perfil: PerfilUsuario
   ativo: boolean
+  features?: AppFeature[] | null
 }
 
 export interface CompraFormData {

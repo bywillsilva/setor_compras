@@ -133,7 +133,7 @@ export default function NovaSolicitacaoPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <PageHeader
         title="Nova solicitacao"
         description="Registre a necessidade de compra e anexe o material de referencia para o setor de compras."

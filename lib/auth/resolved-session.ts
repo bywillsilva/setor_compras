@@ -1,6 +1,6 @@
 import { type SessionPayload, verifySessionToken } from "@/lib/auth/session"
 import { getDefaultFeaturesForPerfil } from "@/lib/auth/permissions"
-import { getUsuarioById, listFeaturesByPerfil } from "@/lib/repositories"
+import { getUsuarioById, listFeaturesByUsuario } from "@/lib/repositories"
 
 export async function resolveSessionFromToken(token: string | null | undefined): Promise<SessionPayload | null> {
   const session = await verifySessionToken(token)
@@ -17,10 +17,10 @@ export async function resolveSessionFromToken(token: string | null | undefined):
 
   let features = getDefaultFeaturesForPerfil(usuario.perfil)
   try {
-    features = await listFeaturesByPerfil(usuario.perfil)
+    features = await listFeaturesByUsuario(usuario.id, usuario.perfil)
   } catch (permissionError) {
     console.warn(
-      "Falha ao carregar permissoes por perfil na resolucao da sessao. Aplicando permissoes padrao temporariamente.",
+      "Falha ao carregar permissoes do usuario na resolucao da sessao. Aplicando permissoes padrao temporariamente.",
       permissionError,
     )
   }

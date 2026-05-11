@@ -43,16 +43,20 @@ export function SearchableSelect({
           variant="outline"
           role="combobox"
           disabled={disabled}
-          className={cn("w-full justify-between font-normal", !selected && "text-muted-foreground", className)}
+          className={cn(
+            "h-10 w-full justify-between rounded-lg border-border/70 bg-background px-3 font-normal shadow-none",
+            !selected && "text-muted-foreground",
+            className,
+          )}
         >
           <span className="truncate">{selected?.label ?? placeholder}</span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-0">
+      <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] rounded-xl border-border/70 p-0">
         <Command>
           <CommandInput placeholder={searchPlaceholder} />
-          <CommandList>
+          <CommandList className="max-h-72">
             <CommandEmpty>{emptyLabel}</CommandEmpty>
             <CommandGroup>
               {options.map((option) => (
@@ -63,8 +67,8 @@ export function SearchableSelect({
                 >
                   <Check className={cn("mr-2 h-4 w-4", option.value === value ? "opacity-100" : "opacity-0")} />
                   <div className="min-w-0">
-                    <div className="truncate">{option.label}</div>
-                    {option.description ? <div className="text-xs text-muted-foreground">{option.description}</div> : null}
+                    <div className="truncate text-sm">{option.label}</div>
+                    {option.description ? <div className="truncate text-xs text-muted-foreground">{option.description}</div> : null}
                   </div>
                 </CommandItem>
               ))}

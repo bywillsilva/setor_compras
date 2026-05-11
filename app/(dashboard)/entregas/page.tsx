@@ -135,7 +135,7 @@ export default function EntregasPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <PageHeader
         title="Entregas"
         description="Gerencie previsao, pendencias e confirmacao de entrega sem misturar com a fase de autorizacao."

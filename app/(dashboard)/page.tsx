@@ -100,7 +100,7 @@ export default function DashboardPage() {
 
   if (dbConfigured === false) {
     return (
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
         <SetupBanner onSetupComplete={() => window.location.reload()} />
       </div>
     )
@@ -108,7 +108,7 @@ export default function DashboardPage() {
 
   if (error) {
     return (
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
         <Card className="border-destructive">
           <CardHeader>
             <CardTitle className="text-destructive">Erro ao carregar dados</CardTitle>
@@ -122,7 +122,7 @@ export default function DashboardPage() {
   const stats = data?.stats
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
         <p className="text-muted-foreground">Visão geral do setor de compras corporativas</p>

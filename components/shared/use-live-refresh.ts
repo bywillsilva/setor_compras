@@ -7,6 +7,24 @@ type UseLiveRefreshOptions = {
   intervalMs?: number
 }
 
+function isEditableTarget(target: Element | null) {
+  if (!(target instanceof HTMLElement)) {
+    return false
+  }
+
+  if (target.isContentEditable) {
+    return true
+  }
+
+  const tagName = target.tagName.toLowerCase()
+
+  if (tagName === "input" || tagName === "textarea" || tagName === "select") {
+    return true
+  }
+
+  return Boolean(target.closest("input, textarea, select, [contenteditable='true']"))
+}
+
 export function useLiveRefresh(
   refresh: () => void | Promise<void>,
   { enabled = true, intervalMs = 15000 }: UseLiveRefreshOptions = {},
@@ -29,6 +47,10 @@ export function useLiveRefresh(
       }
 
       if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return
+      }
+
+      if (typeof document !== "undefined" && isEditableTarget(document.activeElement)) {
         return
       }
 

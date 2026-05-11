@@ -149,7 +149,7 @@ export default function ClientesPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <PageHeader
         title="Clientes"
         description="Cadastre clientes e acompanhe o resumo de propostas, compras e gastos."

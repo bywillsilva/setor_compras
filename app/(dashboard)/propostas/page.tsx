@@ -180,7 +180,7 @@ export default function PropostasPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <PageHeader
         title="Propostas"
         description="Controle de obras, orcamento por categoria e reserva de perdas/reposicao."

@@ -392,7 +392,7 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
 
   if (error || !cliente) {
     return (
-      <div className="space-y-6 p-6">
+      <div className="space-y-6 p-4 sm:p-6">
         <Link href="/clientes">
           <Button variant="ghost" size="sm">
             <ArrowLeft className="mr-2 h-4 w-4" />
@@ -411,7 +411,7 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-4">
           <Link href="/clientes">

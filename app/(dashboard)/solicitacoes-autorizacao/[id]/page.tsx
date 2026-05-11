@@ -29,6 +29,7 @@ export default function SolicitacaoAutorizacaoDetailPage({ params }: { params: P
     numero_pedido: "",
     valor_total: "",
   })
+  const [isDirty, setIsDirty] = useState(false)
 
   async function fetchCompra() {
     try {
@@ -43,6 +44,7 @@ export default function SolicitacaoAutorizacaoDetailPage({ params }: { params: P
         numero_pedido: payload.numero_pedido ?? "",
         valor_total: payload.valor_total?.toString() ?? "",
       })
+      setIsDirty(false)
     } catch (error) {
       console.error(error)
     } finally {
@@ -55,7 +57,7 @@ export default function SolicitacaoAutorizacaoDetailPage({ params }: { params: P
   }, [id])
 
   useLiveRefresh(fetchCompra, {
-    enabled: !saving && !rejecting,
+    enabled: !saving && !rejecting && !isDirty,
     intervalMs: 10000,
   })
 
@@ -96,6 +98,7 @@ export default function SolicitacaoAutorizacaoDetailPage({ params }: { params: P
         throw new Error(payload?.error || "Erro ao aprovar solicitacao.")
       }
 
+      setIsDirty(false)
       router.push("/solicitacoes-autorizacao")
       router.refresh()
     } catch (error) {
@@ -141,7 +144,7 @@ export default function SolicitacaoAutorizacaoDetailPage({ params }: { params: P
 
   if (!compra) {
     return (
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
         <Card className="border-destructive">
           <CardHeader>
             <CardTitle className="text-destructive">Pedido nao encontrado</CardTitle>
@@ -152,7 +155,7 @@ export default function SolicitacaoAutorizacaoDetailPage({ params }: { params: P
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <div className="flex items-center gap-4">
         <Link href="/solicitacoes-autorizacao">
           <Button variant="ghost" size="icon">
@@ -205,12 +208,13 @@ export default function SolicitacaoAutorizacaoDetailPage({ params }: { params: P
           </CardHeader>
           <CardContent className="space-y-5">
             <Field label="Numero do pedido *">
-              <Input
-                value={formData.numero_pedido}
-                onChange={(event) => {
-                  setFormData((current) => ({ ...current, numero_pedido: event.target.value }))
-                  setErrors((current) => ({ ...current, numero_pedido: "" }))
-                }}
+                <Input
+                  value={formData.numero_pedido}
+                  onChange={(event) => {
+                    setIsDirty(true)
+                    setFormData((current) => ({ ...current, numero_pedido: event.target.value }))
+                    setErrors((current) => ({ ...current, numero_pedido: "" }))
+                  }}
                 placeholder="Ex: PED-2026-0184"
                 className={errors.numero_pedido ? "border-destructive" : ""}
               />
@@ -218,15 +222,16 @@ export default function SolicitacaoAutorizacaoDetailPage({ params }: { params: P
             </Field>
 
             <Field label="Valor autorizado *">
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                value={formData.valor_total}
-                onChange={(event) => {
-                  setFormData((current) => ({ ...current, valor_total: event.target.value }))
-                  setErrors((current) => ({ ...current, valor_total: "" }))
-                }}
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.valor_total}
+                  onChange={(event) => {
+                    setIsDirty(true)
+                    setFormData((current) => ({ ...current, valor_total: event.target.value }))
+                    setErrors((current) => ({ ...current, valor_total: "" }))
+                  }}
                 placeholder="0,00"
                 className={errors.valor_total ? "border-destructive" : ""}
               />

@@ -165,7 +165,7 @@ export default function AutorizacoesPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <PageHeader
         title="Autorizacoes"
         description="Acompanhe toda a fila ligada a autorizacao, da analise do solicitante ate a liberacao para o fornecedor."

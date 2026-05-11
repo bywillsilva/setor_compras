@@ -169,7 +169,7 @@ export default function SolicitacoesSensiveisPage() {
 
   if (session?.perfil !== "admin") {
     return (
-      <div className="space-y-6 p-6">
+      <div className="space-y-6 p-4 sm:p-6">
         <Card className="border-destructive">
           <CardHeader>
             <CardTitle className="text-destructive">Acesso restrito</CardTitle>
@@ -181,7 +181,7 @@ export default function SolicitacoesSensiveisPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-4">
           <Link href="/configuracoes">

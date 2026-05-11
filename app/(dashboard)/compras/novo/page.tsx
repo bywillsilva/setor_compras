@@ -15,7 +15,7 @@ import type { Cliente, Proposta } from "@/lib/types"
 
 export default function NovaCompraPage() {
   return (
-    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Carregando formulario...</div>}>
+    <Suspense fallback={<div className="p-4 text-sm text-muted-foreground sm:p-6">Carregando formulario...</div>}>
       <NovaCompraContent />
     </Suspense>
   )
@@ -191,7 +191,7 @@ function NovaCompraContent() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <PageHeader
         title="Nova compra"
         description="Cadastre o pedido inicial com cliente, proposta, fornecedor e material a ser cotado."

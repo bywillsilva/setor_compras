@@ -53,6 +53,7 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
   const [deletingAttachmentId, setDeletingAttachmentId] = useState<number | null>(null)
   const [motivoRetificacao, setMotivoRetificacao] = useState("")
   const [savingQuoteData, setSavingQuoteData] = useState(false)
+  const [quoteDataDirty, setQuoteDataDirty] = useState(false)
   const [quoteData, setQuoteData] = useState<CompraRateioFormState>({
     valor_categoria_perfis: "",
     valor_categoria_vidros: "",
@@ -81,7 +82,7 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
   }, [id])
 
   useLiveRefresh(fetchSolicitacao, {
-    enabled: !processing && !savingQuoteData && !uploadingAttachments && deletingAttachmentId === null,
+    enabled: !processing && !savingQuoteData && !uploadingAttachments && deletingAttachmentId === null && !quoteDataDirty,
     intervalMs: 10000,
   })
 
@@ -101,6 +102,7 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
         valor_categoria_perdas: payload.valor_categoria_perdas?.toString() ?? "",
         valor_categoria_outros: payload.valor_categoria_outros?.toString() ?? "",
       })
+      setQuoteDataDirty(false)
     } catch (error) {
       console.error(error)
     } finally {
@@ -270,6 +272,7 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
         }
 
         alert("Solicitacao enviada ao administrador.")
+        setQuoteDataDirty(false)
         return
       }
 
@@ -290,6 +293,7 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
         throw new Error(payload?.error || "Erro ao salvar os dados da cotacao.")
       }
 
+      setQuoteDataDirty(false)
       await fetchSolicitacao()
     } catch (error) {
       alert(error instanceof Error ? error.message : "Erro ao salvar os dados da cotacao.")
@@ -308,7 +312,7 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
 
   if (!compra) {
     return (
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
         <Card className="border-destructive">
           <CardHeader>
             <CardTitle className="text-destructive">Solicitacao nao encontrada</CardTitle>
@@ -332,7 +336,7 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
     : []
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <div className="flex items-center gap-4">
         <Link href="/solicitacoes">
           <Button variant="ghost" size="icon">
@@ -426,7 +430,10 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
               <CardContent className="space-y-4">
                 <CompraRateioFields
                   values={quoteData}
-                  onChange={(field, value) => setQuoteData((current) => ({ ...current, [field]: value }))}
+                  onChange={(field, value) => {
+                    setQuoteDataDirty(true)
+                    setQuoteData((current) => ({ ...current, [field]: value }))
+                  }}
                   description="Preencha a distribuicao desta compra entre perfis, vidros, acessorios, perdas/reposicao e outros assim que a cotacao estiver sendo montada."
                 />
 
