@@ -21,6 +21,7 @@ export type AppFeature =
   | 'financeiro'
   | 'entregas'
   | 'orcamentos'
+  | 'resumo_contratos'
   | 'configuracoes'
   | 'usuarios'
   | 'editar_compra'
@@ -307,4 +308,54 @@ export interface SolicitacaoSensivel {
   observacao_admin: string | null
   created_at: string
   updated_at: string
+}
+
+export interface ResumoContrato {
+  id: number
+  titulo: string
+  periodo_referencia: string
+  created_by_user_id: number
+  created_by_nome: string
+  created_at: string
+  updated_at: string
+  quantidade_obras: number
+  valor_total_contrato: number
+  valor_total_real_gasto: number
+  lucro_bruto_total: number
+}
+
+export interface ResumoContratoObra {
+  proposta_id: number
+  proposta_nome: string
+  cliente_id: number
+  cliente_nome: string
+  valor_real_gasto: number
+  valor_contrato: number
+  lucro_bruto: number
+  data_inicio: string | null
+  data_fim: string | null
+}
+
+export interface ResumoContratoDetalhe extends ResumoContrato {
+  itens: ResumoContratoObra[]
+}
+
+export interface ResumoContratoReferencia {
+  proposta_id: number
+  proposta_nome: string
+  cliente_id: number
+  cliente_nome: string
+  valor_real_gasto: number
+  valor_previsto: number
+  data_inicio: string | null
+  data_fim: string | null
+}
+
+export interface ResumoContratoFormData {
+  titulo: string
+  periodo_referencia: string
+  itens: Array<{
+    proposta_id: number
+    valor_contrato: number
+  }>
 }

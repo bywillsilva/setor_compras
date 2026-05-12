@@ -53,6 +53,11 @@ import type {
   Proposta,
   PropostaFormData,
   PurchaseFilters,
+  ResumoContrato,
+  ResumoContratoDetalhe,
+  ResumoContratoFormData,
+  ResumoContratoObra,
+  ResumoContratoReferencia,
   SolicitacaoSensivel,
   SolicitacaoSensivelAcao,
   SolicitacaoSensivelEntidade,
@@ -84,7 +89,17 @@ interface ReportFilters {
   status?: StatusPedido
 }
 
-const REQUIRED_TABLES = ['clientes', 'usuarios', 'propostas', 'compras', 'historico_compras', 'anexos', 'solicitacoes_sensiveis'] as const
+const REQUIRED_TABLES = [
+  'clientes',
+  'usuarios',
+  'propostas',
+  'compras',
+  'historico_compras',
+  'anexos',
+  'solicitacoes_sensiveis',
+  'resumos_contratos',
+  'resumo_contrato_itens',
+] as const
 const REQUIRED_SCHEMA_COLUMNS: Record<(typeof REQUIRED_TABLES)[number], string[]> = {
   clientes: ['id', 'nome', 'documento', 'contato', 'email', 'arquivado', 'created_at', 'updated_at'],
   usuarios: ['id', 'nome', 'email', 'senha_hash', 'perfil', 'tema_preferido', 'ativo', 'created_at', 'updated_at'],
@@ -162,6 +177,25 @@ const REQUIRED_SCHEMA_COLUMNS: Record<(typeof REQUIRED_TABLES)[number], string[]
     'recusado_por',
     'recusado_em',
     'observacao_admin',
+    'created_at',
+    'updated_at',
+  ],
+  resumos_contratos: [
+    'id',
+    'titulo',
+    'periodo_referencia',
+    'created_by_user_id',
+    'created_by_nome',
+    'created_at',
+    'updated_at',
+  ],
+  resumo_contrato_itens: [
+    'id',
+    'resumo_id',
+    'proposta_id',
+    'cliente_id',
+    'valor_contrato',
+    'ordem',
     'created_at',
     'updated_at',
   ],
@@ -2331,6 +2365,337 @@ export async function getFinanceiroReport(filters: ReportFilters = {}): Promise<
     })
 }
 
+export async function listResumoContratoReferencias(search?: string | null): Promise<ResumoContratoReferencia[]> {
+  const [propostas, compras] = await Promise.all([
+    listPropostas({ includeArchived: true }),
+    listCompras({ includeArchived: true }),
+  ])
+
+  const normalizedSearch = String(search ?? '')
+    .trim()
+    .toLocaleLowerCase('pt-BR')
+
+  const gastoRealByProposta = buildGastoRealByProposta(compras)
+
+  return propostas
+    .map((proposta) => ({
+      proposta_id: proposta.id,
+      proposta_nome: proposta.nome,
+      cliente_id: proposta.cliente_id,
+      cliente_nome: proposta.cliente_nome ?? 'Cliente não identificado',
+      valor_real_gasto: gastoRealByProposta.get(proposta.id) ?? 0,
+      valor_previsto: Number(proposta.valor_previsto ?? 0),
+      data_inicio: proposta.data_inicio,
+      data_fim: proposta.data_fim,
+    }))
+    .filter((item) => {
+      if (!normalizedSearch) {
+        return true
+      }
+
+      const haystack = [
+        item.cliente_nome,
+        item.proposta_nome,
+        item.valor_previsto.toString(),
+        item.valor_real_gasto.toString(),
+      ]
+        .join(' ')
+        .toLocaleLowerCase('pt-BR')
+
+      return haystack.includes(normalizedSearch)
+    })
+    .sort((left, right) => {
+      const clientCompare = left.cliente_nome.localeCompare(right.cliente_nome, 'pt-BR')
+      if (clientCompare !== 0) {
+        return clientCompare
+      }
+
+      return left.proposta_nome.localeCompare(right.proposta_nome, 'pt-BR')
+    })
+}
+
+export async function listResumosContratos(): Promise<ResumoContrato[]> {
+  const [records, itens, compras] = await Promise.all([
+    listResumosContratosRaw(),
+    listResumoContratoItensRaw(),
+    listCompras({ includeArchived: true }),
+  ])
+
+  const gastoRealByProposta = buildGastoRealByProposta(compras)
+  const itensByResumoId = groupResumoContratoItensByResumo(itens)
+
+  return records
+    .map((record) => buildResumoContratoAggregate(record, itensByResumoId.get(record.id) ?? [], gastoRealByProposta))
+    .sort((left, right) => parseISO(right.updated_at).getTime() - parseISO(left.updated_at).getTime())
+}
+
+export async function getResumoContratoById(id: number): Promise<ResumoContratoDetalhe | null> {
+  const [record] = await listResumosContratosRaw({ id })
+  if (!record) {
+    return null
+  }
+
+  const [itens, propostas, compras] = await Promise.all([
+    listResumoContratoItensRaw({ resumoId: id }),
+    listPropostas({ includeArchived: true }),
+    listCompras({ includeArchived: true }),
+  ])
+
+  const propostasById = new Map(propostas.map((proposta) => [proposta.id, proposta]))
+  const gastoRealByProposta = buildGastoRealByProposta(compras)
+  const aggregate = buildResumoContratoAggregate(record, itens, gastoRealByProposta)
+
+  const detalhamento: ResumoContratoObra[] = itens
+    .slice()
+    .sort((left, right) => left.ordem - right.ordem || left.id - right.id)
+    .map((item) => {
+      const proposta = propostasById.get(item.proposta_id)
+      const valorRealGasto = gastoRealByProposta.get(item.proposta_id) ?? 0
+      const valorContrato = Number(item.valor_contrato)
+      return {
+        proposta_id: item.proposta_id,
+        proposta_nome: proposta?.nome ?? `Proposta #${item.proposta_id}`,
+        cliente_id: item.cliente_id,
+        cliente_nome: proposta?.cliente_nome ?? 'Cliente não identificado',
+        valor_real_gasto: valorRealGasto,
+        valor_contrato: valorContrato,
+        lucro_bruto: valorContrato - valorRealGasto,
+        data_inicio: proposta?.data_inicio ?? null,
+        data_fim: proposta?.data_fim ?? null,
+      }
+    })
+
+  return {
+    ...aggregate,
+    itens: detalhamento,
+  }
+}
+
+export async function createResumoContrato(
+  input: ResumoContratoFormData,
+  actor: { userId: number; nome: string },
+): Promise<number> {
+  const normalizedInput = await resolveResumoContratoMutationInput(input)
+
+  const { titulo, periodoReferencia, normalizedItens } = normalizedInput
+
+  if (getDatabaseType() === 'mysql') {
+    const pool = getMySQLPool()
+    if (!pool) {
+      throw new Error('Pool MySQL não configurado.')
+    }
+
+    const connection = await pool.getConnection()
+    try {
+      await connection.beginTransaction()
+
+      const [summaryResult] = await connection.execute<ResultSetHeader>(
+        `INSERT INTO resumos_contratos (
+          titulo,
+          periodo_referencia,
+          created_by_user_id,
+          created_by_nome
+        ) VALUES (?, ?, ?, ?)`,
+        [titulo, periodoReferencia, actor.userId, actor.nome],
+      )
+
+      const resumoId = Number(summaryResult.insertId)
+
+      for (const item of normalizedItens) {
+        await connection.execute(
+          `INSERT INTO resumo_contrato_itens (
+            resumo_id,
+            proposta_id,
+            cliente_id,
+            valor_contrato,
+            ordem
+          ) VALUES (?, ?, ?, ?, ?)`,
+          [resumoId, item.proposta_id, item.cliente_id, item.valor_contrato, item.ordem],
+        )
+      }
+
+      await connection.commit()
+      return resumoId
+    } catch (error) {
+      await connection.rollback()
+      throw error
+    } finally {
+      connection.release()
+    }
+  }
+
+  const client = getSupabaseOrThrow()
+  const { data, error } = await client
+    .from('resumos_contratos')
+    .insert({
+      titulo,
+      periodo_referencia: periodoReferencia,
+      created_by_user_id: actor.userId,
+      created_by_nome: actor.nome,
+    })
+    .select('id')
+    .single()
+
+  throwIfSupabaseError(error)
+
+  const resumoId = Number(data.id)
+  const { error: itemError } = await client.from('resumo_contrato_itens').insert(
+    normalizedItens.map((item) => ({
+      resumo_id: resumoId,
+      proposta_id: item.proposta_id,
+      cliente_id: item.cliente_id,
+      valor_contrato: item.valor_contrato,
+      ordem: item.ordem,
+    })),
+  )
+  throwIfSupabaseError(itemError)
+
+  return resumoId
+}
+
+export async function updateResumoContrato(
+  id: number,
+  input: ResumoContratoFormData,
+): Promise<void> {
+  const normalizedInput = await resolveResumoContratoMutationInput(input)
+  const { titulo, periodoReferencia, normalizedItens } = normalizedInput
+
+  const existing = await getResumoContratoById(id)
+  if (!existing) {
+    throw new Error('Resumo de contratos não encontrado.')
+  }
+
+  if (getDatabaseType() === 'mysql') {
+    const pool = getMySQLPool()
+    if (!pool) {
+      throw new Error('Pool MySQL não configurado.')
+    }
+
+    const connection = await pool.getConnection()
+    try {
+      await connection.beginTransaction()
+
+      await connection.execute(
+        `UPDATE resumos_contratos
+         SET titulo = ?, periodo_referencia = ?
+         WHERE id = ?`,
+        [titulo, periodoReferencia, id],
+      )
+
+      await connection.execute(`DELETE FROM resumo_contrato_itens WHERE resumo_id = ?`, [id])
+
+      for (const item of normalizedItens) {
+        await connection.execute(
+          `INSERT INTO resumo_contrato_itens (
+            resumo_id,
+            proposta_id,
+            cliente_id,
+            valor_contrato,
+            ordem
+          ) VALUES (?, ?, ?, ?, ?)`,
+          [id, item.proposta_id, item.cliente_id, item.valor_contrato, item.ordem],
+        )
+      }
+
+      await connection.commit()
+      return
+    } catch (error) {
+      await connection.rollback()
+      throw error
+    } finally {
+      connection.release()
+    }
+  }
+
+  const client = getSupabaseOrThrow()
+  const { error: updateError } = await client
+    .from('resumos_contratos')
+    .update({
+      titulo,
+      periodo_referencia: periodoReferencia,
+    })
+    .eq('id', id)
+  throwIfSupabaseError(updateError)
+
+  const { error: deleteError } = await client.from('resumo_contrato_itens').delete().eq('resumo_id', id)
+  throwIfSupabaseError(deleteError)
+
+  const { error: insertError } = await client.from('resumo_contrato_itens').insert(
+    normalizedItens.map((item) => ({
+      resumo_id: id,
+      proposta_id: item.proposta_id,
+      cliente_id: item.cliente_id,
+      valor_contrato: item.valor_contrato,
+      ordem: item.ordem,
+    })),
+  )
+  throwIfSupabaseError(insertError)
+}
+
+export async function deleteResumoContrato(id: number): Promise<void> {
+  const existing = await getResumoContratoById(id)
+  if (!existing) {
+    throw new Error('Resumo de contratos não encontrado.')
+  }
+
+  if (getDatabaseType() === 'mysql') {
+    await mysqlExecute('DELETE FROM resumos_contratos WHERE id = ?', [id])
+    return
+  }
+
+  const client = getSupabaseOrThrow()
+  const { error } = await client.from('resumos_contratos').delete().eq('id', id)
+  throwIfSupabaseError(error)
+}
+
+async function resolveResumoContratoMutationInput(input: ResumoContratoFormData) {
+  const titulo = String(input.titulo ?? '').trim()
+  const periodoReferencia = String(input.periodo_referencia ?? '').trim()
+  const itens = Array.isArray(input.itens)
+    ? input.itens
+        .map((item, index) => ({
+          proposta_id: Number(item.proposta_id),
+          valor_contrato: Number(item.valor_contrato ?? 0),
+          ordem: index + 1,
+        }))
+        .filter((item) => Number.isFinite(item.proposta_id) && item.proposta_id > 0)
+    : []
+
+  if (!titulo) {
+    throw new Error('Informe o título da seleção.')
+  }
+
+  if (!/^\d{4}-\d{2}$/.test(periodoReferencia)) {
+    throw new Error('Informe o mês/ano da seleção.')
+  }
+
+  if (itens.length === 0) {
+    throw new Error('Selecione ao menos uma obra para o resumo.')
+  }
+
+  const propostas = await listPropostas({ includeArchived: true })
+  const propostasById = new Map(propostas.map((proposta) => [proposta.id, proposta]))
+  const uniqueIds = new Set<number>()
+  const normalizedItens = itens.map((item) => {
+    if (uniqueIds.has(item.proposta_id)) {
+      throw new Error('Não é possível repetir a mesma obra na seleção.')
+    }
+
+    uniqueIds.add(item.proposta_id)
+    const proposta = propostasById.get(item.proposta_id)
+    if (!proposta) {
+      throw new Error(`Obra/proposta #${item.proposta_id} não encontrada.`)
+    }
+
+    return {
+      ...item,
+      cliente_id: proposta.cliente_id,
+    }
+  })
+
+  return { titulo, periodoReferencia, normalizedItens }
+}
+
 export async function getEntregasReport(filters: ReportFilters = {}): Promise<{
   dados: Array<Compra & { situacao_entrega: SituacaoEntrega }>
   metricas: DeliveryMetrics
@@ -2476,6 +2841,81 @@ async function listPropostasRaw(filters: {
   return (data ?? [])
     .map((row: Row) => normalizeProposta(row))
     .filter((proposta: Proposta) => (filters.onlyArchived ? proposta.arquivado : filters.includeArchived || !proposta.arquivado))
+}
+
+type ResumoContratoRecordRow = {
+  id: number
+  titulo: string
+  periodo_referencia: string
+  created_by_user_id: number
+  created_by_nome: string
+  created_at: string
+  updated_at: string
+}
+
+type ResumoContratoItemRow = {
+  id: number
+  resumo_id: number
+  proposta_id: number
+  cliente_id: number
+  valor_contrato: number
+  ordem: number
+  created_at: string
+  updated_at: string
+}
+
+async function listResumosContratosRaw(filters: { id?: number } = {}): Promise<ResumoContratoRecordRow[]> {
+  if (getDatabaseType() === 'mysql') {
+    let sql = 'SELECT * FROM resumos_contratos WHERE 1 = 1'
+    const params: unknown[] = []
+
+    if (filters.id) {
+      sql += ' AND id = ?'
+      params.push(filters.id)
+    }
+
+    sql += ' ORDER BY updated_at DESC'
+    const rows = await mysqlSelect(sql, params)
+    return rows.map(normalizeResumoContratoRecordRow)
+  }
+
+  const client = getSupabaseOrThrow()
+  let query = client.from('resumos_contratos').select('*').order('updated_at', { ascending: false })
+
+  if (filters.id) {
+    query = query.eq('id', filters.id)
+  }
+
+  const { data, error } = await query
+  throwIfSupabaseError(error)
+  return (data ?? []).map((row: Row) => normalizeResumoContratoRecordRow(row))
+}
+
+async function listResumoContratoItensRaw(filters: { resumoId?: number } = {}): Promise<ResumoContratoItemRow[]> {
+  if (getDatabaseType() === 'mysql') {
+    let sql = 'SELECT * FROM resumo_contrato_itens WHERE 1 = 1'
+    const params: unknown[] = []
+
+    if (filters.resumoId) {
+      sql += ' AND resumo_id = ?'
+      params.push(filters.resumoId)
+    }
+
+    sql += ' ORDER BY ordem ASC, id ASC'
+    const rows = await mysqlSelect(sql, params)
+    return rows.map(normalizeResumoContratoItemRow)
+  }
+
+  const client = getSupabaseOrThrow()
+  let query = client.from('resumo_contrato_itens').select('*').order('ordem', { ascending: true }).order('id', { ascending: true })
+
+  if (filters.resumoId) {
+    query = query.eq('resumo_id', filters.resumoId)
+  }
+
+  const { data, error } = await query
+  throwIfSupabaseError(error)
+  return (data ?? []).map((row: Row) => normalizeResumoContratoItemRow(row))
 }
 
 async function listComprasRaw(filters: PurchaseFilters = {}): Promise<Compra[]> {
@@ -3110,6 +3550,35 @@ async function setupMySQLDatabase() {
       )
     `)
 
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS resumos_contratos (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        titulo VARCHAR(255) NOT NULL,
+        periodo_referencia CHAR(7) NOT NULL,
+        created_by_user_id INT NOT NULL,
+        created_by_nome VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_resumos_contratos_periodo (periodo_referencia)
+      )
+    `)
+
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS resumo_contrato_itens (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        resumo_id INT NOT NULL,
+        proposta_id INT NOT NULL,
+        cliente_id INT NOT NULL,
+        valor_contrato DECIMAL(15, 2) DEFAULT 0,
+        ordem INT DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        CONSTRAINT fk_resumo_contrato_itens_resumo FOREIGN KEY (resumo_id) REFERENCES resumos_contratos(id) ON DELETE CASCADE,
+        CONSTRAINT fk_resumo_contrato_itens_proposta FOREIGN KEY (proposta_id) REFERENCES propostas(id) ON DELETE CASCADE,
+        INDEX idx_resumo_contrato_itens_resumo (resumo_id)
+      )
+    `)
+
     await addColumnIfMissing(connection, 'clientes', 'documento', 'VARCHAR(20) NULL')
     await addColumnIfMissing(connection, 'clientes', 'contato', 'VARCHAR(100) NULL')
     await addColumnIfMissing(connection, 'clientes', 'arquivado', 'BOOLEAN DEFAULT FALSE')
@@ -3183,6 +3652,16 @@ async function setupMySQLDatabase() {
     await addColumnIfMissing(connection, 'solicitacoes_sensiveis', 'observacao_admin', 'TEXT NULL')
     await addColumnIfMissing(connection, 'solicitacoes_sensiveis', 'created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
     await addColumnIfMissing(connection, 'solicitacoes_sensiveis', 'updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP')
+    await addColumnIfMissing(connection, 'resumos_contratos', 'periodo_referencia', 'CHAR(7) NOT NULL')
+    await addColumnIfMissing(connection, 'resumos_contratos', 'created_by_user_id', 'INT NOT NULL')
+    await addColumnIfMissing(connection, 'resumos_contratos', 'created_by_nome', 'VARCHAR(255) NOT NULL')
+    await addColumnIfMissing(connection, 'resumos_contratos', 'created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+    await addColumnIfMissing(connection, 'resumos_contratos', 'updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP')
+    await addColumnIfMissing(connection, 'resumo_contrato_itens', 'cliente_id', 'INT NOT NULL')
+    await addColumnIfMissing(connection, 'resumo_contrato_itens', 'valor_contrato', 'DECIMAL(15, 2) DEFAULT 0')
+    await addColumnIfMissing(connection, 'resumo_contrato_itens', 'ordem', 'INT DEFAULT 1')
+    await addColumnIfMissing(connection, 'resumo_contrato_itens', 'created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+    await addColumnIfMissing(connection, 'resumo_contrato_itens', 'updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP')
 
     if (await hasColumn(connection, 'clientes', 'cnpj')) {
       await connection.execute('UPDATE clientes SET documento = COALESCE(documento, cnpj) WHERE documento IS NULL')
@@ -3668,6 +4147,83 @@ function normalizeProposta(row: Row): Proposta {
     arquivado: normalizeBoolean(row.arquivado),
     created_at: toDateTimeString(row.created_at),
     updated_at: toDateTimeString(row.updated_at),
+  }
+}
+
+function normalizeResumoContratoRecordRow(row: Row): ResumoContratoRecordRow {
+  return {
+    id: toNumber(row.id),
+    titulo: String(row.titulo ?? ''),
+    periodo_referencia: String(row.periodo_referencia ?? ''),
+    created_by_user_id: toNumber(row.created_by_user_id),
+    created_by_nome: String(row.created_by_nome ?? 'Sistema'),
+    created_at: toDateTimeString(row.created_at),
+    updated_at: toDateTimeString(row.updated_at),
+  }
+}
+
+function normalizeResumoContratoItemRow(row: Row): ResumoContratoItemRow {
+  return {
+    id: toNumber(row.id),
+    resumo_id: toNumber(row.resumo_id),
+    proposta_id: toNumber(row.proposta_id),
+    cliente_id: toNumber(row.cliente_id),
+    valor_contrato: toNumber(row.valor_contrato),
+    ordem: toNumber(row.ordem),
+    created_at: toDateTimeString(row.created_at),
+    updated_at: toDateTimeString(row.updated_at),
+  }
+}
+
+function buildGastoRealByProposta(compras: Compra[]) {
+  const map = new Map<number, number>()
+
+  for (const compra of compras) {
+    map.set(compra.proposta_id, (map.get(compra.proposta_id) ?? 0) + Number(compra.valor_total ?? 0))
+  }
+
+  return map
+}
+
+function groupResumoContratoItensByResumo(itens: ResumoContratoItemRow[]) {
+  const map = new Map<number, ResumoContratoItemRow[]>()
+
+  for (const item of itens) {
+    const current = map.get(item.resumo_id)
+    if (current) {
+      current.push(item)
+    } else {
+      map.set(item.resumo_id, [item])
+    }
+  }
+
+  return map
+}
+
+function buildResumoContratoAggregate(
+  record: ResumoContratoRecordRow,
+  itens: ResumoContratoItemRow[],
+  gastoRealByProposta: Map<number, number>,
+): ResumoContrato {
+  const normalizedItens = itens.slice().sort((left, right) => left.ordem - right.ordem || left.id - right.id)
+  const valorTotalContrato = normalizedItens.reduce((sum, item) => sum + Number(item.valor_contrato), 0)
+  const valorTotalRealGasto = normalizedItens.reduce(
+    (sum, item) => sum + Number(gastoRealByProposta.get(item.proposta_id) ?? 0),
+    0,
+  )
+
+  return {
+    id: record.id,
+    titulo: record.titulo,
+    periodo_referencia: record.periodo_referencia,
+    created_by_user_id: record.created_by_user_id,
+    created_by_nome: record.created_by_nome,
+    created_at: record.created_at,
+    updated_at: record.updated_at,
+    quantidade_obras: normalizedItens.length,
+    valor_total_contrato: valorTotalContrato,
+    valor_total_real_gasto: valorTotalRealGasto,
+    lucro_bruto_total: valorTotalContrato - valorTotalRealGasto,
   }
 }
 

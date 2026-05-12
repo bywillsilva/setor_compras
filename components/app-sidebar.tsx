@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  FolderKanban,
   FileText,
   Landmark,
   LayoutDashboard,
@@ -45,6 +46,7 @@ const NAVIGATION_ITEMS: NavigationItem[] = [
   { name: "Financeiro", href: "/financeiro", icon: Landmark, feature: "financeiro" },
   { name: "Entregas", href: "/entregas", icon: Truck, feature: "entregas" },
   { name: "Orcamentos", href: "/orcamentos", icon: Calculator, feature: "orcamentos" },
+  { name: "Resumo de Contratos", href: "/resumo-contratos", icon: FolderKanban, feature: "resumo_contratos" },
 ]
 
 const ADMIN_FOOTER_ITEMS = [

@@ -21,6 +21,7 @@ export const ALL_APP_FEATURES: AppFeature[] = [
   "financeiro",
   "entregas",
   "orcamentos",
+  "resumo_contratos",
   "configuracoes",
   "usuarios",
   "editar_compra",
@@ -40,6 +41,7 @@ export const FEATURE_LABELS: Record<AppFeature, string> = {
   financeiro: "Financeiro",
   entregas: "Entregas",
   orcamentos: "Orcamentos",
+  resumo_contratos: "Resumo de Contratos",
   configuracoes: "Configuracoes",
   usuarios: "Usuarios",
   editar_compra: "Editar compras",
@@ -59,6 +61,7 @@ export const FEATURE_DESCRIPTIONS: Record<AppFeature, string> = {
   financeiro: "Registrar a ciencia financeira do pedido.",
   entregas: "Controlar previsao e recebimento das entregas.",
   orcamentos: "Lancar os previstos de materiais nas propostas.",
+  resumo_contratos: "Montar selecoes administrativas de contratos, gastos reais e lucro bruto.",
   configuracoes: "Abrir configuracoes administrativas do sistema.",
   usuarios: "Gerenciar usuarios e perfis.",
   editar_compra: "Permitir edicao dos dados gerais das compras.",
@@ -86,6 +89,7 @@ export const FEATURE_GROUPS: Array<{
       "financeiro",
       "entregas",
       "orcamentos",
+      "resumo_contratos",
       "configuracoes",
       "usuarios",
     ],
@@ -111,6 +115,7 @@ export const DEFAULT_FEATURE_MATRIX: Record<PerfilUsuario, AppFeature[]> = {
     "financeiro",
     "entregas",
     "orcamentos",
+    "resumo_contratos",
     "configuracoes",
     "usuarios",
     "editar_compra",
@@ -146,6 +151,7 @@ const FEATURE_PATH_ORDER: AppFeature[] = [
   "financeiro",
   "entregas",
   "orcamentos",
+  "resumo_contratos",
   "configuracoes",
 ]
 
@@ -160,6 +166,7 @@ const FEATURE_PATHS: Partial<Record<AppFeature, string>> = {
   financeiro: "/financeiro",
   entregas: "/entregas",
   orcamentos: "/orcamentos",
+  resumo_contratos: "/resumo-contratos",
   configuracoes: "/configuracoes",
 }
 
@@ -264,6 +271,10 @@ export function getFeatureForPath(pathname: string): AppFeature | null {
 
   if (pathname.startsWith("/orcamentos")) {
     return "orcamentos"
+  }
+
+  if (pathname.startsWith("/resumo-contratos")) {
+    return "resumo_contratos"
   }
 
   if (pathname.startsWith("/compras")) {
