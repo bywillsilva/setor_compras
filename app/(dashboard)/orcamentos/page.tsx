@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { AlertCircle, Eye } from "lucide-react"
 import { DateRangeFilter } from "@/components/shared/date-range-filter"
+import { ListPaginationBar, useListPagination } from "@/components/shared/list-pagination"
 import { ListFilterField, ListFilterGrid, ListFilterPanel } from "@/components/shared/list-filter-panel"
 import { PageHeader, SectionCard, SummaryMetricCard } from "@/components/shared/page-layout"
 import { SortableTableHead, TableFilterInput, type SortDirection } from "@/components/shared/table-tools"
@@ -78,6 +79,14 @@ export default function OrcamentosPage() {
     () => filteredPropostas.filter((proposta) => !isOrcamentoPendente(proposta)),
     [filteredPropostas],
   )
+  const pendingPagination = useListPagination(filteredPendingPropostas, {
+    storageKey: "orcamentos-pendentes-page-size",
+    resetKey: JSON.stringify(filters),
+  })
+  const launchedPagination = useListPagination(filteredLaunchedPropostas, {
+    storageKey: "orcamentos-lancados-page-size",
+    resetKey: JSON.stringify(filters),
+  })
 
   const resumo = useMemo(
     () => ({
@@ -168,79 +177,92 @@ export default function OrcamentosPage() {
             Nenhuma proposta pendente para o filtro atual.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Proposta"
-                      isActive={sort.column === "proposta"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("proposta")}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Cliente"
-                      isActive={sort.column === "cliente"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("cliente")}
-                    />
-                  </TableHead>
-                  <TableHead>Situacao</TableHead>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Criacao"
-                      isActive={sort.column === "criacao"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("criacao")}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Atualizacao"
-                      isActive={sort.column === "atualizacao"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("atualizacao")}
-                    />
-                  </TableHead>
-                  <TableHead className="text-right">Acoes</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredPendingPropostas.map((proposta) => (
-                  <TableRow key={proposta.id}>
-                    <TableCell>
-                      <div className="flex flex-wrap items-center gap-2 font-medium">
-                        <span>{proposta.nome}</span>
-                        <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">
-                          Pendente
-                        </Badge>
-                      </div>
-                    </TableCell>
-                    <TableCell>{proposta.cliente_nome}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <AlertCircle className="h-4 w-4 text-amber-600" />
-                        Aguardando lancamento do previsto
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{formatDate(proposta.created_at)}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{formatDate(proposta.updated_at)}</TableCell>
-                    <TableCell className="text-right">
-                      <Link href={`/orcamentos/${proposta.id}`}>
-                        <Button variant="ghost" size="sm">
-                          <Eye className="mr-2 h-4 w-4" />
-                          Abrir
-                        </Button>
-                      </Link>
-                    </TableCell>
+          <>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Proposta"
+                        isActive={sort.column === "proposta"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("proposta")}
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Cliente"
+                        isActive={sort.column === "cliente"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("cliente")}
+                      />
+                    </TableHead>
+                    <TableHead>Situacao</TableHead>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Criacao"
+                        isActive={sort.column === "criacao"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("criacao")}
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Atualizacao"
+                        isActive={sort.column === "atualizacao"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("atualizacao")}
+                      />
+                    </TableHead>
+                    <TableHead className="text-right">Acoes</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                </TableHeader>
+                <TableBody>
+                  {pendingPagination.items.map((proposta) => (
+                    <TableRow key={proposta.id}>
+                      <TableCell>
+                        <div className="flex flex-wrap items-center gap-2 font-medium">
+                          <span>{proposta.nome}</span>
+                          <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">
+                            Pendente
+                          </Badge>
+                        </div>
+                      </TableCell>
+                      <TableCell>{proposta.cliente_nome}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <AlertCircle className="h-4 w-4 text-amber-600" />
+                          Aguardando lancamento do previsto
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{formatDate(proposta.created_at)}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{formatDate(proposta.updated_at)}</TableCell>
+                      <TableCell className="text-right">
+                        <Link href={`/orcamentos/${proposta.id}`}>
+                          <Button variant="ghost" size="sm">
+                            <Eye className="mr-2 h-4 w-4" />
+                            Abrir
+                          </Button>
+                        </Link>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <ListPaginationBar
+              currentPage={pendingPagination.currentPage}
+              endItem={pendingPagination.endItem}
+              itemLabel="proposta(s)"
+              onPageChange={pendingPagination.setPage}
+              onPageSizeChange={pendingPagination.setPageSize}
+              pageSize={pendingPagination.pageSize}
+              startItem={pendingPagination.startItem}
+              totalItems={pendingPagination.totalItems}
+              totalPages={pendingPagination.totalPages}
+            />
+          </>
         )}
       </SectionCard>
 
@@ -253,79 +275,92 @@ export default function OrcamentosPage() {
             Nenhum orcamento lancado para o filtro atual.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Proposta"
-                      isActive={sort.column === "proposta"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("proposta")}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Cliente"
-                      isActive={sort.column === "cliente"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("cliente")}
-                    />
-                  </TableHead>
-                  <TableHead>Previsto atual</TableHead>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Criacao"
-                      isActive={sort.column === "criacao"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("criacao")}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Atualizacao"
-                      isActive={sort.column === "atualizacao"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("atualizacao")}
-                    />
-                  </TableHead>
-                  <TableHead className="text-right">Acoes</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredLaunchedPropostas.map((proposta) => (
-                  <TableRow key={proposta.id}>
-                    <TableCell>
-                      <div className="flex flex-wrap items-center gap-2 font-medium">
-                        <span>{proposta.nome}</span>
-                        <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-700">
-                          Lancado
-                        </Badge>
-                      </div>
-                    </TableCell>
-                    <TableCell>{proposta.cliente_nome}</TableCell>
-                    <TableCell>
-                      <div className="space-y-1 text-sm text-muted-foreground">
-                        <div>Previsto total registrado</div>
-                        <div className="font-medium text-foreground">{formatCurrency(proposta.valor_previsto)}</div>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{formatDate(proposta.created_at)}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{formatDate(proposta.updated_at)}</TableCell>
-                    <TableCell className="text-right">
-                      <Link href={`/orcamentos/${proposta.id}`}>
-                        <Button variant="ghost" size="sm">
-                          <Eye className="mr-2 h-4 w-4" />
-                          Revisar
-                        </Button>
-                      </Link>
-                    </TableCell>
+          <>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Proposta"
+                        isActive={sort.column === "proposta"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("proposta")}
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Cliente"
+                        isActive={sort.column === "cliente"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("cliente")}
+                      />
+                    </TableHead>
+                    <TableHead>Previsto atual</TableHead>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Criacao"
+                        isActive={sort.column === "criacao"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("criacao")}
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Atualizacao"
+                        isActive={sort.column === "atualizacao"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("atualizacao")}
+                      />
+                    </TableHead>
+                    <TableHead className="text-right">Acoes</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                </TableHeader>
+                <TableBody>
+                  {launchedPagination.items.map((proposta) => (
+                    <TableRow key={proposta.id}>
+                      <TableCell>
+                        <div className="flex flex-wrap items-center gap-2 font-medium">
+                          <span>{proposta.nome}</span>
+                          <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-700">
+                            Lancado
+                          </Badge>
+                        </div>
+                      </TableCell>
+                      <TableCell>{proposta.cliente_nome}</TableCell>
+                      <TableCell>
+                        <div className="space-y-1 text-sm text-muted-foreground">
+                          <div>Previsto total registrado</div>
+                          <div className="font-medium text-foreground">{formatCurrency(proposta.valor_previsto)}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{formatDate(proposta.created_at)}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{formatDate(proposta.updated_at)}</TableCell>
+                      <TableCell className="text-right">
+                        <Link href={`/orcamentos/${proposta.id}`}>
+                          <Button variant="ghost" size="sm">
+                            <Eye className="mr-2 h-4 w-4" />
+                            Revisar
+                          </Button>
+                        </Link>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <ListPaginationBar
+              currentPage={launchedPagination.currentPage}
+              endItem={launchedPagination.endItem}
+              itemLabel="proposta(s)"
+              onPageChange={launchedPagination.setPage}
+              onPageSizeChange={launchedPagination.setPageSize}
+              pageSize={launchedPagination.pageSize}
+              startItem={launchedPagination.startItem}
+              totalItems={launchedPagination.totalItems}
+              totalPages={launchedPagination.totalPages}
+            />
+          </>
         )}
       </SectionCard>
     </div>

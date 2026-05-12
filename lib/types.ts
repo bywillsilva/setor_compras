@@ -6,6 +6,7 @@ export type CategoriaCompra = 'perfis' | 'vidros' | 'acessorios' | 'perdas' | 'o
 export type TipoAnexo = 'cotacao' | 'nf' | 'boleto' | 'outro'
 export type SituacaoEntrega = 'pendente' | 'entregue' | 'atrasado' | 'proximo' | 'no_prazo'
 export type PerfilUsuario = 'admin' | 'comprador' | 'orcamentista' | 'solicitante' | 'financeiro'
+export type TemaPreferido = 'claro' | 'escuro'
 export type SolicitacaoSensivelEntidade = 'cliente' | 'proposta' | 'compra'
 export type SolicitacaoSensivelAcao = 'editar' | 'excluir'
 export type SolicitacaoSensivelStatus = 'pendente' | 'aprovada' | 'recusada'
@@ -138,6 +139,7 @@ export interface Usuario {
   email: string
   senha_hash: string
   perfil: PerfilUsuario
+  tema_preferido: TemaPreferido
   features?: AppFeature[]
   ativo: boolean
   created_at: string
@@ -155,6 +157,7 @@ export interface UsuarioFormData {
   email: string
   senha?: string | null
   perfil: PerfilUsuario
+  tema_preferido?: TemaPreferido | null
   ativo: boolean
   features?: AppFeature[] | null
 }
@@ -228,10 +231,22 @@ export interface DashboardResumoPedido {
   proposta_nome: string
 }
 
+export interface DashboardAtualizacaoResumo {
+  id: number
+  compra_id: number
+  evento: string
+  data: string
+  usuario: string
+  fornecedor: string
+  cliente_nome: string
+  proposta_nome: string
+  compra_status: StatusPedido
+}
+
 export interface DashboardData {
   stats: DashboardStats
   comparativo: ComparativoMensal[]
-  ultimosPedidos: DashboardResumoPedido[]
+  ultimasAtualizacoes: DashboardAtualizacaoResumo[]
   pedidosParados: DashboardResumoPedido[]
 }
 

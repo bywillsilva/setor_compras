@@ -27,10 +27,10 @@ export const STATUS_LABELS: Record<StatusPedido, string> = {
 }
 
 export const STATUS_BADGE_CLASSES: Record<StatusPedido, string> = {
-  cotacao: "bg-amber-100 text-amber-800",
-  em_analise: "bg-blue-100 text-blue-800",
-  retificacao: "bg-orange-100 text-orange-800",
-  pedido_autorizado: "bg-emerald-100 text-emerald-800",
+  cotacao: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-400/40 dark:bg-amber-500/20 dark:text-amber-50",
+  em_analise: "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/40 dark:bg-blue-500/20 dark:text-blue-50",
+  retificacao: "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-400/40 dark:bg-orange-500/20 dark:text-orange-50",
+  pedido_autorizado: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-50",
 }
 
 export const STATUS_ENTREGA_LABELS: Record<StatusEntrega, string> = {
@@ -45,9 +45,9 @@ export const ETAPA_AUTORIZACAO_LABELS: Record<EtapaAutorizacao, string> = {
 }
 
 export const ETAPA_AUTORIZACAO_BADGE_CLASSES: Record<EtapaAutorizacao, string> = {
-  nenhuma: "bg-slate-100 text-slate-700",
-  solicitada: "bg-amber-100 text-amber-800",
-  liberada: "bg-blue-100 text-blue-800",
+  nenhuma: "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-400/35 dark:bg-slate-500/18 dark:text-slate-50",
+  solicitada: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-400/40 dark:bg-amber-500/20 dark:text-amber-50",
+  liberada: "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/40 dark:bg-blue-500/20 dark:text-blue-50",
 }
 
 export const ETAPA_FLUXO_LABELS: Record<EtapaFluxoCompra, string> = {
@@ -84,16 +84,16 @@ export function isCompraLockedAfterAdminApproval(
 }
 
 export const ETAPA_FLUXO_BADGE_CLASSES: Record<EtapaFluxoCompra, string> = {
-  solicitacao_registrada: "bg-slate-100 text-slate-700",
-  cotacao_em_andamento: "bg-blue-100 text-blue-800",
-  analise_solicitante: "bg-violet-100 text-violet-800",
-  retificacao: "bg-orange-100 text-orange-800",
-  aprovada_solicitante: "bg-emerald-100 text-emerald-800",
-  aguardando_admin: "bg-amber-100 text-amber-800",
-  aprovada_admin: "bg-sky-100 text-sky-800",
-  aguardando_financeiro: "bg-yellow-100 text-yellow-800",
-  liberada_para_fornecedor: "bg-cyan-100 text-cyan-800",
-  pedido_autorizado: "bg-emerald-100 text-emerald-800",
+  solicitacao_registrada: "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-400/35 dark:bg-slate-500/18 dark:text-slate-50",
+  cotacao_em_andamento: "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/40 dark:bg-blue-500/20 dark:text-blue-50",
+  analise_solicitante: "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-400/40 dark:bg-indigo-500/20 dark:text-indigo-50",
+  retificacao: "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-400/40 dark:bg-orange-500/20 dark:text-orange-50",
+  aprovada_solicitante: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-50",
+  aguardando_admin: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-400/40 dark:bg-amber-500/20 dark:text-amber-50",
+  aprovada_admin: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-400/40 dark:bg-sky-500/20 dark:text-sky-50",
+  aguardando_financeiro: "border-yellow-200 bg-yellow-50 text-yellow-800 dark:border-yellow-400/40 dark:bg-yellow-500/20 dark:text-yellow-50",
+  liberada_para_fornecedor: "border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-400/40 dark:bg-cyan-500/20 dark:text-cyan-50",
+  pedido_autorizado: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-50",
 }
 
 export const CATEGORIA_OPTIONS: CategoriaCompra[] = ["perfis", "vidros", "acessorios", "perdas", "outros"]

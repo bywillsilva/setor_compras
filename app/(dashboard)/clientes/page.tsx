@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { Eye, Loader2, Plus, Users } from "lucide-react"
 import { DateRangeFilter } from "@/components/shared/date-range-filter"
+import { ListPaginationBar, useListPagination } from "@/components/shared/list-pagination"
 import { ListFilterField, ListFilterGrid, ListFilterPanel } from "@/components/shared/list-filter-panel"
 import { PageHeader, SectionCard } from "@/components/shared/page-layout"
 import { SortableTableHead, TableFilterInput, type SortDirection } from "@/components/shared/table-tools"
@@ -132,6 +133,10 @@ export default function ClientesPage() {
       })
       .sort((left, right) => sortClientes(left, right, sort))
   }, [clientes, filters, sort])
+  const pagination = useListPagination(filteredClientes, {
+    storageKey: "clientes-list-page-size",
+    resetKey: JSON.stringify(filters),
+  })
 
   function toggleSort(column: SortColumn) {
     setSort((current) => ({
@@ -311,64 +316,77 @@ export default function ClientesPage() {
             ) : null}
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Nome"
-                      isActive={sort.column === "nome"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("nome")}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Documento"
-                      isActive={sort.column === "documento"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("documento")}
-                    />
-                  </TableHead>
-                  <TableHead>Contato</TableHead>
-                  <TableHead>E-mail</TableHead>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Cadastro"
-                      isActive={sort.column === "cadastro"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("cadastro")}
-                    />
-                  </TableHead>
-                  <TableHead className="text-right">Acoes</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredClientes.map((cliente) => (
-                  <TableRow key={cliente.id}>
-                    <TableCell>
-                      <div className="flex flex-wrap items-center gap-2 font-medium">
-                        <span>{cliente.nome}</span>
-                        {cliente.arquivado ? <Badge variant="outline">Arquivado</Badge> : null}
-                      </div>
-                    </TableCell>
-                    <TableCell>{cliente.documento || "-"}</TableCell>
-                    <TableCell>{cliente.contato || "-"}</TableCell>
-                    <TableCell>{cliente.email || "-"}</TableCell>
-                    <TableCell>{formatCadastro(cliente.created_at)}</TableCell>
-                    <TableCell className="text-right">
-                      <Link href={`/clientes/${cliente.id}`}>
-                        <Button variant="ghost" size="icon" aria-label={`Abrir resumo do cliente ${cliente.nome}`} title="Abrir resumo">
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      </Link>
-                    </TableCell>
+          <>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Nome"
+                        isActive={sort.column === "nome"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("nome")}
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Documento"
+                        isActive={sort.column === "documento"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("documento")}
+                      />
+                    </TableHead>
+                    <TableHead>Contato</TableHead>
+                    <TableHead>E-mail</TableHead>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Cadastro"
+                        isActive={sort.column === "cadastro"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("cadastro")}
+                      />
+                    </TableHead>
+                    <TableHead className="text-right">Acoes</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                </TableHeader>
+                <TableBody>
+                  {pagination.items.map((cliente) => (
+                    <TableRow key={cliente.id}>
+                      <TableCell>
+                        <div className="flex flex-wrap items-center gap-2 font-medium">
+                          <span>{cliente.nome}</span>
+                          {cliente.arquivado ? <Badge variant="outline">Arquivado</Badge> : null}
+                        </div>
+                      </TableCell>
+                      <TableCell>{cliente.documento || "-"}</TableCell>
+                      <TableCell>{cliente.contato || "-"}</TableCell>
+                      <TableCell>{cliente.email || "-"}</TableCell>
+                      <TableCell>{formatCadastro(cliente.created_at)}</TableCell>
+                      <TableCell className="text-right">
+                        <Link href={`/clientes/${cliente.id}`}>
+                          <Button variant="ghost" size="icon" aria-label={`Abrir resumo do cliente ${cliente.nome}`} title="Abrir resumo">
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </Link>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <ListPaginationBar
+              currentPage={pagination.currentPage}
+              endItem={pagination.endItem}
+              itemLabel="cliente(s)"
+              onPageChange={pagination.setPage}
+              onPageSizeChange={pagination.setPageSize}
+              pageSize={pagination.pageSize}
+              startItem={pagination.startItem}
+              totalItems={pagination.totalItems}
+              totalPages={pagination.totalPages}
+            />
+          </>
         )}
       </SectionCard>
     </div>

@@ -9,15 +9,15 @@ import {
   CheckCircle2,
   Clock,
   FileSearch,
-  ShoppingCart,
   ShieldAlert,
+  ShoppingCart,
   TrendingUp,
   Truck,
 } from "lucide-react"
 import { useCurrentSession } from "@/components/auth-provider"
 import { DashboardChart } from "@/components/dashboard-chart"
-import { useLiveRefresh } from "@/components/shared/use-live-refresh"
 import { SetupBanner } from "@/components/setup-banner"
+import { useLiveRefresh } from "@/components/shared/use-live-refresh"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -120,68 +120,73 @@ export default function DashboardPage() {
   }
 
   const stats = data?.stats
+  const comparativoResumo = buildComparativoResumo(data?.comparativo ?? [])
 
   return (
     <div className="space-y-6 p-4 sm:p-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-        <p className="text-muted-foreground">Visão geral do setor de compras corporativas</p>
+        <p className="text-muted-foreground">Visao geral do setor de compras corporativas.</p>
       </div>
 
-      {session?.perfil === "admin" && pendingSensitiveApprovals > 0 && (
-        <Card className="border-amber-300 bg-amber-50">
+      {session?.perfil === "admin" && pendingSensitiveApprovals > 0 ? (
+        <Card className="border-amber-300 bg-amber-50 dark:border-amber-400/35 dark:bg-amber-500/12">
           <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-amber-800">
+            <CardTitle className="flex items-center gap-2 text-amber-800 dark:text-amber-50">
               <ShieldAlert className="h-5 w-5" />
               Solicitacoes administrativas pendentes
             </CardTitle>
-            <CardDescription className="text-amber-700">
+            <CardDescription className="text-amber-700 dark:text-amber-100/80">
               Existem {pendingSensitiveApprovals} solicitacao(oes) de alteracao ou exclusao aguardando sua aprovacao.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button asChild variant="outline" className="border-amber-300 bg-white text-amber-800 hover:bg-amber-100">
+            <Button
+              asChild
+              variant="outline"
+              className="border-amber-300 bg-white text-amber-800 hover:bg-amber-100 dark:border-amber-400/35 dark:bg-amber-500/12 dark:text-amber-50 dark:hover:bg-amber-500/20"
+            >
               <Link href="/configuracoes/solicitacoes-sensiveis">Revisar fila administrativa</Link>
             </Button>
           </CardContent>
         </Card>
-      )}
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <StatCard
           title="Em andamento"
           value={stats?.total_pedidos ?? 0}
-          description="pedidos ainda não entregues"
+          description="pedidos ainda nao entregues"
           icon={<ShoppingCart className="h-4 w-4 text-muted-foreground" />}
         />
         <StatCard
-          title="Em cotação"
+          title="Em cotacao"
           value={stats?.em_cotacao ?? 0}
           description="aguardando retorno"
-          icon={<FileSearch className="h-4 w-4 text-amber-600" />}
+          icon={<FileSearch className="h-4 w-4 text-amber-600 dark:text-amber-300" />}
         />
         <StatCard
-          title="Em análise"
+          title="Em analise"
           value={stats?.em_analise ?? 0}
-          description="prontos para decisão"
-          icon={<TrendingUp className="h-4 w-4 text-blue-600" />}
+          description="prontos para decisao"
+          icon={<TrendingUp className="h-4 w-4 text-blue-600 dark:text-blue-300" />}
         />
         <StatCard
           title="Autorizados"
           value={stats?.autorizados ?? 0}
           description="aguardando entrega"
-          icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />}
+          icon={<CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-300" />}
         />
         <StatCard
           title="Entregues"
           value={stats?.entregues ?? 0}
-          description="compras concluídas"
+          description="compras concluidas"
           icon={<Truck className="h-4 w-4 text-primary" />}
         />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        {(stats?.pedidos_atrasados ?? 0) > 0 && (
+        {(stats?.pedidos_atrasados ?? 0) > 0 ? (
           <Card className="border-destructive/40 bg-destructive/5">
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-sm text-destructive">
@@ -191,72 +196,99 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                Há <strong className="text-destructive">{stats?.pedidos_atrasados}</strong> pedido(s) com previsão vencida.
+                Ha <strong className="text-destructive">{stats?.pedidos_atrasados}</strong> pedido(s) com previsao vencida.
               </p>
             </CardContent>
           </Card>
-        )}
+        ) : null}
 
-        {(stats?.pedidos_proximos ?? 0) > 0 && (
-          <Card className="border-amber-300 bg-amber-50">
+        {(stats?.pedidos_proximos ?? 0) > 0 ? (
+          <Card className="border-amber-300 bg-amber-50 dark:border-amber-400/35 dark:bg-amber-500/12">
             <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-sm text-amber-700">
+              <CardTitle className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-50">
                 <Clock className="h-4 w-4" />
-                Entregas próximas
+                Entregas proximas
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-sm text-amber-700">
-                {stats?.pedidos_proximos} pedido(s) vencem nos próximos 3 dias.
+              <p className="text-sm text-amber-700 dark:text-amber-100">
+                {stats?.pedidos_proximos} pedido(s) vencem nos proximos 3 dias.
               </p>
             </CardContent>
           </Card>
-        )}
+        ) : null}
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.6fr_1fr]">
-        <Card>
+      <div className="grid items-start gap-6 xl:grid-cols-[1.6fr_1fr]">
+        <Card className="self-start">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <TrendingUp className="h-5 w-5" />
               Previsto vs realizado
             </CardTitle>
-            <CardDescription>Comparativo mensal de orçamento e compras dos últimos 6 meses</CardDescription>
+            <CardDescription>Comparativo mensal de orcamento e compras dos ultimos 6 meses</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             <DashboardChart data={data?.comparativo ?? []} />
+            {comparativoResumo ? (
+              <div className="grid gap-3 md:grid-cols-3">
+                <DashboardMiniStat
+                  label="Ultimo previsto"
+                  value={formatCurrencyValue(comparativoResumo.ultimoPrevisto)}
+                  hint={comparativoResumo.mesReferencia}
+                />
+                <DashboardMiniStat
+                  label="Ultimo realizado"
+                  value={formatCurrencyValue(comparativoResumo.ultimoRealizado)}
+                  hint={comparativoResumo.mesReferencia}
+                />
+                <DashboardMiniStat
+                  label="Diferenca"
+                  value={formatCurrencyValue(comparativoResumo.diferenca)}
+                  hint={comparativoResumo.diferenca >= 0 ? "Acima do previsto" : "Abaixo do previsto"}
+                  tone={comparativoResumo.diferenca >= 0 ? "warning" : "success"}
+                />
+              </div>
+            ) : null}
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Clock className="h-5 w-5" />
-              Últimas atualizações
-            </CardTitle>
-            <CardDescription>Pedidos alterados recentemente</CardDescription>
+        <Card className="self-start">
+          <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+            <div className="space-y-1.5">
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="h-5 w-5" />
+                Ultimas atualizacoes
+              </CardTitle>
+              <CardDescription>As 5 movimentacoes mais recentes registradas no sistema</CardDescription>
+            </div>
+            <Button asChild variant="ghost" size="sm" className="shrink-0">
+              <Link href="/atualizacoes">Ver mais</Link>
+            </Button>
           </CardHeader>
           <CardContent>
-            {data?.ultimosPedidos && data.ultimosPedidos.length > 0 ? (
+            {data?.ultimasAtualizacoes && data.ultimasAtualizacoes.length > 0 ? (
               <div className="space-y-4">
-                {data.ultimosPedidos.map((pedido) => (
+                {data.ultimasAtualizacoes.map((atualizacao) => (
                   <Link
-                    key={pedido.id}
-                    href={`/compras/${pedido.id}`}
+                    key={atualizacao.id}
+                    href={`/compras/${atualizacao.compra_id}`}
                     className="flex items-center justify-between rounded-lg border p-3 transition-colors hover:bg-muted/50"
                   >
                     <div className="space-y-1">
-                      <p className="text-sm font-medium">{pedido.fornecedor}</p>
+                      <p className="text-sm font-medium">{atualizacao.fornecedor}</p>
                       <p className="text-xs text-muted-foreground">
-                        {pedido.cliente_nome} · {pedido.proposta_nome}
+                        {atualizacao.cliente_nome} · {atualizacao.proposta_nome}
                       </p>
+                      <p className="text-xs text-muted-foreground">{atualizacao.evento}</p>
                     </div>
                     <div className="flex flex-col items-end gap-1">
-                      <Badge className={STATUS_BADGE_CLASSES[pedido.status]}>
-                        {STATUS_LABELS[pedido.status]}
+                      <Badge className={STATUS_BADGE_CLASSES[atualizacao.compra_status]}>
+                        {STATUS_LABELS[atualizacao.compra_status]}
                       </Badge>
+                      <span className="text-xs text-muted-foreground">por {atualizacao.usuario}</span>
                       <span className="text-xs text-muted-foreground">
-                        {formatDistanceToNow(new Date(pedido.updated_at), {
+                        {formatDistanceToNow(new Date(atualizacao.data), {
                           addSuffix: true,
                           locale: ptBR,
                         })}
@@ -268,24 +300,21 @@ export default function DashboardPage() {
             ) : (
               <div className="py-8 text-center text-muted-foreground">
                 <ShoppingCart className="mx-auto mb-2 h-12 w-12 opacity-50" />
-                <p>Nenhum pedido encontrado</p>
-                <Link href="/compras/novo" className="text-sm text-primary hover:underline">
-                  Criar primeiro pedido
-                </Link>
+                <p>Nenhuma atualizacao recente encontrada.</p>
               </div>
             )}
           </CardContent>
         </Card>
       </div>
 
-      {data?.pedidosParados && data.pedidosParados.length > 0 && (
+      {data?.pedidosParados && data.pedidosParados.length > 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-orange-600">
+            <CardTitle className="flex items-center gap-2 text-orange-600 dark:text-orange-300">
               <AlertTriangle className="h-5 w-5" />
-              Pedidos sem movimentação
+              Pedidos sem movimentacao
             </CardTitle>
-            <CardDescription>Itens pendentes há mais de 7 dias</CardDescription>
+            <CardDescription>Itens pendentes ha mais de 7 dias</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
@@ -293,7 +322,7 @@ export default function DashboardPage() {
                 <Link
                   key={pedido.id}
                   href={`/compras/${pedido.id}`}
-                  className="flex items-center justify-between rounded-lg border border-orange-200 bg-orange-50 p-3 transition-colors hover:bg-orange-100"
+                  className="flex items-center justify-between rounded-lg border border-orange-200 bg-orange-50 p-3 transition-colors hover:bg-orange-100 dark:border-orange-400/30 dark:bg-orange-500/10 dark:hover:bg-orange-500/18"
                 >
                   <div>
                     <p className="text-sm font-medium">{pedido.fornecedor}</p>
@@ -302,11 +331,9 @@ export default function DashboardPage() {
                     </p>
                   </div>
                   <div className="text-right">
-                    <Badge className={STATUS_BADGE_CLASSES[pedido.status]}>
-                      {STATUS_LABELS[pedido.status]}
-                    </Badge>
-                    <p className="mt-1 text-xs text-orange-600">
-                      Última atualização: {format(new Date(pedido.updated_at), "dd/MM/yyyy", { locale: ptBR })}
+                    <Badge className={STATUS_BADGE_CLASSES[pedido.status]}>{STATUS_LABELS[pedido.status]}</Badge>
+                    <p className="mt-1 text-xs text-orange-600 dark:text-orange-300">
+                      Ultima atualizacao: {format(new Date(pedido.updated_at), "dd/MM/yyyy", { locale: ptBR })}
                     </p>
                   </div>
                 </Link>
@@ -314,12 +341,12 @@ export default function DashboardPage() {
             </div>
           </CardContent>
         </Card>
-      )}
+      ) : null}
 
       <Card>
         <CardHeader>
-          <CardTitle>Valor total do mês</CardTitle>
-          <CardDescription>Soma das compras registradas no mês atual</CardDescription>
+          <CardTitle>Valor total do mes</CardTitle>
+          <CardDescription>Soma das compras registradas no mes atual</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="text-3xl font-bold text-primary">
@@ -357,4 +384,58 @@ function StatCard({
       </CardContent>
     </Card>
   )
+}
+
+function DashboardMiniStat({
+  label,
+  value,
+  hint,
+  tone = "default",
+}: {
+  label: string
+  value: string
+  hint: string
+  tone?: "default" | "success" | "warning"
+}) {
+  const toneClassName =
+    tone === "success"
+      ? "border-emerald-300/60 bg-emerald-50 text-emerald-900 dark:bg-emerald-500/10 dark:text-emerald-100"
+      : tone === "warning"
+        ? "border-amber-300/60 bg-amber-50 text-amber-900 dark:bg-amber-500/10 dark:text-amber-100"
+        : "border-border/70 bg-muted/20 text-foreground"
+
+  return (
+    <div className={`rounded-xl border px-4 py-3 ${toneClassName}`}>
+      <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
+      <p className="mt-2 text-lg font-semibold">{value}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
+    </div>
+  )
+}
+
+function buildComparativoResumo(
+  comparativo: DashboardData["comparativo"],
+) {
+  if (!comparativo.length) {
+    return null
+  }
+
+  const ultimoItem = comparativo[comparativo.length - 1]
+  const ultimoPrevisto = Number(ultimoItem.previsto ?? 0)
+  const ultimoRealizado = Number(ultimoItem.realizado ?? 0)
+  const diferenca = ultimoRealizado - ultimoPrevisto
+
+  return {
+    diferenca,
+    mesReferencia: format(new Date(`${ultimoItem.mes}-01T00:00:00`), "MMMM 'de' yyyy", { locale: ptBR }),
+    ultimoPrevisto,
+    ultimoRealizado,
+  }
+}
+
+function formatCurrencyValue(value: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(value)
 }

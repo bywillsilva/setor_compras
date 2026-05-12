@@ -1,5 +1,6 @@
 "use client"
 
+import Image from "next/image"
 import { Suspense, useState, type FormEvent, type ReactNode } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { ArrowRight, FileText, Loader2, ShieldCheck, ShoppingCart, Truck } from "lucide-react"
@@ -54,20 +55,30 @@ function LoginContent() {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.25),_transparent_40%),linear-gradient(135deg,#0f172a_0%,#0b1120_45%,#0f172a_100%)]">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_color-mix(in_srgb,var(--primary)_18%,transparent),_transparent_38%),linear-gradient(180deg,var(--background)_0%,color-mix(in_srgb,var(--background)_86%,var(--secondary))_100%)]">
       <div className="mx-auto grid min-h-screen max-w-7xl gap-10 px-6 py-12 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
-        <section className="space-y-8 text-white">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm backdrop-blur">
-            <ShieldCheck className="h-4 w-4 text-emerald-300" />
-            Sistema corporativo de compras
+        <section className="space-y-8 text-foreground">
+          <div className="flex items-center gap-4">
+            <Image
+              src="/ag-compras-logo.png"
+              alt="AG Compras - Sistema Corporativo"
+              width={84}
+              height={84}
+              className="h-20 w-20 rounded-[24px] border border-white/15 bg-white/95 object-cover shadow-2xl shadow-slate-950/20"
+              priority
+            />
+            <div className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-card/75 px-4 py-2 text-sm backdrop-blur">
+              <ShieldCheck className="h-4 w-4 text-primary" />
+              AG Compras - Sistema Corporativo
+            </div>
           </div>
 
           <div className="space-y-4">
             <h1 className="max-w-2xl text-4xl font-semibold tracking-tight md:text-5xl">
-              Acesse o sistema para acompanhar compras, propostas e entregas.
+              Acesse o AG Compras para acompanhar solicitacoes, compras e entregas.
             </h1>
-            <p className="max-w-xl text-base leading-7 text-slate-300 md:text-lg">
-              Entre com seu email e senha para continuar o acompanhamento operacional do setor de compras.
+            <p className="max-w-xl text-base leading-7 text-muted-foreground md:text-lg">
+              Entre com seu email e senha para continuar o acompanhamento operacional do setor de compras com seguranca e clareza.
             </p>
           </div>
 
@@ -91,12 +102,12 @@ function LoginContent() {
         </section>
 
         <section>
-          <Card className="border-white/10 bg-white/95 shadow-2xl shadow-slate-950/30 backdrop-blur">
+          <Card className="border-border/80 bg-card/95 shadow-2xl shadow-slate-950/20 backdrop-blur">
             <CardContent className="space-y-6 p-8">
               <div className="space-y-2">
                 <p className="text-sm font-medium uppercase tracking-[0.2em] text-primary">Login</p>
-                <h2 className="text-2xl font-semibold text-slate-900">Entrar no sistema</h2>
-                <p className="text-sm leading-6 text-slate-600">Use seu email e sua senha para acessar o painel.</p>
+                <h2 className="text-2xl font-semibold text-foreground">Entrar no AG Compras</h2>
+                <p className="text-sm leading-6 text-muted-foreground">Use seu email e sua senha para acessar o painel.</p>
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">
@@ -141,7 +152,7 @@ function LoginContent() {
                 </Button>
               </form>
 
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+              <div className="rounded-xl border border-border/70 bg-muted/70 p-4 text-sm text-muted-foreground">
                 Se voce tiver dificuldade para entrar, procure o administrador responsavel pelo sistema.
               </div>
             </CardContent>
@@ -162,10 +173,10 @@ function InfoCard({
   description: string
 }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-      <div className="mb-3 inline-flex rounded-xl bg-white/10 p-2">{icon}</div>
+    <div className="rounded-2xl border border-border/60 bg-card/45 p-4 backdrop-blur">
+      <div className="mb-3 inline-flex rounded-xl bg-primary/10 p-2">{icon}</div>
       <h3 className="mb-1 font-medium">{title}</h3>
-      <p className="text-sm leading-6 text-slate-300">{description}</p>
+      <p className="text-sm leading-6 text-muted-foreground">{description}</p>
     </div>
   )
 }

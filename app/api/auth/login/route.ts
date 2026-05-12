@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getDefaultFeaturesForPerfil } from '@/lib/auth/permissions'
 import { verifyPassword } from '@/lib/auth/password'
 import { createSessionToken, SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS } from '@/lib/auth/session'
+import { THEME_COOKIE_MAX_AGE_SECONDS, THEME_COOKIE_NAME } from '@/lib/theme'
 import { ensureDefaultAdminUser, getUsuarioByEmail, listFeaturesByUsuario } from '@/lib/repositories'
 
 export const runtime = 'nodejs'
@@ -38,6 +39,7 @@ export async function POST(request: NextRequest) {
       nome: usuario.nome,
       email: usuario.email,
       perfil: usuario.perfil,
+      tema: usuario.tema_preferido,
       features,
     })
 
@@ -48,6 +50,7 @@ export async function POST(request: NextRequest) {
         nome: usuario.nome,
         email: usuario.email,
         perfil: usuario.perfil,
+        tema: usuario.tema_preferido,
         features,
       },
     })
@@ -58,6 +61,13 @@ export async function POST(request: NextRequest) {
       secure: process.env.NODE_ENV === 'production',
       path: '/',
       maxAge: SESSION_MAX_AGE_SECONDS,
+    })
+    response.cookies.set(THEME_COOKIE_NAME, usuario.tema_preferido, {
+      httpOnly: false,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: THEME_COOKIE_MAX_AGE_SECONDS,
     })
 
     return response

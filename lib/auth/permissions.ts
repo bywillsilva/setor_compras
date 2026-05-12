@@ -35,7 +35,7 @@ export const FEATURE_LABELS: Record<AppFeature, string> = {
   clientes: "Clientes",
   propostas: "Propostas",
   compras: "Compras",
-  autorizacoes: "Fechamento com fornecedor",
+  autorizacoes: "Autorizacoes",
   solicitacoes_autorizacao: "Aprovacao ADM",
   financeiro: "Financeiro",
   entregas: "Entregas",
@@ -54,7 +54,7 @@ export const FEATURE_DESCRIPTIONS: Record<AppFeature, string> = {
   clientes: "Consultar clientes e resumos vinculados.",
   propostas: "Consultar propostas e obras.",
   compras: "Acompanhar os pedidos de compra.",
-  autorizacoes: "Permitir concluir a compra com o fornecedor apos todas as assinaturas.",
+  autorizacoes: "Acompanhar a fila de assinaturas e concluir o fechamento com o fornecedor.",
   solicitacoes_autorizacao: "Aprovar solicitacoes administrativas.",
   financeiro: "Registrar a ciencia financeira do pedido.",
   entregas: "Controlar previsao e recebimento das entregas.",
@@ -141,6 +141,7 @@ const FEATURE_PATH_ORDER: AppFeature[] = [
   "propostas",
   "solicitacoes",
   "compras",
+  "autorizacoes",
   "solicitacoes_autorizacao",
   "financeiro",
   "entregas",
@@ -238,6 +239,10 @@ export function getDefaultPathForPerfil(perfil: PerfilUsuario, availableFeatures
 
 export function getFeatureForPath(pathname: string): AppFeature | null {
   if (pathname === "/") {
+    return "dashboard"
+  }
+
+  if (pathname.startsWith("/atualizacoes")) {
     return "dashboard"
   }
 

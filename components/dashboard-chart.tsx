@@ -5,18 +5,47 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Legend,
-  ResponsiveContainer,
-  Tooltip,
   XAxis,
   YAxis,
 } from "recharts"
 import { format, parseISO } from "date-fns"
 import { ptBR } from "date-fns/locale"
+import {
+  ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart"
 import type { ComparativoMensal } from "@/lib/types"
 
 interface DashboardChartProps {
   data: ComparativoMensal[]
+}
+
+const chartConfig = {
+  previsto: {
+    label: "Previsto",
+    theme: {
+      light: "#1E3A8A",
+      dark: "#4A7BFF",
+    },
+  },
+  realizado: {
+    label: "Realizado",
+    theme: {
+      light: "#3B82F6",
+      dark: "#78A7FF",
+    },
+  },
+} satisfies ChartConfig
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(value)
 }
 
 export function DashboardChart({ data }: DashboardChartProps) {
@@ -37,7 +66,7 @@ export function DashboardChart({ data }: DashboardChartProps) {
   }
 
   return (
-    <ResponsiveContainer width="100%" height={320}>
+    <ChartContainer config={chartConfig} className="h-[320px] w-full aspect-auto">
       <BarChart data={chartData} barGap={10}>
         <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-border/70" />
         <XAxis dataKey="name" fontSize={12} tickLine={false} axisLine={false} />
@@ -52,32 +81,42 @@ export function DashboardChart({ data }: DashboardChartProps) {
             }).format(Number(value))
           }
         />
-        <Tooltip
-          formatter={(value: number, name: string) => [
-            new Intl.NumberFormat("pt-BR", {
-              style: "currency",
-              currency: "BRL",
-            }).format(value),
-            name === "previsto" ? "Previsto" : "Realizado",
-          ]}
-          labelStyle={{
-            color: "#0f172a",
-            fontWeight: 600,
-          }}
-          itemStyle={{
-            color: "#0f172a",
-          }}
-          contentStyle={{
-            backgroundColor: "hsl(var(--background))",
-            border: "1px solid hsl(var(--border))",
-            borderRadius: "var(--radius)",
-            color: "#0f172a",
-          }}
+        <ChartTooltip
+          cursor={{ fill: "hsl(var(--muted) / 0.28)" }}
+          content={
+            <ChartTooltipContent
+              formatter={(value, name, item) => (
+                <div className="flex w-full items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+                      style={{
+                        backgroundColor:
+                          item.color ??
+                          (typeof item.payload === "object" &&
+                          item.payload !== null &&
+                          "fill" in item.payload &&
+                          typeof item.payload.fill === "string"
+                            ? item.payload.fill
+                            : undefined),
+                      }}
+                    />
+                    <span className="text-muted-foreground">
+                      {name === "previsto" ? "Previsto" : "Realizado"}
+                    </span>
+                  </div>
+                  <span className="font-mono font-medium text-foreground tabular-nums">
+                    {formatCurrency(Number(value))}
+                  </span>
+                </div>
+              )}
+            />
+          }
         />
-        <Legend formatter={(value) => (value === "previsto" ? "Previsto" : "Realizado")} />
-        <Bar dataKey="previsto" fill="#1E3A8A" radius={[6, 6, 0, 0]} />
-        <Bar dataKey="realizado" fill="#3B82F6" radius={[6, 6, 0, 0]} />
+        <ChartLegend content={<ChartLegendContent />} />
+        <Bar dataKey="previsto" fill="var(--color-previsto)" radius={[6, 6, 0, 0]} />
+        <Bar dataKey="realizado" fill="var(--color-realizado)" radius={[6, 6, 0, 0]} />
       </BarChart>
-    </ResponsiveContainer>
+    </ChartContainer>
   )
 }

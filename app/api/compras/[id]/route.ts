@@ -167,14 +167,20 @@ export async function DELETE(
       return guard.response
     }
 
-    if (guard.session.perfil !== 'admin') {
+    const { id } = await params
+    const compraAtual = await getCompraDetail(Number(id))
+
+    if (!compraAtual) {
+      return NextResponse.json({ error: 'Compra nao encontrada.' }, { status: 404 })
+    }
+
+    if (guard.session.perfil !== 'admin' && isCompraLockedAfterAdminApproval(compraAtual)) {
       return NextResponse.json(
         { error: 'Exclusoes de compras exigem aprovacao administrativa.' },
         { status: 403 },
       )
     }
 
-    const { id } = await params
     await permanentlyDeleteCompra(Number(id))
 
     const uploadDirectory = path.join(process.cwd(), 'public', 'uploads', 'compras', id)

@@ -33,12 +33,14 @@ import {
   resolvePropostaValues,
   STATUS_LABELS,
 } from '@/lib/domain'
+import { normalizeThemePreference } from '@/lib/theme'
 import type {
   Anexo,
   AppFeature,
   Cliente,
   Compra,
   CompraFormData,
+  DashboardAtualizacaoResumo,
   DashboardData,
   DeliveryMetrics,
   EtapaFluxoCompra,
@@ -58,6 +60,7 @@ import type {
   SituacaoEntrega,
   StatusEntrega,
   StatusPedido,
+  TemaPreferido,
   TipoAnexo,
   Usuario,
   UsuarioFormData,
@@ -84,7 +87,7 @@ interface ReportFilters {
 const REQUIRED_TABLES = ['clientes', 'usuarios', 'propostas', 'compras', 'historico_compras', 'anexos', 'solicitacoes_sensiveis'] as const
 const REQUIRED_SCHEMA_COLUMNS: Record<(typeof REQUIRED_TABLES)[number], string[]> = {
   clientes: ['id', 'nome', 'documento', 'contato', 'email', 'arquivado', 'created_at', 'updated_at'],
-  usuarios: ['id', 'nome', 'email', 'senha_hash', 'perfil', 'ativo', 'created_at', 'updated_at'],
+  usuarios: ['id', 'nome', 'email', 'senha_hash', 'perfil', 'tema_preferido', 'ativo', 'created_at', 'updated_at'],
   propostas: [
     'id',
     'cliente_id',
@@ -182,6 +185,7 @@ let perfilFeatureMatrixCache:
 
 const REQUIRED_MYSQL_ENUM_VALUES = {
   'usuarios.perfil': ['admin', 'comprador', 'orcamentista', 'solicitante', 'financeiro'],
+  'usuarios.tema_preferido': ['claro', 'escuro'],
   'compras.categoria': ['perfis', 'vidros', 'acessorios', 'perdas', 'outros'],
   'compras.status': ['cotacao', 'em_analise', 'retificacao', 'pedido_autorizado'],
   'compras.status_entrega': ['pendente', 'entregue'],
@@ -297,6 +301,7 @@ export async function ensureDefaultAdminUser() {
     email: sanitizeEmail(process.env.APP_ADMIN_EMAIL || 'admin@compras.local'),
     senha_hash: hashPassword(process.env.APP_ADMIN_PASSWORD || 'admin123456'),
     perfil: 'admin',
+    tema_preferido: 'claro',
     ativo: true,
   })
 }
@@ -489,12 +494,13 @@ async function createUsuarioInternal(input: {
   email: string
   senha_hash: string
   perfil: PerfilUsuario
+  tema_preferido: TemaPreferido
   ativo: boolean
 }) {
   if (getDatabaseType() === 'mysql') {
     const result = await mysqlExecute(
-      'INSERT INTO usuarios (nome, email, senha_hash, perfil, ativo) VALUES (?, ?, ?, ?, ?)',
-      [input.nome, input.email, input.senha_hash, input.perfil, input.ativo ? 1 : 0],
+      'INSERT INTO usuarios (nome, email, senha_hash, perfil, tema_preferido, ativo) VALUES (?, ?, ?, ?, ?, ?)',
+      [input.nome, input.email, input.senha_hash, input.perfil, input.tema_preferido, input.ativo ? 1 : 0],
     )
     return result.insertId
   }
@@ -503,12 +509,13 @@ async function createUsuarioInternal(input: {
   const { data, error } = await client
     .from('usuarios')
     .insert({
-      nome: input.nome,
-      email: input.email,
-      senha_hash: input.senha_hash,
-      perfil: input.perfil,
-      ativo: input.ativo,
-    })
+        nome: input.nome,
+        email: input.email,
+        senha_hash: input.senha_hash,
+        perfil: input.perfil,
+        tema_preferido: input.tema_preferido,
+        ativo: input.ativo,
+      })
     .select('id')
     .single()
   throwIfSupabaseError(error)
@@ -545,6 +552,7 @@ export async function createUsuario(input: UsuarioFormData) {
     email,
     senha_hash: hashPassword(String(input.senha)),
     perfil: input.perfil,
+    tema_preferido: normalizeThemePreference(input.tema_preferido),
     ativo: input.ativo,
   })
 
@@ -569,14 +577,23 @@ export async function updateUsuario(id: number, input: UsuarioFormData) {
   if (getDatabaseType() === 'mysql') {
     if (nullableString(input.senha)) {
       await mysqlExecute(
-        'UPDATE usuarios SET nome = ?, email = ?, senha_hash = ?, perfil = ?, ativo = ? WHERE id = ?',
-        [input.nome.trim(), email, hashPassword(String(input.senha)), input.perfil, input.ativo ? 1 : 0, id],
+        'UPDATE usuarios SET nome = ?, email = ?, senha_hash = ?, perfil = ?, tema_preferido = ?, ativo = ? WHERE id = ?',
+        [
+          input.nome.trim(),
+          email,
+          hashPassword(String(input.senha)),
+          input.perfil,
+          normalizeThemePreference(input.tema_preferido ?? usuarioAtual.tema_preferido),
+          input.ativo ? 1 : 0,
+          id,
+        ],
       )
     } else {
-      await mysqlExecute('UPDATE usuarios SET nome = ?, email = ?, perfil = ?, ativo = ? WHERE id = ?', [
+      await mysqlExecute('UPDATE usuarios SET nome = ?, email = ?, perfil = ?, tema_preferido = ?, ativo = ? WHERE id = ?', [
         input.nome.trim(),
         email,
         input.perfil,
+        normalizeThemePreference(input.tema_preferido ?? usuarioAtual.tema_preferido),
         input.ativo ? 1 : 0,
         id,
       ])
@@ -594,6 +611,7 @@ export async function updateUsuario(id: number, input: UsuarioFormData) {
     nome: input.nome.trim(),
     email,
     perfil: input.perfil,
+    tema_preferido: normalizeThemePreference(input.tema_preferido ?? usuarioAtual.tema_preferido),
     ativo: input.ativo,
   }
 
@@ -609,6 +627,20 @@ export async function updateUsuario(id: number, input: UsuarioFormData) {
   } else if (usuarioAtual.perfil !== input.perfil) {
     await saveUsuarioFeatures(id, input.perfil, await listFeaturesByPerfil(input.perfil))
   }
+}
+
+export async function saveUsuarioTheme(id: number, tema: TemaPreferido) {
+  const normalizedTheme = normalizeThemePreference(tema)
+
+  if (getDatabaseType() === 'mysql') {
+    await mysqlExecute('UPDATE usuarios SET tema_preferido = ? WHERE id = ?', [normalizedTheme, id])
+    return normalizedTheme
+  }
+
+  const client = getSupabaseOrThrow()
+  const { error } = await client.from('usuarios').update({ tema_preferido: normalizedTheme }).eq('id', id)
+  throwIfSupabaseError(error)
+  return normalizedTheme
 }
 
 async function getUsuarioByEmailInternal(email: string): Promise<Usuario | null> {
@@ -2186,6 +2218,7 @@ export async function getDashboardData(): Promise<DashboardData> {
   const mesAtual = format(hoje, 'yyyy-MM')
   const meses = Array.from({ length: 6 }, (_, index) => format(subMonths(hoje, 5 - index), 'yyyy-MM'))
   const autorizacoesByCompraId = getAuthorizationMonthsByCompraId(historicos)
+  const comprasById = new Map(compras.map((compra) => [compra.id, compra]))
 
   const comparativo = meses.map((mes) => {
     const previsto = propostas
@@ -2199,10 +2232,18 @@ export async function getDashboardData(): Promise<DashboardData> {
     return { mes, previsto, realizado }
   })
 
-  const ultimosPedidos = [...compras]
-    .sort((a, b) => compareDesc(a.updated_at, b.updated_at))
+  const ultimasAtualizacoes = historicos
+    .map((historico) => {
+      const compra = comprasById.get(historico.compra_id)
+
+      if (!compra) {
+        return null
+      }
+
+      return asDashboardAtualizacao(historico, compra)
+    })
+    .filter((item): item is DashboardAtualizacaoResumo => item !== null)
     .slice(0, 5)
-    .map(asDashboardPedido)
 
   const pedidosParados = compras
     .filter((compra) => {
@@ -2229,7 +2270,7 @@ export async function getDashboardData(): Promise<DashboardData> {
   return {
     stats,
     comparativo,
-    ultimosPedidos,
+    ultimasAtualizacoes,
     pedidosParados,
   }
 }
@@ -3474,6 +3515,7 @@ function normalizeUsuario(row: Row): Usuario {
     email: sanitizeEmail(String(row.email ?? '')),
     senha_hash: String(row.senha_hash ?? ''),
     perfil: normalizePerfilUsuario(row.perfil),
+    tema_preferido: normalizeThemePreference(row.tema_preferido),
     ativo: normalizeBoolean(row.ativo),
     created_at: toDateTimeString(row.created_at),
     updated_at: toDateTimeString(row.updated_at),
@@ -4023,6 +4065,20 @@ function asDashboardPedido(compra: Compra) {
     updated_at: compra.updated_at,
     cliente_nome: compra.cliente_nome ?? 'Cliente não identificado',
     proposta_nome: compra.proposta_nome ?? 'Proposta não identificada',
+  }
+}
+
+function asDashboardAtualizacao(historico: HistoricoCompra, compra: Compra): DashboardAtualizacaoResumo {
+  return {
+    id: historico.id,
+    compra_id: historico.compra_id,
+    evento: historico.evento,
+    data: historico.data,
+    usuario: historico.usuario,
+    fornecedor: compra.fornecedor,
+    cliente_nome: compra.cliente_nome ?? 'Cliente nÃ£o identificado',
+    proposta_nome: compra.proposta_nome ?? 'Proposta nÃ£o identificada',
+    compra_status: compra.status,
   }
 }
 

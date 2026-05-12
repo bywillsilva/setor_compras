@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS usuarios (
   nome VARCHAR(255) NOT NULL,
   email VARCHAR(255) NOT NULL UNIQUE,
   senha_hash VARCHAR(255) NOT NULL,
-  perfil TEXT NOT NULL DEFAULT 'comprador' CHECK (perfil IN ('admin', 'comprador', 'orcamentista')),
+  perfil TEXT NOT NULL DEFAULT 'comprador' CHECK (perfil IN ('admin', 'comprador', 'orcamentista', 'solicitante', 'financeiro')),
+  tema_preferido TEXT NOT NULL DEFAULT 'claro' CHECK (tema_preferido IN ('claro', 'escuro')),
   ativo BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP

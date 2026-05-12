@@ -6,6 +6,7 @@ import { format, parseISO } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import { Eye, FileText, Loader2, Plus } from "lucide-react"
 import { DateRangeFilter } from "@/components/shared/date-range-filter"
+import { ListPaginationBar, useListPagination } from "@/components/shared/list-pagination"
 import { ListFilterField, ListFilterGrid, ListFilterPanel } from "@/components/shared/list-filter-panel"
 import { PageHeader, SectionCard } from "@/components/shared/page-layout"
 import { SearchableSelect } from "@/components/shared/searchable-select"
@@ -163,6 +164,10 @@ export default function PropostasPage() {
       })
       .sort((left, right) => sortPropostas(left, right, sort))
   }, [filters, propostas, sort])
+  const pagination = useListPagination(filteredPropostas, {
+    storageKey: "propostas-list-page-size",
+    resetKey: JSON.stringify(filters),
+  })
 
   function toggleSort(column: SortColumn) {
     setSort((current) => ({
@@ -393,85 +398,98 @@ export default function PropostasPage() {
             ) : null}
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Proposta"
-                      isActive={sort.column === "proposta"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("proposta")}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Cliente"
-                      isActive={sort.column === "cliente"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("cliente")}
-                    />
-                  </TableHead>
-                  <TableHead>Periodo</TableHead>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Previsto"
-                      isActive={sort.column === "previsto"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("previsto")}
-                    />
-                  </TableHead>
-                  <TableHead>Perdas/reposicao</TableHead>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Cadastro"
-                      isActive={sort.column === "cadastro"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("cadastro")}
-                    />
-                  </TableHead>
-                  <TableHead className="text-right">Acoes</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredPropostas.map((proposta) => (
-                  <TableRow key={proposta.id}>
-                    <TableCell>
-                      <div className="flex flex-wrap items-center gap-2 font-medium">
-                        <span>{proposta.nome}</span>
-                        {proposta.arquivado ? <Badge variant="outline">Arquivada</Badge> : null}
-                      </div>
-                    </TableCell>
-                    <TableCell>{proposta.cliente_nome}</TableCell>
-                    <TableCell>
-                      {proposta.data_inicio && proposta.data_fim ? (
-                        <>
-                          {format(parseISO(proposta.data_inicio), "dd/MM/yy", { locale: ptBR })} -{" "}
-                          {format(parseISO(proposta.data_fim), "dd/MM/yy", { locale: ptBR })}
-                        </>
-                      ) : proposta.data_inicio ? (
-                        <>Inicio: {format(parseISO(proposta.data_inicio), "dd/MM/yy", { locale: ptBR })}</>
-                      ) : (
-                        "-"
-                      )}
-                    </TableCell>
-                    <TableCell>{formatCurrency(proposta.valor_previsto)}</TableCell>
-                    <TableCell>{formatCurrency(proposta.custo_perdas)}</TableCell>
-                    <TableCell>{formatCadastro(proposta.created_at)}</TableCell>
-                    <TableCell className="text-right">
-                      <Link href={`/propostas/${proposta.id}`}>
-                        <Button variant="ghost" size="sm">
-                          <Eye className="mr-2 h-4 w-4" />
-                          Ver detalhes
-                        </Button>
-                      </Link>
-                    </TableCell>
+          <>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Proposta"
+                        isActive={sort.column === "proposta"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("proposta")}
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Cliente"
+                        isActive={sort.column === "cliente"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("cliente")}
+                      />
+                    </TableHead>
+                    <TableHead>Periodo</TableHead>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Previsto"
+                        isActive={sort.column === "previsto"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("previsto")}
+                      />
+                    </TableHead>
+                    <TableHead>Perdas/reposicao</TableHead>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Cadastro"
+                        isActive={sort.column === "cadastro"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("cadastro")}
+                      />
+                    </TableHead>
+                    <TableHead className="text-right">Acoes</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                </TableHeader>
+                <TableBody>
+                  {pagination.items.map((proposta) => (
+                    <TableRow key={proposta.id}>
+                      <TableCell>
+                        <div className="flex flex-wrap items-center gap-2 font-medium">
+                          <span>{proposta.nome}</span>
+                          {proposta.arquivado ? <Badge variant="outline">Arquivada</Badge> : null}
+                        </div>
+                      </TableCell>
+                      <TableCell>{proposta.cliente_nome}</TableCell>
+                      <TableCell>
+                        {proposta.data_inicio && proposta.data_fim ? (
+                          <>
+                            {format(parseISO(proposta.data_inicio), "dd/MM/yy", { locale: ptBR })} -{" "}
+                            {format(parseISO(proposta.data_fim), "dd/MM/yy", { locale: ptBR })}
+                          </>
+                        ) : proposta.data_inicio ? (
+                          <>Inicio: {format(parseISO(proposta.data_inicio), "dd/MM/yy", { locale: ptBR })}</>
+                        ) : (
+                          "-"
+                        )}
+                      </TableCell>
+                      <TableCell>{formatCurrency(proposta.valor_previsto)}</TableCell>
+                      <TableCell>{formatCurrency(proposta.custo_perdas)}</TableCell>
+                      <TableCell>{formatCadastro(proposta.created_at)}</TableCell>
+                      <TableCell className="text-right">
+                        <Link href={`/propostas/${proposta.id}`}>
+                          <Button variant="ghost" size="sm">
+                            <Eye className="mr-2 h-4 w-4" />
+                            Ver detalhes
+                          </Button>
+                        </Link>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <ListPaginationBar
+              currentPage={pagination.currentPage}
+              endItem={pagination.endItem}
+              itemLabel="proposta(s)"
+              onPageChange={pagination.setPage}
+              onPageSizeChange={pagination.setPageSize}
+              pageSize={pagination.pageSize}
+              startItem={pagination.startItem}
+              totalItems={pagination.totalItems}
+              totalPages={pagination.totalPages}
+            />
+          </>
         )}
       </SectionCard>
     </div>

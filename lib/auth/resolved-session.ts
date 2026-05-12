@@ -30,6 +30,7 @@ export async function resolveSessionFromToken(token: string | null | undefined):
     nome: usuario.nome,
     email: usuario.email,
     perfil: usuario.perfil,
+    tema: usuario.tema_preferido,
     features,
     exp: session.exp,
   }

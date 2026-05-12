@@ -24,6 +24,7 @@ import {
 import { useCurrentSession } from "@/components/auth-provider"
 import { RowActionsMenu } from "@/components/shared/row-actions-menu"
 import { DeliveryStatusBadge } from "@/components/compras/delivery-status-badge"
+import { ListPaginationBar, useListPagination } from "@/components/shared/list-pagination"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -145,6 +146,12 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
         .sort((left, right) => left.proposta.nome.localeCompare(right.proposta.nome)),
     [propostas, compras],
   )
+  const propostasPagination = useListPagination(propostasResumo, {
+    storageKey: `cliente-${id}-propostas-page-size`,
+  })
+  const comprasPagination = useListPagination(comprasOrdenadas, {
+    storageKey: `cliente-${id}-compras-page-size`,
+  })
 
   const resumo = useMemo(() => {
     const gastoPorCategoria = {
@@ -664,53 +671,68 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
               </Link>
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Proposta</TableHead>
-                  <TableHead>Periodo</TableHead>
-                  <TableHead>Previsto</TableHead>
-                  <TableHead>Comprado</TableHead>
-                  <TableHead>Saldo</TableHead>
-                  <TableHead>Pedidos</TableHead>
-                  <TableHead className="text-right">Acoes</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {propostasResumo.map(({ proposta, valorRealizado, diferenca, totalPedidos, pedidosEntregues }) => {
-                  const dentro = diferenca >= 0
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Proposta</TableHead>
+                    <TableHead>Periodo</TableHead>
+                    <TableHead>Previsto</TableHead>
+                    <TableHead>Comprado</TableHead>
+                    <TableHead>Saldo</TableHead>
+                    <TableHead>Pedidos</TableHead>
+                    <TableHead className="text-right">Acoes</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {propostasPagination.items.map(({ proposta, valorRealizado, diferenca, totalPedidos, pedidosEntregues }) => {
+                    const dentro = diferenca >= 0
 
-                  return (
-                    <TableRow key={proposta.id}>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <div className="font-medium">{proposta.nome}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {pedidosEntregues} entregue(s) de {totalPedidos}
+                    return (
+                      <TableRow key={proposta.id}>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <div className="font-medium">{proposta.nome}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {pedidosEntregues} entregue(s) de {totalPedidos}
+                            </div>
                           </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>{formatPeriod(proposta.data_inicio, proposta.data_fim)}</TableCell>
-                      <TableCell>{formatCurrency(proposta.valor_previsto)}</TableCell>
-                      <TableCell>{formatCurrency(valorRealizado)}</TableCell>
-                      <TableCell>
-                        <Badge className={dentro ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"}>
-                          {formatCurrency(diferenca)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{totalPedidos}</TableCell>
-                      <TableCell className="text-right">
-                        <Link href={`/propostas/${proposta.id}`}>
-                          <Button variant="ghost" size="sm">
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </Link>
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
+                        </TableCell>
+                        <TableCell>{formatPeriod(proposta.data_inicio, proposta.data_fim)}</TableCell>
+                        <TableCell>{formatCurrency(proposta.valor_previsto)}</TableCell>
+                        <TableCell>{formatCurrency(valorRealizado)}</TableCell>
+                        <TableCell>
+                          <Badge className={dentro ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"}>
+                            {formatCurrency(diferenca)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{totalPedidos}</TableCell>
+                        <TableCell className="text-right">
+                          <Link href={`/propostas/${proposta.id}`}>
+                            <Button variant="ghost" size="sm">
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          </Link>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+              <div className="mt-4">
+                <ListPaginationBar
+                  currentPage={propostasPagination.currentPage}
+                  endItem={propostasPagination.endItem}
+                  itemLabel="proposta(s)"
+                  onPageChange={propostasPagination.setPage}
+                  onPageSizeChange={propostasPagination.setPageSize}
+                  pageSize={propostasPagination.pageSize}
+                  startItem={propostasPagination.startItem}
+                  totalItems={propostasPagination.totalItems}
+                  totalPages={propostasPagination.totalPages}
+                />
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -730,49 +752,64 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ id: st
               </Link>
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Proposta</TableHead>
-                  <TableHead>Fornecedor</TableHead>
-                  <TableHead>Categoria</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Entrega</TableHead>
-                  <TableHead>Valor</TableHead>
-                  <TableHead className="text-right">Acoes</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {comprasOrdenadas.map((compra) => (
-                  <TableRow key={compra.id}>
-                    <TableCell className="font-mono text-sm">#{compra.id}</TableCell>
-                    <TableCell>{compra.proposta_nome || "-"}</TableCell>
-                    <TableCell className="font-medium">{compra.fornecedor}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{CATEGORIA_LABELS[compra.categoria]}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
-                        {compra.arquivado && <Badge variant="outline">Arquivado</Badge>}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <DeliveryStatusBadge compra={compra} />
-                    </TableCell>
-                    <TableCell>{formatCurrency(compra.valor_total ?? 0)}</TableCell>
-                    <TableCell className="text-right">
-                      <Link href={`/compras/${compra.id}`}>
-                        <Button variant="ghost" size="sm">
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      </Link>
-                    </TableCell>
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>ID</TableHead>
+                    <TableHead>Proposta</TableHead>
+                    <TableHead>Fornecedor</TableHead>
+                    <TableHead>Categoria</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Entrega</TableHead>
+                    <TableHead>Valor</TableHead>
+                    <TableHead className="text-right">Acoes</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {comprasPagination.items.map((compra) => (
+                    <TableRow key={compra.id}>
+                      <TableCell className="font-mono text-sm">#{compra.id}</TableCell>
+                      <TableCell>{compra.proposta_nome || "-"}</TableCell>
+                      <TableCell className="font-medium">{compra.fornecedor}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{CATEGORIA_LABELS[compra.categoria]}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
+                          {compra.arquivado && <Badge variant="outline">Arquivado</Badge>}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <DeliveryStatusBadge compra={compra} />
+                      </TableCell>
+                      <TableCell>{formatCurrency(compra.valor_total ?? 0)}</TableCell>
+                      <TableCell className="text-right">
+                        <Link href={`/compras/${compra.id}`}>
+                          <Button variant="ghost" size="sm">
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </Link>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <div className="mt-4">
+                <ListPaginationBar
+                  currentPage={comprasPagination.currentPage}
+                  endItem={comprasPagination.endItem}
+                  itemLabel="pedido(s)"
+                  onPageChange={comprasPagination.setPage}
+                  onPageSizeChange={comprasPagination.setPageSize}
+                  pageSize={comprasPagination.pageSize}
+                  startItem={comprasPagination.startItem}
+                  totalItems={comprasPagination.totalItems}
+                  totalPages={comprasPagination.totalPages}
+                />
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

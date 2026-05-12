@@ -279,7 +279,7 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
     setDeleting(true)
 
     try {
-      if (!isAdmin) {
+      if (!canDirectDeleteCompra) {
         const motivo = window.prompt("Descreva o motivo da exclusao para enviar ao administrador.")
         if (motivo === null) {
           return
@@ -549,7 +549,9 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
     { label: "Perdas/Reposicao", value: compra.valor_categoria_perdas },
     { label: "Outros", value: compra.valor_categoria_outros },
   ]
-  const canDirectEditCotacao = canManageCotacaoData && compra.status !== "pedido_autorizado"
+  const canDirectEditCotacao =
+    canManageCotacaoData && compra.status !== "pedido_autorizado" && !requiresAdminApprovalForSensitiveChanges
+  const canDirectDeleteCompra = (isAdmin || canManageCotacaoData) && !requiresAdminApprovalForSensitiveChanges
 
   return (
     <div className="space-y-6 p-4 sm:p-6">
@@ -684,7 +686,7 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem variant="destructive" onClick={handleDelete} disabled={deleting || togglingArchive}>
-                  {isAdmin ? "Excluir pedido" : "Solicitar exclusao"}
+                  {canDirectDeleteCompra ? "Excluir pedido" : "Solicitar exclusao"}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

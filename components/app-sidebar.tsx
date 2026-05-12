@@ -1,5 +1,6 @@
 "use client"
 
+import Image from "next/image"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useState } from "react"
@@ -13,7 +14,6 @@ import {
   Landmark,
   LayoutDashboard,
   LogOut,
-  Package,
   Settings,
   ShieldCheck,
   ShoppingCart,
@@ -21,7 +21,8 @@ import {
   Users,
 } from "lucide-react"
 import { useCurrentSession } from "@/components/auth-provider"
-import { hasFeatureAccess, PERFIL_LABELS } from "@/lib/auth/permissions"
+import { ThemeModeToggle } from "@/components/theme-mode-toggle"
+import { hasFeatureAccess } from "@/lib/auth/permissions"
 import type { AppFeature, PerfilUsuario } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -39,7 +40,8 @@ const NAVIGATION_ITEMS: NavigationItem[] = [
   { name: "Propostas", href: "/propostas", icon: FileText, feature: "propostas" },
   { name: "Solicitacoes", href: "/solicitacoes", icon: ClipboardList, feature: "solicitacoes" },
   { name: "Compras", href: "/compras", icon: ShoppingCart, feature: "compras" },
-  { name: "Aprovacao ADM", href: "/solicitacoes-autorizacao", icon: CheckCircle2, feature: "solicitacoes_autorizacao" },
+  { name: "Autorizacoes", href: "/autorizacoes", icon: CheckCircle2, feature: "autorizacoes" },
+  { name: "Aprovacao ADM", href: "/solicitacoes-autorizacao", icon: ShieldCheck, feature: "solicitacoes_autorizacao" },
   { name: "Financeiro", href: "/financeiro", icon: Landmark, feature: "financeiro" },
   { name: "Entregas", href: "/entregas", icon: Truck, feature: "entregas" },
   { name: "Orcamentos", href: "/orcamentos", icon: Calculator, feature: "orcamentos" },
@@ -90,11 +92,18 @@ export function AppSidebar({
       <div className="flex h-full flex-col">
         <div className={cn("flex h-16 items-center border-b border-sidebar-border", collapsed ? "justify-center px-3" : "gap-3 px-4")}>
           <div className="flex items-center gap-3 overflow-hidden">
-            <Package className="h-8 w-8 shrink-0" />
+            <Image
+              src="/ag-compras-logo.png"
+              alt="AG Compras"
+              width={40}
+              height={40}
+              className="h-10 w-10 shrink-0 rounded-2xl border border-white/10 bg-white/95 object-cover shadow-sm"
+              priority
+            />
             {!collapsed && (
               <div>
-                <h1 className="text-lg font-semibold">Compras</h1>
-                <p className="text-xs text-sidebar-foreground/70">{PERFIL_LABELS[session.perfil]}</p>
+                <h1 className="text-lg font-semibold">AG Compras</h1>
+                <p className="text-xs text-sidebar-foreground/70">Sistema Corporativo</p>
               </div>
             )}
           </div>
@@ -191,6 +200,10 @@ export function AppSidebar({
             <LogOut className="h-5 w-5 shrink-0" />
             {!collapsed && (loggingOut ? "Saindo..." : "Sair")}
           </button>
+
+          <div className={cn("mt-3", collapsed ? "flex justify-center" : "space-y-2")}>
+            <ThemeModeToggle collapsed={collapsed} />
+          </div>
         </div>
       </div>
     </aside>

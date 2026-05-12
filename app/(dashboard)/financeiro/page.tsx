@@ -7,6 +7,7 @@ import { ptBR } from "date-fns/locale"
 import { BadgeDollarSign, CheckCircle2, Eye, Loader2 } from "lucide-react"
 import { useCurrentSession } from "@/components/auth-provider"
 import { DateRangeFilter } from "@/components/shared/date-range-filter"
+import { ListPaginationBar, useListPagination } from "@/components/shared/list-pagination"
 import { ListFilterField, ListFilterGrid, ListFilterPanel } from "@/components/shared/list-filter-panel"
 import { PageHeader, SectionCard, SummaryMetricCard } from "@/components/shared/page-layout"
 import { RowActionsMenu } from "@/components/shared/row-actions-menu"
@@ -142,6 +143,14 @@ export default function FinanceiroPage() {
       compra.possui_boleto &&
       !compra.documentos_financeiro_confirmados_em,
   )
+  const aprovacaoPagination = useListPagination(comprasAguardandoAprovacao, {
+    storageKey: "financeiro-aprovacoes-page-size",
+    resetKey: JSON.stringify(filters),
+  })
+  const documentosPagination = useListPagination(comprasAguardandoDocumentos, {
+    storageKey: "financeiro-documentos-page-size",
+    resetKey: JSON.stringify(filters),
+  })
 
   function toggleSort(column: SortColumn) {
     setSort((current) => ({
@@ -228,9 +237,7 @@ export default function FinanceiroPage() {
         description={`${comprasAguardandoAprovacao.length} pedido(s) aguardando sua liberacao`}
       >
         <FinanceTable
-          compras={comprasAguardandoAprovacao}
-          filters={filters}
-          setFilters={setFilters}
+          compras={aprovacaoPagination.items}
           sort={sort}
           onSort={toggleSort}
           canViewCompras={canViewCompras}
@@ -277,6 +284,19 @@ export default function FinanceiroPage() {
             </RowActionsMenu>
           )}
         />
+        {aprovacaoPagination.totalItems > 0 ? (
+          <ListPaginationBar
+            currentPage={aprovacaoPagination.currentPage}
+            endItem={aprovacaoPagination.endItem}
+            itemLabel="pedido(s)"
+            onPageChange={aprovacaoPagination.setPage}
+            onPageSizeChange={aprovacaoPagination.setPageSize}
+            pageSize={aprovacaoPagination.pageSize}
+            startItem={aprovacaoPagination.startItem}
+            totalItems={aprovacaoPagination.totalItems}
+            totalPages={aprovacaoPagination.totalPages}
+          />
+        ) : null}
       </SectionCard>
 
       <SectionCard
@@ -284,9 +304,7 @@ export default function FinanceiroPage() {
         description={`${comprasAguardandoDocumentos.length} pedido(s) com nota fiscal e boleto prontos para baixa no financeiro`}
       >
         <FinanceTable
-          compras={comprasAguardandoDocumentos}
-          filters={filters}
-          setFilters={setFilters}
+          compras={documentosPagination.items}
           sort={sort}
           onSort={toggleSort}
           canViewCompras={canViewCompras}
@@ -318,6 +336,19 @@ export default function FinanceiroPage() {
             </RowActionsMenu>
           )}
         />
+        {documentosPagination.totalItems > 0 ? (
+          <ListPaginationBar
+            currentPage={documentosPagination.currentPage}
+            endItem={documentosPagination.endItem}
+            itemLabel="pedido(s)"
+            onPageChange={documentosPagination.setPage}
+            onPageSizeChange={documentosPagination.setPageSize}
+            pageSize={documentosPagination.pageSize}
+            startItem={documentosPagination.startItem}
+            totalItems={documentosPagination.totalItems}
+            totalPages={documentosPagination.totalPages}
+          />
+        ) : null}
       </SectionCard>
     </div>
   )
@@ -325,8 +356,6 @@ export default function FinanceiroPage() {
 
 function FinanceTable({
   compras,
-  filters,
-  setFilters,
   sort,
   onSort,
   processingId,
@@ -334,22 +363,6 @@ function FinanceTable({
   renderActions,
 }: {
   compras: Compra[]
-  filters: {
-    pedido: string
-    cliente: string
-    etapa: string
-    updatedFrom: string
-    updatedTo: string
-  }
-  setFilters: React.Dispatch<
-    React.SetStateAction<{
-      pedido: string
-      cliente: string
-      etapa: string
-      updatedFrom: string
-      updatedTo: string
-    }>
-  >
   sort: { column: SortColumn; direction: SortDirection }
   onSort: (column: SortColumn) => void
   canViewCompras: boolean

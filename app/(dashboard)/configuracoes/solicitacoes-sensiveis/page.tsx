@@ -6,6 +6,7 @@ import { format, parseISO } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import { ArrowLeft, CheckCircle2, Loader2, ShieldAlert, XCircle } from "lucide-react"
 import { useCurrentSession } from "@/components/auth-provider"
+import { ListPaginationBar, useListPagination } from "@/components/shared/list-pagination"
 import { useLiveRefresh } from "@/components/shared/use-live-refresh"
 import { PERFIL_LABELS } from "@/lib/auth/permissions"
 import { Badge } from "@/components/ui/badge"
@@ -166,6 +167,10 @@ export default function SolicitacoesSensiveisPage() {
     }),
     [requests],
   )
+  const pagination = useListPagination(requests, {
+    storageKey: "solicitacoes-sensiveis-page-size",
+    resetKey: status,
+  })
 
   if (session?.perfil !== "admin") {
     return (
@@ -242,87 +247,100 @@ export default function SolicitacoesSensiveisPage() {
               Nenhuma solicitacao encontrada neste filtro.
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Solicitante</TableHead>
-                  <TableHead>Entidade</TableHead>
-                  <TableHead>Acao</TableHead>
-                  <TableHead>Motivo</TableHead>
-                  <TableHead>Resumo</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Registrado em</TableHead>
-                  <TableHead className="text-right">Acoes</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {requests.map((request) => (
-                  <TableRow key={request.id}>
-                    <TableCell>
-                      <div className="space-y-1">
-                        <div className="font-medium">{request.solicitante_nome}</div>
-                        <div className="text-xs text-muted-foreground">{PERFIL_LABELS[request.solicitante_perfil]}</div>
-                      </div>
-                    </TableCell>
-                    <TableCell>{ENTITY_LABELS[request.entidade]}</TableCell>
-                    <TableCell>{ACTION_LABELS[request.acao]}</TableCell>
-                    <TableCell className="max-w-[220px] whitespace-pre-wrap text-sm">{request.motivo || "Sem motivo informado"}</TableCell>
-                    <TableCell className="max-w-[260px] whitespace-pre-wrap text-xs text-muted-foreground">
-                      {formatPayloadSummary(request)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={STATUS_CLASSES[request.status]}>
-                        {STATUS_LABELS[request.status]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{formatDateTime(request.created_at)}</TableCell>
-                    <TableCell className="text-right">
-                      {request.status === "pendente" ? (
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleReject(request)}
-                            disabled={processingId === request.id}
-                          >
-                            {processingId === request.id ? (
-                              <>
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                Processando...
-                              </>
-                            ) : (
-                              <>
-                                <XCircle className="mr-2 h-4 w-4" />
-                                Recusar
-                              </>
-                            )}
-                          </Button>
-                          <Button size="sm" onClick={() => handleApprove(request)} disabled={processingId === request.id}>
-                            {processingId === request.id ? (
-                              <>
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                Processando...
-                              </>
-                            ) : (
-                              <>
-                                <CheckCircle2 className="mr-2 h-4 w-4" />
-                                Aprovar
-                              </>
-                            )}
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="text-xs text-muted-foreground">
-                          {request.status === "aprovada"
-                            ? `Aprovada por ${request.aprovado_por ?? "ADM"}`
-                            : `Recusada por ${request.recusado_por ?? "ADM"}`}
-                        </div>
-                      )}
-                    </TableCell>
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Solicitante</TableHead>
+                    <TableHead>Entidade</TableHead>
+                    <TableHead>Acao</TableHead>
+                    <TableHead>Motivo</TableHead>
+                    <TableHead>Resumo</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Registrado em</TableHead>
+                    <TableHead className="text-right">Acoes</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {pagination.items.map((request) => (
+                    <TableRow key={request.id}>
+                      <TableCell>
+                        <div className="space-y-1">
+                          <div className="font-medium">{request.solicitante_nome}</div>
+                          <div className="text-xs text-muted-foreground">{PERFIL_LABELS[request.solicitante_perfil]}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell>{ENTITY_LABELS[request.entidade]}</TableCell>
+                      <TableCell>{ACTION_LABELS[request.acao]}</TableCell>
+                      <TableCell className="max-w-[220px] whitespace-pre-wrap text-sm">{request.motivo || "Sem motivo informado"}</TableCell>
+                      <TableCell className="max-w-[260px] whitespace-pre-wrap text-xs text-muted-foreground">
+                        {formatPayloadSummary(request)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={STATUS_CLASSES[request.status]}>
+                          {STATUS_LABELS[request.status]}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{formatDateTime(request.created_at)}</TableCell>
+                      <TableCell className="text-right">
+                        {request.status === "pendente" ? (
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleReject(request)}
+                              disabled={processingId === request.id}
+                            >
+                              {processingId === request.id ? (
+                                <>
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  Processando...
+                                </>
+                              ) : (
+                                <>
+                                  <XCircle className="mr-2 h-4 w-4" />
+                                  Recusar
+                                </>
+                              )}
+                            </Button>
+                            <Button size="sm" onClick={() => handleApprove(request)} disabled={processingId === request.id}>
+                              {processingId === request.id ? (
+                                <>
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  Processando...
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                                  Aprovar
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="text-xs text-muted-foreground">
+                            {request.status === "aprovada"
+                              ? `Aprovada por ${request.aprovado_por ?? "ADM"}`
+                              : `Recusada por ${request.recusado_por ?? "ADM"}`}
+                          </div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <ListPaginationBar
+                currentPage={pagination.currentPage}
+                endItem={pagination.endItem}
+                itemLabel="solicitacao(oes)"
+                onPageChange={pagination.setPage}
+                onPageSizeChange={pagination.setPageSize}
+                pageSize={pagination.pageSize}
+                startItem={pagination.startItem}
+                totalItems={pagination.totalItems}
+                totalPages={pagination.totalPages}
+              />
+            </>
           )}
         </CardContent>
       </Card>

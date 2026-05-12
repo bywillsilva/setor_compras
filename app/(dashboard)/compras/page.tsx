@@ -7,6 +7,7 @@ import { ptBR } from "date-fns/locale"
 import { AlertTriangle, CheckCircle2, Download, Eye, Loader2, Plus, Send, Truck } from "lucide-react"
 import { useCurrentSession } from "@/components/auth-provider"
 import { DateRangeFilter } from "@/components/shared/date-range-filter"
+import { ListPaginationBar, useListPagination } from "@/components/shared/list-pagination"
 import { ListFilterField, ListFilterGrid, ListFilterPanel } from "@/components/shared/list-filter-panel"
 import { PageHeader, SectionCard } from "@/components/shared/page-layout"
 import { RowActionsMenu } from "@/components/shared/row-actions-menu"
@@ -157,6 +158,10 @@ export default function ComprasPage() {
       })
       .sort((left, right) => sortCompras(left, right, sort))
   }, [compras, filters, sort])
+  const pagination = useListPagination(filteredCompras, {
+    storageKey: "compras-list-page-size",
+    resetKey: JSON.stringify(filters),
+  })
 
   const reportHref = useMemo(() => {
     const params = new URLSearchParams()
@@ -317,251 +322,264 @@ export default function ComprasPage() {
             ) : null}
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Pedido"
-                      isActive={sort.column === "pedido"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("pedido")}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Cliente e proposta"
-                      isActive={sort.column === "cliente"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("cliente")}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Fornecedor"
-                      isActive={sort.column === "fornecedor"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("fornecedor")}
-                    />
-                  </TableHead>
-                  <TableHead>Fluxo</TableHead>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Valor"
-                      isActive={sort.column === "valor"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("valor")}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Movimentacao"
-                      isActive={sort.column === "movimentacao"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("movimentacao")}
-                    />
-                  </TableHead>
-                  <TableHead className="text-right">Acoes</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredCompras.map((compra) => {
-                  const isProcessing = processingId === compra.id
-                  const skipRequesterApproval = !compra.solicitante_id
-                  const documentosPendentes = [!compra.possui_nf ? "NF" : null, !compra.possui_boleto ? "boleto" : null].filter(Boolean)
-                  const aguardandoRegistroFinanceiro =
-                    compra.status === "pedido_autorizado" &&
-                    compra.possui_nf &&
-                    compra.possui_boleto &&
-                    !compra.documentos_financeiro_confirmados_em
+          <>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Pedido"
+                        isActive={sort.column === "pedido"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("pedido")}
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Cliente e proposta"
+                        isActive={sort.column === "cliente"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("cliente")}
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Fornecedor"
+                        isActive={sort.column === "fornecedor"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("fornecedor")}
+                      />
+                    </TableHead>
+                    <TableHead>Fluxo</TableHead>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Valor"
+                        isActive={sort.column === "valor"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("valor")}
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Movimentacao"
+                        isActive={sort.column === "movimentacao"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("movimentacao")}
+                      />
+                    </TableHead>
+                    <TableHead className="text-right">Acoes</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pagination.items.map((compra) => {
+                    const isProcessing = processingId === compra.id
+                    const skipRequesterApproval = !compra.solicitante_id
+                    const documentosPendentes = [!compra.possui_nf ? "NF" : null, !compra.possui_boleto ? "boleto" : null].filter(Boolean)
+                    const aguardandoRegistroFinanceiro =
+                      compra.status === "pedido_autorizado" &&
+                      compra.possui_nf &&
+                      compra.possui_boleto &&
+                      !compra.documentos_financeiro_confirmados_em
 
-                  return (
-                    <TableRow key={compra.id}>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <div className="font-mono text-sm font-medium">#{compra.id}</div>
-                            {compra.arquivado ? <Badge variant="outline">Arquivado</Badge> : null}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {compra.numero_pedido ? `Pedido ${compra.numero_pedido}` : "Numero pendente"}
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="min-w-[190px] space-y-1">
-                          <div className="font-medium">{compra.cliente_nome}</div>
-                          <TableTextPreview text={compra.proposta_nome} fallback="Sem proposta" className="max-w-[190px]" />
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="min-w-[190px] space-y-1">
-                          <div className="font-medium text-foreground">{compra.fornecedor}</div>
-                          <TableTextPreview text={compra.descricao} className="max-w-[190px]" />
-                          <Badge variant="outline">{CATEGORIA_LABELS[compra.categoria]}</Badge>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="min-w-[280px] space-y-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Badge className={ETAPA_FLUXO_BADGE_CLASSES[compra.etapa_fluxo]}>
-                              {getEtapaFluxoLabel(compra)}
-                            </Badge>
-                            {compra.status === "pedido_autorizado" ? <DeliveryStatusBadge compra={compra} /> : null}
-                          </div>
-                          <p className="text-xs leading-5 text-muted-foreground">{getCompraFlowNote(compra)}</p>
-                          {compra.status === "pedido_autorizado" && documentosPendentes.length > 0 ? (
-                            <div className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-800">
-                              <AlertTriangle className="h-3.5 w-3.5" />
-                              {`Pendencias: ${documentosPendentes.join(" e ")}`}
+                    return (
+                      <TableRow key={compra.id}>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <div className="font-mono text-sm font-medium">#{compra.id}</div>
+                              {compra.arquivado ? <Badge variant="outline">Arquivado</Badge> : null}
                             </div>
-                          ) : null}
-                          {aguardandoRegistroFinanceiro ? (
-                            <div className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-medium text-sky-800">
-                              <CheckCircle2 className="h-3.5 w-3.5" />
-                              Financeiro ainda precisa registrar NF e boleto
+                            <div className="text-xs text-muted-foreground">
+                              {compra.numero_pedido ? `Pedido ${compra.numero_pedido}` : "Numero pendente"}
                             </div>
-                          ) : null}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <div className="font-medium text-foreground">
-                            {compra.valor_total
-                              ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(compra.valor_total))
-                              : "-"}
                           </div>
-                          <div className="text-xs text-muted-foreground">{STATUS_LABELS[compra.status]}</div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1 text-sm">
-                          <div>{format(parseISO(compra.updated_at), "dd/MM/yyyy", { locale: ptBR })}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {format(parseISO(compra.updated_at), "HH:mm", { locale: ptBR })}
+                        </TableCell>
+                        <TableCell>
+                          <div className="min-w-[190px] space-y-1">
+                            <div className="font-medium">{compra.cliente_nome}</div>
+                            <TableTextPreview text={compra.proposta_nome} fallback="Sem proposta" className="max-w-[190px]" />
                           </div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <RowActionsMenu label={`Acoes do pedido ${compra.id}`}>
-                          <DropdownMenuItem asChild>
-                            <Link href={`/compras/${compra.id}`}>
-                              <Eye className="h-4 w-4" />
-                              Abrir pedido
-                            </Link>
-                          </DropdownMenuItem>
+                        </TableCell>
+                        <TableCell>
+                          <div className="min-w-[190px] space-y-1">
+                            <div className="font-medium text-foreground">{compra.fornecedor}</div>
+                            <TableTextPreview text={compra.descricao} className="max-w-[190px]" />
+                            <Badge variant="outline">{CATEGORIA_LABELS[compra.categoria]}</Badge>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="min-w-[280px] space-y-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge className={ETAPA_FLUXO_BADGE_CLASSES[compra.etapa_fluxo]}>
+                                {getEtapaFluxoLabel(compra)}
+                              </Badge>
+                              {compra.status === "pedido_autorizado" ? <DeliveryStatusBadge compra={compra} /> : null}
+                            </div>
+                            <p className="text-xs leading-5 text-muted-foreground">{getCompraFlowNote(compra)}</p>
+                            {compra.status === "pedido_autorizado" && documentosPendentes.length > 0 ? (
+                              <div className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-800 dark:border-amber-400/40 dark:bg-amber-500/20 dark:text-amber-50">
+                                <AlertTriangle className="h-3.5 w-3.5" />
+                                {`Pendencias: ${documentosPendentes.join(" e ")}`}
+                              </div>
+                            ) : null}
+                            {aguardandoRegistroFinanceiro ? (
+                              <div className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-medium text-sky-800 dark:border-sky-400/40 dark:bg-sky-500/20 dark:text-sky-50">
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                Financeiro ainda precisa registrar NF e boleto
+                              </div>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <div className="font-medium text-foreground">
+                              {compra.valor_total
+                                ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(compra.valor_total))
+                                : "-"}
+                            </div>
+                            <div className="text-xs text-muted-foreground">{STATUS_LABELS[compra.status]}</div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1 text-sm">
+                            <div>{format(parseISO(compra.updated_at), "dd/MM/yyyy", { locale: ptBR })}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {format(parseISO(compra.updated_at), "HH:mm", { locale: ptBR })}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <RowActionsMenu label={`Acoes do pedido ${compra.id}`}>
+                            <DropdownMenuItem asChild>
+                              <Link href={`/compras/${compra.id}`}>
+                                <Eye className="h-4 w-4" />
+                                Abrir pedido
+                              </Link>
+                            </DropdownMenuItem>
 
-                          {!compra.arquivado ? (
-                            <>
-                              <DropdownMenuSeparator />
-                              {compra.etapa_fluxo === "solicitacao_registrada" || compra.etapa_fluxo === "retificacao" ? (
-                                <DropdownMenuItem
-                                  disabled={isProcessing}
-                                  onClick={() =>
-                                    runWorkflowAction(
-                                      compra.id,
-                                      `/api/compras/${compra.id}/envio-cotacao`,
-                                      "Solicitacao enviada para cotacao.",
-                                    )
-                                  }
-                                >
-                                  {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                                  {isProcessing ? "Enviando..." : "Enviar para cotacao"}
-                                </DropdownMenuItem>
-                              ) : compra.etapa_fluxo === "cotacao_em_andamento" ? (
-                                <DropdownMenuItem
-                                  disabled={isProcessing}
-                                  onClick={() =>
-                                    runWorkflowAction(
-                                      compra.id,
-                                      `/api/compras/${compra.id}/recebimento-cotacao`,
-                                      skipRequesterApproval
-                                        ? "Cotacao registrada e enviada diretamente para aprovacao do ADM."
-                                        : "Cotacao enviada para aprovacao do solicitante.",
-                                    )
-                                  }
-                                >
-                                  {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                                  {isProcessing
-                                    ? "Solicitando..."
-                                    : skipRequesterApproval
-                                      ? "Enviar cotacao para aprovacao do ADM"
-                                      : "Solicitar aprovacao do solicitante"}
-                                </DropdownMenuItem>
-                              ) : compra.etapa_fluxo === "analise_solicitante" ? (
-                                <DropdownMenuItem disabled>
-                                  <Loader2 className="h-4 w-4" />
-                                  Aguardando solicitante
-                                </DropdownMenuItem>
-                              ) : canRequestApproval && compra.etapa_fluxo === "aprovada_solicitante" ? (
-                                <DropdownMenuItem
-                                  disabled={isProcessing}
-                                  onClick={() =>
-                                    runWorkflowAction(
-                                      compra.id,
-                                      `/api/compras/${compra.id}/solicitacao-autorizacao`,
-                                      "Solicitacao enviada ao administrador.",
-                                    )
-                                  }
-                                >
-                                  {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                                  {isProcessing ? "Solicitando..." : "Solicitar aprovacao do ADM"}
-                                </DropdownMenuItem>
-                              ) : compra.etapa_fluxo === "aguardando_admin" ? (
-                                <DropdownMenuItem disabled>
-                                  <Loader2 className="h-4 w-4" />
-                                  Aguardando ADM
-                                </DropdownMenuItem>
-                              ) : canRequestApproval && compra.etapa_fluxo === "aprovada_admin" ? (
-                                <DropdownMenuItem
-                                  disabled={isProcessing}
-                                  onClick={() =>
-                                    runWorkflowAction(
-                                      compra.id,
-                                      `/api/compras/${compra.id}/solicitacao-financeira`,
-                                      "Solicitacao enviada ao financeiro.",
-                                    )
-                                  }
-                                >
-                                  {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                                  {isProcessing ? "Solicitando..." : "Solicitar aprovacao do financeiro"}
-                                </DropdownMenuItem>
-                              ) : compra.etapa_fluxo === "aguardando_financeiro" ? (
-                                <DropdownMenuItem disabled>
-                                  <Loader2 className="h-4 w-4" />
-                                  Aguardando financeiro
-                                </DropdownMenuItem>
-                              ) : canFinalizeFornecedor && compra.etapa_fluxo === "liberada_para_fornecedor" ? (
-                                <DropdownMenuItem asChild>
-                                  <Link href={`/autorizacoes/${compra.id}`}>
-                                    <CheckCircle2 className="h-4 w-4" />
-                                    Fechar com fornecedor
-                                  </Link>
-                                </DropdownMenuItem>
-                              ) : compra.status === "pedido_autorizado" ? (
-                                <DropdownMenuItem asChild>
-                                  <Link href={`/entregas/${compra.id}`}>
-                                    <Truck className="h-4 w-4" />
-                                    {compra.status_entrega === "entregue" ? "Revisar entrega" : "Informar entrega"}
-                                  </Link>
-                                </DropdownMenuItem>
-                              ) : (
-                                <DropdownMenuItem disabled>
-                                  <AlertTriangle className="h-4 w-4" />
-                                  Sem acao imediata
-                                </DropdownMenuItem>
-                              )}
-                            </>
-                          ) : null}
-                        </RowActionsMenu>
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
-          </div>
+                            {!compra.arquivado ? (
+                              <>
+                                <DropdownMenuSeparator />
+                                {compra.etapa_fluxo === "solicitacao_registrada" || compra.etapa_fluxo === "retificacao" ? (
+                                  <DropdownMenuItem
+                                    disabled={isProcessing}
+                                    onClick={() =>
+                                      runWorkflowAction(
+                                        compra.id,
+                                        `/api/compras/${compra.id}/envio-cotacao`,
+                                        "Solicitacao enviada para cotacao.",
+                                      )
+                                    }
+                                  >
+                                    {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                                    {isProcessing ? "Enviando..." : "Enviar para cotacao"}
+                                  </DropdownMenuItem>
+                                ) : compra.etapa_fluxo === "cotacao_em_andamento" ? (
+                                  <DropdownMenuItem
+                                    disabled={isProcessing}
+                                    onClick={() =>
+                                      runWorkflowAction(
+                                        compra.id,
+                                        `/api/compras/${compra.id}/recebimento-cotacao`,
+                                        skipRequesterApproval
+                                          ? "Cotacao registrada e enviada diretamente para aprovacao do ADM."
+                                          : "Cotacao enviada para aprovacao do solicitante.",
+                                      )
+                                    }
+                                  >
+                                    {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                                    {isProcessing
+                                      ? "Solicitando..."
+                                      : skipRequesterApproval
+                                        ? "Enviar cotacao para aprovacao do ADM"
+                                        : "Solicitar aprovacao do solicitante"}
+                                  </DropdownMenuItem>
+                                ) : compra.etapa_fluxo === "analise_solicitante" ? (
+                                  <DropdownMenuItem disabled>
+                                    <Loader2 className="h-4 w-4" />
+                                    Aguardando solicitante
+                                  </DropdownMenuItem>
+                                ) : canRequestApproval && compra.etapa_fluxo === "aprovada_solicitante" ? (
+                                  <DropdownMenuItem
+                                    disabled={isProcessing}
+                                    onClick={() =>
+                                      runWorkflowAction(
+                                        compra.id,
+                                        `/api/compras/${compra.id}/solicitacao-autorizacao`,
+                                        "Solicitacao enviada ao administrador.",
+                                      )
+                                    }
+                                  >
+                                    {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                                    {isProcessing ? "Solicitando..." : "Solicitar aprovacao do ADM"}
+                                  </DropdownMenuItem>
+                                ) : compra.etapa_fluxo === "aguardando_admin" ? (
+                                  <DropdownMenuItem disabled>
+                                    <Loader2 className="h-4 w-4" />
+                                    Aguardando ADM
+                                  </DropdownMenuItem>
+                                ) : canRequestApproval && compra.etapa_fluxo === "aprovada_admin" ? (
+                                  <DropdownMenuItem
+                                    disabled={isProcessing}
+                                    onClick={() =>
+                                      runWorkflowAction(
+                                        compra.id,
+                                        `/api/compras/${compra.id}/solicitacao-financeira`,
+                                        "Solicitacao enviada ao financeiro.",
+                                      )
+                                    }
+                                  >
+                                    {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                                    {isProcessing ? "Solicitando..." : "Solicitar aprovacao do financeiro"}
+                                  </DropdownMenuItem>
+                                ) : compra.etapa_fluxo === "aguardando_financeiro" ? (
+                                  <DropdownMenuItem disabled>
+                                    <Loader2 className="h-4 w-4" />
+                                    Aguardando financeiro
+                                  </DropdownMenuItem>
+                                ) : canFinalizeFornecedor && compra.etapa_fluxo === "liberada_para_fornecedor" ? (
+                                  <DropdownMenuItem asChild>
+                                    <Link href={`/autorizacoes/${compra.id}`}>
+                                      <CheckCircle2 className="h-4 w-4" />
+                                      Fechar com fornecedor
+                                    </Link>
+                                  </DropdownMenuItem>
+                                ) : compra.status === "pedido_autorizado" ? (
+                                  <DropdownMenuItem asChild>
+                                    <Link href={`/entregas/${compra.id}`}>
+                                      <Truck className="h-4 w-4" />
+                                      {compra.status_entrega === "entregue" ? "Revisar entrega" : "Informar entrega"}
+                                    </Link>
+                                  </DropdownMenuItem>
+                                ) : (
+                                  <DropdownMenuItem disabled>
+                                    <AlertTriangle className="h-4 w-4" />
+                                    Sem acao imediata
+                                  </DropdownMenuItem>
+                                )}
+                              </>
+                            ) : null}
+                          </RowActionsMenu>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+            <ListPaginationBar
+              currentPage={pagination.currentPage}
+              endItem={pagination.endItem}
+              itemLabel="pedido(s)"
+              onPageChange={pagination.setPage}
+              onPageSizeChange={pagination.setPageSize}
+              pageSize={pagination.pageSize}
+              startItem={pagination.startItem}
+              totalItems={pagination.totalItems}
+              totalPages={pagination.totalPages}
+            />
+          </>
         )}
       </SectionCard>
     </div>

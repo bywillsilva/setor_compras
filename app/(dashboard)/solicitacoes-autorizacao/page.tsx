@@ -7,6 +7,7 @@ import { ptBR } from "date-fns/locale"
 import { CheckCircle2, Eye } from "lucide-react"
 import { useCurrentSession } from "@/components/auth-provider"
 import { DateRangeFilter } from "@/components/shared/date-range-filter"
+import { ListPaginationBar, useListPagination } from "@/components/shared/list-pagination"
 import { ListFilterField, ListFilterGrid, ListFilterPanel } from "@/components/shared/list-filter-panel"
 import { PageHeader, SectionCard, SummaryMetricCard } from "@/components/shared/page-layout"
 import { RowActionsMenu } from "@/components/shared/row-actions-menu"
@@ -32,18 +33,17 @@ import {
   STATUS_BADGE_CLASSES,
   STATUS_LABELS,
 } from "@/lib/domain"
-import type { Cliente, Compra } from "@/lib/types"
+import type { Compra } from "@/lib/types"
 
 type SortColumn = "pedido" | "cliente" | "fornecedor" | "atualizado"
 
 export default function SolicitacoesAutorizacaoPage() {
   const session = useCurrentSession()
   const [compras, setCompras] = useState<Compra[]>([])
-  const [clientes, setClientes] = useState<Cliente[]>([])
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState({
     pedido: "",
-    cliente: "todos",
+    cliente: "",
     fornecedor: "",
     status: "todos",
     updatedFrom: "",
@@ -62,18 +62,11 @@ export default function SolicitacoesAutorizacaoPage() {
       if (!silent) {
         setLoading(true)
       }
-      const [comprasResponse, clientesResponse] = await Promise.all([
-        fetch("/api/compras", { cache: "no-store" }),
-        fetch("/api/clientes", { cache: "no-store" }),
-      ])
+        const comprasResponse = await fetch("/api/compras", { cache: "no-store" })
 
-      if (comprasResponse.ok) {
-        setCompras(await comprasResponse.json())
-      }
-
-      if (clientesResponse.ok) {
-        setClientes(await clientesResponse.json())
-      }
+        if (comprasResponse.ok) {
+          setCompras(await comprasResponse.json())
+        }
     } finally {
       if (!silent) {
         setLoading(false)
@@ -95,7 +88,8 @@ export default function SolicitacoesAutorizacaoPage() {
           !filters.pedido ||
           `#${compra.id}`.toLowerCase().includes(filters.pedido.toLowerCase()) ||
           (compra.proposta_nome ?? "").toLowerCase().includes(filters.pedido.toLowerCase())
-        const matchesCliente = filters.cliente === "todos" || compra.cliente_id.toString() === filters.cliente
+        const matchesCliente =
+          !filters.cliente || (compra.cliente_nome ?? "").toLowerCase().includes(filters.cliente.toLowerCase())
         const matchesFornecedor =
           !filters.fornecedor ||
           compra.fornecedor.toLowerCase().includes(filters.fornecedor.toLowerCase()) ||
@@ -115,6 +109,10 @@ export default function SolicitacoesAutorizacaoPage() {
       })
       .sort((left, right) => sortCompras(left, right, sort))
   }, [compras, filters, sort])
+  const pagination = useListPagination(filteredCompras, {
+    storageKey: "aprovacao-adm-list-page-size",
+    resetKey: JSON.stringify(filters),
+  })
 
   const resumo = useMemo(
     () => ({
@@ -179,19 +177,11 @@ export default function SolicitacoesAutorizacaoPage() {
             </ListFilterField>
 
             <ListFilterField label="Cliente">
-              <Select value={filters.cliente} onValueChange={(value) => setFilters((current) => ({ ...current, cliente: value }))}>
-                <SelectTrigger className="h-9">
-                  <SelectValue placeholder="Todos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos">Todos</SelectItem>
-                  {clientes.map((cliente) => (
-                    <SelectItem key={cliente.id} value={cliente.id.toString()}>
-                      {cliente.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <TableFilterInput
+                value={filters.cliente}
+                onChange={(value) => setFilters((current) => ({ ...current, cliente: value }))}
+                placeholder="Pesquisar cliente"
+              />
             </ListFilterField>
 
             <ListFilterField label="Fornecedor ou material">
@@ -222,102 +212,115 @@ export default function SolicitacoesAutorizacaoPage() {
             Nenhum pedido pendente de autorizacao no momento.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Pedido"
-                      isActive={sort.column === "pedido"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("pedido")}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Cliente"
-                      isActive={sort.column === "cliente"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("cliente")}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Fornecedor"
-                      isActive={sort.column === "fornecedor"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("fornecedor")}
-                    />
-                  </TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Etapa</TableHead>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Atualizado em"
-                      isActive={sort.column === "atualizado"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("atualizado")}
-                    />
-                  </TableHead>
-                  <TableHead className="text-right">Acoes</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredCompras.map((compra) => (
-                  <TableRow key={compra.id}>
-                    <TableCell>
-                      <div className="space-y-1">
-                        <div className="font-mono text-sm font-medium">#{compra.id}</div>
-                        <TableTextPreview
-                          text={compra.proposta_nome}
-                          fallback="Sem proposta"
-                          className="max-w-[190px]"
-                        />
-                      </div>
-                    </TableCell>
-                    <TableCell className="font-medium">{compra.cliente_nome}</TableCell>
-                    <TableCell>
-                      <div className="space-y-1">
-                        <div>{compra.fornecedor}</div>
-                        <Badge variant="outline">{CATEGORIA_LABELS[compra.categoria]}</Badge>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge className={ETAPA_FLUXO_BADGE_CLASSES[compra.etapa_fluxo]}>
-                        {ETAPA_FLUXO_LABELS[compra.etapa_fluxo]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{format(new Date(compra.updated_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}</TableCell>
-                    <TableCell className="text-right">
-                      <RowActionsMenu label={`Acoes da solicitacao ${compra.id}`}>
-                        {canViewCompras ? (
-                          <>
-                            <DropdownMenuItem asChild>
-                              <Link href={`/compras/${compra.id}`}>
-                                <Eye className="h-4 w-4" />
-                                Ver pedido
-                              </Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                          </>
-                        ) : null}
-                        <DropdownMenuItem asChild>
-                          <Link href={`/solicitacoes-autorizacao/${compra.id}`}>
-                            <CheckCircle2 className="h-4 w-4" />
-                            Autorizar pedido
-                          </Link>
-                        </DropdownMenuItem>
-                      </RowActionsMenu>
-                    </TableCell>
+          <>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Pedido"
+                        isActive={sort.column === "pedido"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("pedido")}
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Cliente"
+                        isActive={sort.column === "cliente"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("cliente")}
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Fornecedor"
+                        isActive={sort.column === "fornecedor"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("fornecedor")}
+                      />
+                    </TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Etapa</TableHead>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Atualizado em"
+                        isActive={sort.column === "atualizado"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("atualizado")}
+                      />
+                    </TableHead>
+                    <TableHead className="text-right">Acoes</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                </TableHeader>
+                <TableBody>
+                  {pagination.items.map((compra) => (
+                    <TableRow key={compra.id}>
+                      <TableCell>
+                        <div className="space-y-1">
+                          <div className="font-mono text-sm font-medium">#{compra.id}</div>
+                          <TableTextPreview
+                            text={compra.proposta_nome}
+                            fallback="Sem proposta"
+                            className="max-w-[190px]"
+                          />
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-medium">{compra.cliente_nome}</TableCell>
+                      <TableCell>
+                        <div className="space-y-1">
+                          <div>{compra.fornecedor}</div>
+                          <Badge variant="outline">{CATEGORIA_LABELS[compra.categoria]}</Badge>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={ETAPA_FLUXO_BADGE_CLASSES[compra.etapa_fluxo]}>
+                          {ETAPA_FLUXO_LABELS[compra.etapa_fluxo]}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{format(new Date(compra.updated_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}</TableCell>
+                      <TableCell className="text-right">
+                        <RowActionsMenu label={`Acoes da solicitacao ${compra.id}`}>
+                          {canViewCompras ? (
+                            <>
+                              <DropdownMenuItem asChild>
+                                <Link href={`/compras/${compra.id}`}>
+                                  <Eye className="h-4 w-4" />
+                                  Ver pedido
+                                </Link>
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                            </>
+                          ) : null}
+                          <DropdownMenuItem asChild>
+                            <Link href={`/solicitacoes-autorizacao/${compra.id}`}>
+                              <CheckCircle2 className="h-4 w-4" />
+                              Autorizar pedido
+                            </Link>
+                          </DropdownMenuItem>
+                        </RowActionsMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <ListPaginationBar
+              currentPage={pagination.currentPage}
+              endItem={pagination.endItem}
+              itemLabel="pedido(s)"
+              onPageChange={pagination.setPage}
+              onPageSizeChange={pagination.setPageSize}
+              pageSize={pagination.pageSize}
+              startItem={pagination.startItem}
+              totalItems={pagination.totalItems}
+              totalPages={pagination.totalPages}
+            />
+          </>
         )}
       </SectionCard>
     </div>

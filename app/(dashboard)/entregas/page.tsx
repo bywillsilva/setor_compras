@@ -6,6 +6,7 @@ import { format, parseISO } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import { Eye, Truck } from "lucide-react"
 import { DateRangeFilter } from "@/components/shared/date-range-filter"
+import { ListPaginationBar, useListPagination } from "@/components/shared/list-pagination"
 import { ListFilterField, ListFilterGrid, ListFilterPanel } from "@/components/shared/list-filter-panel"
 import { PageHeader, SectionCard, SummaryMetricCard } from "@/components/shared/page-layout"
 import { RowActionsMenu } from "@/components/shared/row-actions-menu"
@@ -25,17 +26,16 @@ import {
 } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { getDeliverySituation } from "@/lib/domain"
-import type { Cliente, Compra } from "@/lib/types"
+import type { Compra } from "@/lib/types"
 
 type SortColumn = "pedido" | "cliente" | "fornecedor" | "previsao"
 
 export default function EntregasPage() {
   const [compras, setCompras] = useState<Compra[]>([])
-  const [clientes, setClientes] = useState<Cliente[]>([])
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState({
     pedido: "",
-    cliente: "todos",
+    cliente: "",
     fornecedor: "",
     situacao: "todos",
     previsaoFrom: "",
@@ -53,18 +53,11 @@ export default function EntregasPage() {
       if (!silent) {
         setLoading(true)
       }
-      const [comprasResponse, clientesResponse] = await Promise.all([
-        fetch("/api/compras?status=pedido_autorizado", { cache: "no-store" }),
-        fetch("/api/clientes", { cache: "no-store" }),
-      ])
+        const comprasResponse = await fetch("/api/compras?status=pedido_autorizado", { cache: "no-store" })
 
-      if (comprasResponse.ok) {
-        setCompras(await comprasResponse.json())
-      }
-
-      if (clientesResponse.ok) {
-        setClientes(await clientesResponse.json())
-      }
+        if (comprasResponse.ok) {
+          setCompras(await comprasResponse.json())
+        }
     } finally {
       if (!silent) {
         setLoading(false)
@@ -96,7 +89,8 @@ export default function EntregasPage() {
           !filters.pedido ||
           `#${compra.id}`.toLowerCase().includes(filters.pedido.toLowerCase()) ||
           (compra.numero_pedido ?? "").toLowerCase().includes(filters.pedido.toLowerCase())
-        const matchesCliente = filters.cliente === "todos" || compra.cliente_id.toString() === filters.cliente
+        const matchesCliente =
+          !filters.cliente || (compra.cliente_nome ?? "").toLowerCase().includes(filters.cliente.toLowerCase())
         const matchesFornecedor =
           !filters.fornecedor ||
           compra.fornecedor.toLowerCase().includes(filters.fornecedor.toLowerCase()) ||
@@ -118,6 +112,10 @@ export default function EntregasPage() {
       })
       .sort((left, right) => sortCompras(left, right, sort))
   }, [compras, filters, sort])
+  const pagination = useListPagination(filteredCompras, {
+    storageKey: "entregas-list-page-size",
+    resetKey: JSON.stringify(filters),
+  })
 
   function toggleSort(column: SortColumn) {
     setSort((current) => ({
@@ -177,19 +175,11 @@ export default function EntregasPage() {
             </ListFilterField>
 
             <ListFilterField label="Cliente">
-              <Select value={filters.cliente} onValueChange={(value) => setFilters((current) => ({ ...current, cliente: value }))}>
-                <SelectTrigger className="h-9">
-                  <SelectValue placeholder="Todos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos">Todos</SelectItem>
-                  {clientes.map((cliente) => (
-                    <SelectItem key={cliente.id} value={cliente.id.toString()}>
-                      {cliente.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <TableFilterInput
+                value={filters.cliente}
+                onChange={(value) => setFilters((current) => ({ ...current, cliente: value }))}
+                placeholder="Pesquisar cliente"
+              />
             </ListFilterField>
 
             <ListFilterField label="Fornecedor ou material">
@@ -222,97 +212,110 @@ export default function EntregasPage() {
             Nenhum pedido autorizado encontrado para acompanhamento.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Pedido"
-                      isActive={sort.column === "pedido"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("pedido")}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Cliente"
-                      isActive={sort.column === "cliente"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("cliente")}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Fornecedor"
-                      isActive={sort.column === "fornecedor"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("fornecedor")}
-                    />
-                  </TableHead>
-                  <TableHead>Situacao</TableHead>
-                  <TableHead>Status entrega</TableHead>
-                  <TableHead>
-                    <SortableTableHead
-                      label="Previsao"
-                      isActive={sort.column === "previsao"}
-                      direction={sort.direction}
-                      onClick={() => toggleSort("previsao")}
-                    />
-                  </TableHead>
-                  <TableHead>Data real</TableHead>
-                  <TableHead className="text-right">Acoes</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredCompras.map((compra) => (
-                  <TableRow key={compra.id}>
-                    <TableCell className="font-mono text-sm">#{compra.id}</TableCell>
-                    <TableCell className="font-medium">{compra.cliente_nome}</TableCell>
-                    <TableCell>
-                      <div className="space-y-1">
-                        <div>{compra.fornecedor}</div>
-                        <TableTextPreview
-                          text={compra.proposta_nome}
-                          fallback="Sem proposta"
-                          className="max-w-[190px]"
-                        />
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <DeliveryStatusBadge compra={compra} />
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{compra.status_entrega === "entregue" ? "Entregue" : "Pendente"}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      {compra.previsao_entrega ? format(parseISO(compra.previsao_entrega), "dd/MM/yyyy", { locale: ptBR }) : "-"}
-                    </TableCell>
-                    <TableCell>
-                      {compra.data_entrega_real ? format(parseISO(compra.data_entrega_real), "dd/MM/yyyy", { locale: ptBR }) : "-"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <RowActionsMenu label={`Acoes de entrega do pedido ${compra.id}`}>
-                        <DropdownMenuItem asChild>
-                          <Link href={`/compras/${compra.id}`}>
-                            <Eye className="h-4 w-4" />
-                            Ver pedido
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem asChild>
-                          <Link href={`/entregas/${compra.id}`}>
-                            <Truck className="h-4 w-4" />
-                            {compra.status_entrega === "entregue" ? "Revisar entrega" : "Informar entrega"}
-                          </Link>
-                        </DropdownMenuItem>
-                      </RowActionsMenu>
-                    </TableCell>
+          <>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Pedido"
+                        isActive={sort.column === "pedido"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("pedido")}
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Cliente"
+                        isActive={sort.column === "cliente"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("cliente")}
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Fornecedor"
+                        isActive={sort.column === "fornecedor"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("fornecedor")}
+                      />
+                    </TableHead>
+                    <TableHead>Situacao</TableHead>
+                    <TableHead>Status entrega</TableHead>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Previsao"
+                        isActive={sort.column === "previsao"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("previsao")}
+                      />
+                    </TableHead>
+                    <TableHead>Data real</TableHead>
+                    <TableHead className="text-right">Acoes</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                </TableHeader>
+                <TableBody>
+                  {pagination.items.map((compra) => (
+                    <TableRow key={compra.id}>
+                      <TableCell className="font-mono text-sm">#{compra.id}</TableCell>
+                      <TableCell className="font-medium">{compra.cliente_nome}</TableCell>
+                      <TableCell>
+                        <div className="space-y-1">
+                          <div>{compra.fornecedor}</div>
+                          <TableTextPreview
+                            text={compra.proposta_nome}
+                            fallback="Sem proposta"
+                            className="max-w-[190px]"
+                          />
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <DeliveryStatusBadge compra={compra} />
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{compra.status_entrega === "entregue" ? "Entregue" : "Pendente"}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        {compra.previsao_entrega ? format(parseISO(compra.previsao_entrega), "dd/MM/yyyy", { locale: ptBR }) : "-"}
+                      </TableCell>
+                      <TableCell>
+                        {compra.data_entrega_real ? format(parseISO(compra.data_entrega_real), "dd/MM/yyyy", { locale: ptBR }) : "-"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <RowActionsMenu label={`Acoes de entrega do pedido ${compra.id}`}>
+                          <DropdownMenuItem asChild>
+                            <Link href={`/compras/${compra.id}`}>
+                              <Eye className="h-4 w-4" />
+                              Ver pedido
+                            </Link>
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem asChild>
+                            <Link href={`/entregas/${compra.id}`}>
+                              <Truck className="h-4 w-4" />
+                              {compra.status_entrega === "entregue" ? "Revisar entrega" : "Informar entrega"}
+                            </Link>
+                          </DropdownMenuItem>
+                        </RowActionsMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <ListPaginationBar
+              currentPage={pagination.currentPage}
+              endItem={pagination.endItem}
+              itemLabel="pedido(s)"
+              onPageChange={pagination.setPage}
+              onPageSizeChange={pagination.setPageSize}
+              pageSize={pagination.pageSize}
+              startItem={pagination.startItem}
+              totalItems={pagination.totalItems}
+              totalPages={pagination.totalPages}
+            />
+          </>
         )}
       </SectionCard>
     </div>

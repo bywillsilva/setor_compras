@@ -25,6 +25,8 @@ import { Badge } from "@/components/ui/badge"
 import { useCurrentSession } from "@/components/auth-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { ListPaginationBar, useListPagination } from "@/components/shared/list-pagination"
+import { SearchableSelect } from "@/components/shared/searchable-select"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -79,6 +81,9 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
   const [saving, setSaving] = useState(false)
   const [formData, setFormData] = useState<PropostaFormState>(emptyForm())
   const isAdmin = session?.perfil === "admin"
+  const comprasPagination = useListPagination(compras, {
+    storageKey: `proposta-${id}-compras-page-size`,
+  })
 
   useEffect(() => {
     fetchData()
@@ -432,21 +437,20 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
           <CardContent className="space-y-5">
             <div className="space-y-2">
               <Label>Cliente *</Label>
-              <Select
+              <SearchableSelect
                 value={formData.cliente_id}
                 onValueChange={(value) => setFormData((current) => ({ ...current, cliente_id: value }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o cliente" />
-                </SelectTrigger>
-                <SelectContent>
-                  {clientes.filter((cliente) => !cliente.arquivado || cliente.id === proposta.cliente_id).map((cliente) => (
-                    <SelectItem key={cliente.id} value={cliente.id.toString()}>
-                      {cliente.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                options={clientes
+                  .filter((cliente) => !cliente.arquivado || cliente.id === proposta.cliente_id)
+                  .map((cliente) => ({
+                    value: cliente.id.toString(),
+                    label: cliente.nome,
+                    description: cliente.documento,
+                  }))}
+                placeholder="Selecione o cliente"
+                searchPlaceholder="Pesquisar cliente..."
+                emptyLabel="Nenhum cliente encontrado."
+              />
             </div>
 
             <div className="space-y-2">
@@ -568,13 +572,13 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
 
       <div className="grid gap-4 xl:grid-cols-5">
         <SummaryCard title="Previsto" value={resumo.valorPrevisto} icon={<DollarSign className="h-4 w-4 text-muted-foreground" />} />
-        <SummaryCard title="Real comprado" value={resumo.valorRealizado} icon={<ShoppingCart className="h-4 w-4 text-blue-600" />} />
-        <SummaryCard title="Perdas/reposicao" value={resumo.custoPerdas} icon={<TriangleAlert className="h-4 w-4 text-amber-600" />} />
+        <SummaryCard title="Real comprado" value={resumo.valorRealizado} icon={<ShoppingCart className="h-4 w-4 text-primary" />} />
+        <SummaryCard title="Perdas/reposicao" value={resumo.custoPerdas} icon={<TriangleAlert className="h-4 w-4 text-amber-500 dark:text-amber-300" />} />
         <SummaryCard
           title="Diferenca"
           value={Math.abs(resumo.diferenca)}
-          icon={resumo.dentroOrcamento ? <TrendingDown className="h-4 w-4 text-emerald-600" /> : <TrendingUp className="h-4 w-4 text-red-600" />}
-          className={resumo.dentroOrcamento ? "text-emerald-600" : "text-red-600"}
+          icon={resumo.dentroOrcamento ? <TrendingDown className="h-4 w-4 text-emerald-500 dark:text-emerald-300" /> : <TrendingUp className="h-4 w-4 text-red-500 dark:text-red-300" />}
+          className={resumo.dentroOrcamento ? "text-emerald-600 dark:text-emerald-300" : "text-red-600 dark:text-red-300"}
           description={resumo.dentroOrcamento ? "Dentro do orcamento" : "Acima do previsto"}
         />
         <Card>
@@ -585,31 +589,37 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
             <div className="text-2xl font-bold">{resumo.percentualUtilizado.toFixed(1)}%</div>
             <Progress
               value={Math.min(resumo.percentualUtilizado, 100)}
-              className={resumo.percentualUtilizado > 100 ? "[&>div]:bg-red-500" : ""}
+              className={resumo.percentualUtilizado > 100 ? "[&>div]:bg-red-500" : "[&>div]:bg-[linear-gradient(90deg,#2f6bff_0%,#4f8bff_100%)]"}
             />
           </CardContent>
         </Card>
       </div>
 
-      <Card className={resumo.dentroOrcamento ? "border-emerald-300 bg-emerald-50" : "border-red-300 bg-red-50"}>
-        <CardContent className="flex items-center gap-3 py-4">
-          {resumo.dentroOrcamento ? (
-            <>
-              <TrendingDown className="h-6 w-6 text-emerald-600" />
-              <div>
-                <p className="font-medium text-emerald-700">Obra dentro do orcamento</p>
-                <p className="text-sm text-emerald-700">Saldo disponivel: {formatCurrency(resumo.diferenca)}</p>
-              </div>
-            </>
-          ) : (
-            <>
-              <TrendingUp className="h-6 w-6 text-red-600" />
-              <div>
-                <p className="font-medium text-red-700">Obra acima do orcamento</p>
-                <p className="text-sm text-red-700">Excedente atual: {formatCurrency(Math.abs(resumo.diferenca))}</p>
-              </div>
-            </>
-          )}
+        <Card
+          className={
+            resumo.dentroOrcamento
+              ? "border-emerald-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(237,250,243,0.96))] dark:border-emerald-500/30 dark:bg-[linear-gradient(180deg,rgba(12,39,28,0.95),rgba(10,31,23,0.94))]"
+              : "border-red-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(255,239,239,0.96))] dark:border-red-500/30 dark:bg-[linear-gradient(180deg,rgba(48,18,24,0.95),rgba(36,14,18,0.94))]"
+          }
+        >
+          <CardContent className="flex items-center gap-3 py-4">
+            {resumo.dentroOrcamento ? (
+              <>
+                <TrendingDown className="h-6 w-6 text-emerald-600 dark:text-emerald-300" />
+                <div>
+                  <p className="font-medium text-emerald-700 dark:text-emerald-100">Obra dentro do orcamento</p>
+                  <p className="text-sm text-emerald-700 dark:text-emerald-200">Saldo disponivel: {formatCurrency(resumo.diferenca)}</p>
+                </div>
+              </>
+            ) : (
+              <>
+                <TrendingUp className="h-6 w-6 text-red-600 dark:text-red-300" />
+                <div>
+                  <p className="font-medium text-red-700 dark:text-red-100">Obra acima do orcamento</p>
+                  <p className="text-sm text-red-700 dark:text-red-200">Excedente atual: {formatCurrency(Math.abs(resumo.diferenca))}</p>
+                </div>
+              </>
+            )}
         </CardContent>
       </Card>
 
@@ -680,44 +690,59 @@ export default function PropostaDetailPage({ params }: { params: Promise<{ id: s
               )}
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Categoria</TableHead>
-                  <TableHead>Fornecedor</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Valor</TableHead>
-                  <TableHead className="text-right">Acoes</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {compras.map((compra) => (
-                  <TableRow key={compra.id}>
-                    <TableCell className="font-mono text-sm">#{compra.id}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{CATEGORIA_LABELS[compra.categoria]}</Badge>
-                    </TableCell>
-                    <TableCell className="font-medium">{compra.fornecedor}</TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
-                        {compra.arquivado && <Badge variant="outline">Arquivado</Badge>}
-                      </div>
-                    </TableCell>
-                    <TableCell>{formatCurrency(compra.valor_total ?? 0)}</TableCell>
-                    <TableCell className="text-right">
-                      <Link href={`/compras/${compra.id}`}>
-                        <Button variant="ghost" size="sm">
-                          <Eye className="mr-2 h-4 w-4" />
-                          Ver pedido
-                        </Button>
-                      </Link>
-                    </TableCell>
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>ID</TableHead>
+                    <TableHead>Categoria</TableHead>
+                    <TableHead>Fornecedor</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Valor</TableHead>
+                    <TableHead className="text-right">Acoes</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {comprasPagination.items.map((compra) => (
+                    <TableRow key={compra.id}>
+                      <TableCell className="font-mono text-sm">#{compra.id}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{CATEGORIA_LABELS[compra.categoria]}</Badge>
+                      </TableCell>
+                      <TableCell className="font-medium">{compra.fornecedor}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
+                          {compra.arquivado && <Badge variant="outline">Arquivado</Badge>}
+                        </div>
+                      </TableCell>
+                      <TableCell>{formatCurrency(compra.valor_total ?? 0)}</TableCell>
+                      <TableCell className="text-right">
+                        <Link href={`/compras/${compra.id}`}>
+                          <Button variant="ghost" size="sm">
+                            <Eye className="mr-2 h-4 w-4" />
+                            Ver pedido
+                          </Button>
+                        </Link>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <div className="mt-4">
+                <ListPaginationBar
+                  currentPage={comprasPagination.currentPage}
+                  endItem={comprasPagination.endItem}
+                  itemLabel="pedido(s)"
+                  onPageChange={comprasPagination.setPage}
+                  onPageSizeChange={comprasPagination.setPageSize}
+                  pageSize={comprasPagination.pageSize}
+                  startItem={comprasPagination.startItem}
+                  totalItems={comprasPagination.totalItems}
+                  totalPages={comprasPagination.totalPages}
+                />
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -765,10 +790,16 @@ function CategoryCard({
   const dentro = saldo >= 0
 
   return (
-    <div className="rounded-lg border p-4">
+    <div className="rounded-2xl border border-border/75 bg-[linear-gradient(180deg,rgba(247,250,255,0.88),rgba(239,244,252,0.82))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.78)] dark:bg-[linear-gradient(180deg,rgba(14,27,51,0.98),rgba(9,19,38,0.96))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="font-medium">{title}</h3>
-        <Badge className={dentro ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"}>
+        <Badge
+          className={
+            dentro
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/14 dark:text-emerald-100"
+              : "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/14 dark:text-red-100"
+          }
+        >
           {dentro ? "No alvo" : "Acima"}
         </Badge>
       </div>
@@ -777,7 +808,7 @@ function CategoryCard({
         <SummaryLine label="Realizado" value={formatCurrency(realizado)} />
         <SummaryLine
           label="Saldo"
-          value={<span className={dentro ? "text-emerald-600" : "text-red-600"}>{formatCurrency(saldo)}</span>}
+          value={<span className={dentro ? "text-emerald-600 dark:text-emerald-300" : "text-red-600 dark:text-red-300"}>{formatCurrency(saldo)}</span>}
         />
       </div>
     </div>
@@ -829,7 +860,7 @@ function StaticValue({
   return (
     <div className="space-y-2">
       <Label>{label}</Label>
-      <div className="rounded-md border bg-background px-3 py-2.5">
+      <div className="rounded-xl border border-border/75 bg-white/88 px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:bg-card dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
         <div className="font-medium text-foreground">{value}</div>
         <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
       </div>
