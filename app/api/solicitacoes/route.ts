@@ -9,11 +9,15 @@ export async function GET(request: NextRequest) {
       return guard.response
     }
 
-    const compras = await listCompras({
-      solicitanteId: guard.session.userId,
-    })
+    const compras =
+      guard.session.perfil === "admin"
+        ? await listCompras()
+        : await listCompras({
+            solicitanteId: guard.session.userId,
+            solicitanteNome: guard.session.nome,
+          })
 
-    return NextResponse.json(compras)
+    return NextResponse.json(compras.filter((compra) => Boolean(compra.solicitante_id || compra.solicitado_por?.trim())))
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Erro ao buscar solicitacoes." },

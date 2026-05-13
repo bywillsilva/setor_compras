@@ -256,6 +256,7 @@ export interface PurchaseFilters {
   clienteId?: number
   propostaId?: number
   solicitanteId?: number
+  solicitanteNome?: string
   status?: StatusPedido
   etapaAutorizacao?: EtapaAutorizacao
   etapaFluxo?: EtapaFluxoCompra

@@ -32,9 +32,9 @@ import {
   STATUS_BADGE_CLASSES,
   STATUS_LABELS,
 } from "@/lib/domain"
-import type { Compra } from "@/lib/types"
+import type { Compra, EtapaFluxoCompra } from "@/lib/types"
 
-type SortColumn = "solicitacao" | "cliente" | "fornecedor" | "atualizado"
+type SortColumn = "solicitacao" | "cliente" | "solicitante" | "fornecedor" | "atualizado"
 
 export default function SolicitacoesPage() {
   const session = useCurrentSession()
@@ -44,6 +44,7 @@ export default function SolicitacoesPage() {
   const [filters, setFilters] = useState({
     solicitacao: "",
     cliente: "",
+    solicitante: "",
     fornecedor: "",
     etapa: "todos",
     updatedFrom: "",
@@ -55,6 +56,7 @@ export default function SolicitacoesPage() {
   })
 
   const canCreateSolicitacao = Boolean(session && hasFeatureAccess(session.perfil, "solicitacoes", session.features))
+  const canViewAllSolicitacoes = session?.perfil === "admin"
 
   async function fetchSolicitacoes(options: { silent?: boolean } = {}) {
     const { silent = false } = options
@@ -118,6 +120,9 @@ export default function SolicitacoesPage() {
         const matchesCliente =
           !filters.cliente || (compra.cliente_nome ?? "").toLowerCase().includes(filters.cliente.toLowerCase())
 
+        const matchesSolicitante =
+          !filters.solicitante || (compra.solicitado_por ?? "").toLowerCase().includes(filters.solicitante.toLowerCase())
+
         const matchesFornecedor =
           !filters.fornecedor ||
           compra.fornecedor.toLowerCase().includes(filters.fornecedor.toLowerCase()) ||
@@ -130,6 +135,7 @@ export default function SolicitacoesPage() {
         return (
           matchesSolicitacao &&
           matchesCliente &&
+          matchesSolicitante &&
           matchesFornecedor &&
           matchesEtapa &&
           matchesUpdatedFrom &&
@@ -138,25 +144,50 @@ export default function SolicitacoesPage() {
       })
       .sort((left, right) => sortCompras(left, right, sort))
   }, [compras, filters, sort])
-  const pagination = useListPagination(filteredCompras, {
-    storageKey: "solicitacoes-list-page-size",
+  const comprasEnviadas = useMemo(() => {
+    if (canViewAllSolicitacoes) {
+      return filteredCompras
+    }
+
+    return filteredCompras.filter((compra) => isSolicitacaoOwnedByCurrentUser(compra, session?.userId, session?.nome))
+  }, [canViewAllSolicitacoes, filteredCompras, session?.nome, session?.userId])
+
+  const comprasParaAprovacao = useMemo(() => {
+    if (canViewAllSolicitacoes) {
+      return filteredCompras.filter(
+        (compra) => compra.etapa_fluxo === "analise_solicitante" || Boolean(compra.aprovado_solicitante_em),
+      )
+    }
+
+    return filteredCompras.filter((compra) => {
+      if (!isSolicitacaoOwnedByCurrentUser(compra, session?.userId, session?.nome)) {
+        return false
+      }
+
+      return compra.etapa_fluxo === "analise_solicitante" || Boolean(compra.aprovado_solicitante_em)
+    })
+  }, [canViewAllSolicitacoes, filteredCompras, session?.nome, session?.userId])
+
+  const enviadasPagination = useListPagination(comprasEnviadas, {
+    storageKey: "solicitacoes-enviadas-page-size",
+    resetKey: JSON.stringify(filters),
+  })
+  const aprovacaoPagination = useListPagination(comprasParaAprovacao, {
+    storageKey: "solicitacoes-aprovacao-page-size",
     resetKey: JSON.stringify(filters),
   })
 
   const resumo = useMemo(
     () => ({
       total: filteredCompras.length,
+      enviadas: comprasEnviadas.length,
       emCotacao: filteredCompras.filter((compra) =>
         ["solicitacao_registrada", "cotacao_em_andamento", "retificacao"].includes(compra.etapa_fluxo),
       ).length,
-      emAnalise: filteredCompras.filter((compra) => compra.etapa_fluxo === "analise_solicitante").length,
-      aprovadas: filteredCompras.filter((compra) =>
-        ["aprovada_solicitante", "aguardando_admin", "aprovada_admin", "aguardando_financeiro", "liberada_para_fornecedor", "pedido_autorizado"].includes(
-          compra.etapa_fluxo,
-        ),
-      ).length,
+      aguardandoAssinatura: filteredCompras.filter((compra) => compra.etapa_fluxo === "analise_solicitante").length,
+      autorizadasPeloSolicitante: filteredCompras.filter((compra) => Boolean(compra.aprovado_solicitante_em)).length,
     }),
-    [filteredCompras],
+    [comprasEnviadas.length, filteredCompras],
   )
 
   function toggleSort(column: SortColumn) {
@@ -178,7 +209,7 @@ export default function SolicitacoesPage() {
     <div className="space-y-6 p-4 sm:p-6">
       <PageHeader
         title="Solicitacoes"
-        description="Registre a necessidade de material da obra e acompanhe a aprovacao da cotacao pelo seu setor."
+        description="Registre pedidos de compra para o setor de compras e acompanhe suas aprovacoes de cotacao em um fluxo proprio."
         actions={
           canCreateSolicitacao ? (
             <Link href="/solicitacoes/novo">
@@ -191,13 +222,29 @@ export default function SolicitacoesPage() {
         }
       />
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <SummaryMetricCard title="Registradas" value={resumo.total} description="Solicitacoes abertas nesta visao" />
-        <SummaryMetricCard title="Em cotacao" value={resumo.emCotacao} description="Aguardando retorno do comprador" />
-        <SummaryMetricCard title="Em analise" value={resumo.emAnalise} description="Aguardando sua assinatura" />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <SummaryMetricCard
+          title={canViewAllSolicitacoes ? "Solicitacoes registradas" : "Pedidos enviados"}
+          value={resumo.enviadas}
+          description={canViewAllSolicitacoes ? "Solicitacoes que nasceram neste modulo" : "Solicitacoes enviadas por voce ao setor de compras"}
+        />
+        <SummaryMetricCard title="Em cotacao" value={resumo.emCotacao} description="Pedidos ainda em cotacao ou aguardando retorno do compras" />
+        <SummaryMetricCard
+          title="Aguardando assinatura"
+          value={resumo.aguardandoAssinatura}
+          description={canViewAllSolicitacoes ? "Cotacoes aguardando aprovacao do solicitante" : "Cotacoes aguardando sua aprovacao"}
+        />
+        <SummaryMetricCard
+          title="Aprovadas pelo solicitante"
+          value={resumo.autorizadasPeloSolicitante}
+          description="Pedidos que ja receberam aprovacao do solicitante dentro do fluxo"
+        />
       </div>
 
-      <SectionCard title="Fila de solicitacoes" description={`${filteredCompras.length} pedido(s) nesta visao`}>
+      <SectionCard
+        title="Filtros da area"
+        description="Use os filtros para localizar os pedidos enviados e a fila de aprovacoes do solicitante."
+      >
         <ListFilterPanel
           trailing={
             <DateRangeFilter
@@ -211,7 +258,7 @@ export default function SolicitacoesPage() {
             />
           }
         >
-          <ListFilterGrid columns="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <ListFilterGrid columns={`grid gap-3 md:grid-cols-2 ${canViewAllSolicitacoes ? "xl:grid-cols-5" : "xl:grid-cols-4"}`}>
             <ListFilterField label="Solicitacao">
               <TableFilterInput
                 value={filters.solicitacao}
@@ -228,6 +275,16 @@ export default function SolicitacoesPage() {
               />
             </ListFilterField>
 
+            {canViewAllSolicitacoes ? (
+              <ListFilterField label="Solicitante">
+                <TableFilterInput
+                  value={filters.solicitante}
+                  onChange={(value) => setFilters((current) => ({ ...current, solicitante: value }))}
+                  placeholder="Filtrar solicitante"
+                />
+              </ListFilterField>
+            ) : null}
+
             <ListFilterField label="Fornecedor ou material">
               <TableFilterInput
                 value={filters.fornecedor}
@@ -243,17 +300,27 @@ export default function SolicitacoesPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="todos">Todas</SelectItem>
-                  <SelectItem value="solicitacao_registrada">Registrada</SelectItem>
-                  <SelectItem value="cotacao_em_andamento">Em cotacao</SelectItem>
-                  <SelectItem value="analise_solicitante">Em analise</SelectItem>
-                  <SelectItem value="retificacao">Retificacao</SelectItem>
-                  <SelectItem value="aprovada_solicitante">Aprovada</SelectItem>
+                  {ETAPA_FILTER_OPTIONS.map((etapa) => (
+                    <SelectItem key={etapa} value={etapa}>
+                      {ETAPA_FLUXO_LABELS[etapa]}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </ListFilterField>
           </ListFilterGrid>
         </ListFilterPanel>
-        {filteredCompras.length === 0 ? (
+      </SectionCard>
+
+      <SectionCard
+        title={canViewAllSolicitacoes ? "Solicitacoes registradas" : "Pedidos enviados ao setor de compras"}
+        description={
+          canViewAllSolicitacoes
+            ? `${comprasEnviadas.length} solicitacao(oes) registradas neste modulo`
+            : `${comprasEnviadas.length} pedido(s) enviados por voce para acompanhamento`
+        }
+      >
+        {comprasEnviadas.length === 0 ? (
           <div className="space-y-4 rounded-lg border border-dashed p-10 text-center text-muted-foreground">
             <p>Nenhuma solicitacao encontrada para os filtros atuais.</p>
             {canCreateSolicitacao ? (
@@ -287,6 +354,16 @@ export default function SolicitacoesPage() {
                         onClick={() => toggleSort("cliente")}
                       />
                     </TableHead>
+                    {canViewAllSolicitacoes ? (
+                      <TableHead>
+                        <SortableTableHead
+                          label="Solicitante"
+                          isActive={sort.column === "solicitante"}
+                          direction={sort.direction}
+                          onClick={() => toggleSort("solicitante")}
+                        />
+                      </TableHead>
+                    ) : null}
                     <TableHead>
                       <SortableTableHead
                         label="Fornecedor"
@@ -308,7 +385,7 @@ export default function SolicitacoesPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {pagination.items.map((compra) => {
+                  {enviadasPagination.items.map((compra) => {
                     const isProcessing = processingId === compra.id
                     const canApprove = session?.userId === compra.solicitante_id && compra.etapa_fluxo === "analise_solicitante"
 
@@ -325,6 +402,11 @@ export default function SolicitacoesPage() {
                           </div>
                         </TableCell>
                         <TableCell className="font-medium">{compra.cliente_nome}</TableCell>
+                        {canViewAllSolicitacoes ? (
+                          <TableCell>
+                            <TableTextPreview text={compra.solicitado_por} fallback="Nao informado" className="max-w-[180px]" />
+                          </TableCell>
+                        ) : null}
                         <TableCell>
                           <div className="space-y-1">
                             <div>{compra.fornecedor}</div>
@@ -372,15 +454,163 @@ export default function SolicitacoesPage() {
               </Table>
             </div>
             <ListPaginationBar
-              currentPage={pagination.currentPage}
-              endItem={pagination.endItem}
+              currentPage={enviadasPagination.currentPage}
+              endItem={enviadasPagination.endItem}
               itemLabel="solicitacao(oes)"
-              onPageChange={pagination.setPage}
-              onPageSizeChange={pagination.setPageSize}
-              pageSize={pagination.pageSize}
-              startItem={pagination.startItem}
-              totalItems={pagination.totalItems}
-              totalPages={pagination.totalPages}
+              onPageChange={enviadasPagination.setPage}
+              onPageSizeChange={enviadasPagination.setPageSize}
+              pageSize={enviadasPagination.pageSize}
+              startItem={enviadasPagination.startItem}
+              totalItems={enviadasPagination.totalItems}
+              totalPages={enviadasPagination.totalPages}
+            />
+          </>
+        )}
+      </SectionCard>
+
+      <SectionCard
+        title={canViewAllSolicitacoes ? "Fila de aprovacoes do solicitante" : "Suas aprovacoes de cotacao"}
+        description={
+          canViewAllSolicitacoes
+            ? `${comprasParaAprovacao.length} pedido(s) pendentes ou ja aprovados pelo solicitante`
+            : `${comprasParaAprovacao.length} pedido(s) pendentes de sua aprovacao ou que voce ja autorizou`
+        }
+      >
+        {comprasParaAprovacao.length === 0 ? (
+          <div className="rounded-lg border border-dashed p-10 text-center text-muted-foreground">
+            Nenhuma aprovacao de solicitacao encontrada para os filtros atuais.
+          </div>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Solicitacao"
+                        isActive={sort.column === "solicitacao"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("solicitacao")}
+                      />
+                    </TableHead>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Cliente"
+                        isActive={sort.column === "cliente"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("cliente")}
+                      />
+                    </TableHead>
+                    {canViewAllSolicitacoes ? (
+                      <TableHead>
+                        <SortableTableHead
+                          label="Solicitante"
+                          isActive={sort.column === "solicitante"}
+                          direction={sort.direction}
+                          onClick={() => toggleSort("solicitante")}
+                        />
+                      </TableHead>
+                    ) : null}
+                    <TableHead>
+                      <SortableTableHead
+                        label="Fornecedor"
+                        isActive={sort.column === "fornecedor"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("fornecedor")}
+                      />
+                    </TableHead>
+                    <TableHead>Situacao</TableHead>
+                    <TableHead>
+                      <SortableTableHead
+                        label="Atualizado"
+                        isActive={sort.column === "atualizado"}
+                        direction={sort.direction}
+                        onClick={() => toggleSort("atualizado")}
+                      />
+                    </TableHead>
+                    <TableHead className="text-right">Acoes</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {aprovacaoPagination.items.map((compra) => {
+                    const isProcessing = processingId === compra.id
+                    const canApprove = session?.userId === compra.solicitante_id && compra.etapa_fluxo === "analise_solicitante"
+
+                    return (
+                      <TableRow key={compra.id}>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <div className="font-mono text-sm font-medium">#{compra.id}</div>
+                            <TableTextPreview
+                              text={compra.proposta_nome}
+                              fallback="Sem proposta"
+                              className="max-w-[190px]"
+                            />
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-medium">{compra.cliente_nome}</TableCell>
+                        {canViewAllSolicitacoes ? (
+                          <TableCell>
+                            <TableTextPreview text={compra.solicitado_por} fallback="Nao informado" className="max-w-[180px]" />
+                          </TableCell>
+                        ) : null}
+                        <TableCell>
+                          <div className="space-y-1">
+                            <div>{compra.fornecedor}</div>
+                            <TableTextPreview text={compra.descricao} className="max-w-[220px]" />
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-2">
+                            <Badge className={ETAPA_FLUXO_BADGE_CLASSES[compra.etapa_fluxo]}>
+                              {ETAPA_FLUXO_LABELS[compra.etapa_fluxo]}
+                            </Badge>
+                            {shouldShowSolicitacaoStatus(compra) ? (
+                              <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell>{format(new Date(compra.updated_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}</TableCell>
+                        <TableCell className="text-right">
+                          <RowActionsMenu label={`Acoes da solicitacao ${compra.id}`}>
+                            <DropdownMenuItem asChild>
+                              <Link href={`/solicitacoes/${compra.id}`}>
+                                <Eye className="h-4 w-4" />
+                                Abrir solicitacao
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+
+                            {canApprove ? (
+                              <DropdownMenuItem onClick={() => handleApprove(compra.id)} disabled={isProcessing}>
+                                {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                                {isProcessing ? "Aprovando..." : "Aprovar solicitacao de compra"}
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem disabled>
+                                <ClipboardList className="h-4 w-4" />
+                                Sem acao imediata
+                              </DropdownMenuItem>
+                            )}
+                          </RowActionsMenu>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+            <ListPaginationBar
+              currentPage={aprovacaoPagination.currentPage}
+              endItem={aprovacaoPagination.endItem}
+              itemLabel="solicitacao(oes)"
+              onPageChange={aprovacaoPagination.setPage}
+              onPageSizeChange={aprovacaoPagination.setPageSize}
+              pageSize={aprovacaoPagination.pageSize}
+              startItem={aprovacaoPagination.startItem}
+              totalItems={aprovacaoPagination.totalItems}
+              totalPages={aprovacaoPagination.totalPages}
             />
           </>
         )}
@@ -401,6 +631,8 @@ function sortCompras(
       return (`#${left.id}`.localeCompare(`#${right.id}`, "pt-BR")) * modifier
     case "cliente":
       return ((left.cliente_nome ?? "").localeCompare(right.cliente_nome ?? "", "pt-BR")) * modifier
+    case "solicitante":
+      return ((left.solicitado_por ?? "").localeCompare(right.solicitado_por ?? "", "pt-BR")) * modifier
     case "fornecedor":
       return left.fornecedor.localeCompare(right.fornecedor, "pt-BR") * modifier
     case "atualizado":
@@ -428,3 +660,26 @@ function shouldShowSolicitacaoStatus(compra: Compra) {
 
   return true
 }
+
+function isSolicitacaoOwnedByCurrentUser(compra: Compra, userId?: number, nome?: string) {
+  const normalizedName = nome?.trim().toLowerCase()
+
+  if (userId && compra.solicitante_id === userId) {
+    return true
+  }
+
+  return Boolean(normalizedName && compra.solicitado_por?.trim().toLowerCase() === normalizedName)
+}
+
+const ETAPA_FILTER_OPTIONS: EtapaFluxoCompra[] = [
+  "solicitacao_registrada",
+  "cotacao_em_andamento",
+  "analise_solicitante",
+  "retificacao",
+  "aprovada_solicitante",
+  "aguardando_admin",
+  "aprovada_admin",
+  "aguardando_financeiro",
+  "liberada_para_fornecedor",
+  "pedido_autorizado",
+]

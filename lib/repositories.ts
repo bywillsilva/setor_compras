@@ -1210,9 +1210,40 @@ export async function listCompras(filters: PurchaseFilters = {}): Promise<Compra
   }))
 }
 
+async function getCompraRecordById(id: number): Promise<Row | null> {
+  if (getDatabaseType() === 'mysql') {
+    const rows = await mysqlSelect('SELECT * FROM compras WHERE id = ? LIMIT 1', [id])
+    return rows[0] ?? null
+  }
+
+  const client = getSupabaseOrThrow()
+  const { data, error } = await client.from('compras').select('*').eq('id', id).maybeSingle()
+  throwIfSupabaseError(error)
+  return data ? (data as Row) : null
+}
+
 export async function getCompraById(id: number): Promise<Compra | null> {
-  const compras = await listCompras({ id, includeArchived: true })
-  return compras[0] ?? null
+  const record = await getCompraRecordById(id)
+
+  if (!record) {
+    return null
+  }
+
+  const compra = normalizeCompra(record)
+  const [cliente, proposta, anexosByCompraId] = await Promise.all([
+    getClienteById(compra.cliente_id),
+    getPropostaById(compra.proposta_id),
+    getAnexoSummaryByCompraIds([compra.id]),
+  ])
+
+  return {
+    ...compra,
+    cliente_nome: cliente?.nome ?? 'Cliente nÃ£o identificado',
+    proposta_nome: proposta?.nome ?? 'Proposta nÃ£o identificada',
+    possui_cotacao: anexosByCompraId.get(compra.id)?.possui_cotacao ?? false,
+    possui_nf: anexosByCompraId.get(compra.id)?.possui_nf ?? false,
+    possui_boleto: anexosByCompraId.get(compra.id)?.possui_boleto ?? false,
+  }
 }
 
 export async function getCompraDetail(id: number) {
@@ -2944,9 +2975,15 @@ async function listComprasRaw(filters: PurchaseFilters = {}): Promise<Compra[]> 
       params.push(filters.propostaId)
     }
 
-    if (filters.solicitanteId) {
+    if (filters.solicitanteId && filters.solicitanteNome) {
+      sql += ' AND (solicitante_id = ? OR (solicitante_id IS NULL AND solicitado_por = ?))'
+      params.push(filters.solicitanteId, filters.solicitanteNome)
+    } else if (filters.solicitanteId) {
       sql += ' AND solicitante_id = ?'
       params.push(filters.solicitanteId)
+    } else if (filters.solicitanteNome) {
+      sql += ' AND solicitado_por = ?'
+      params.push(filters.solicitanteNome)
     }
 
     if (filters.status) {
@@ -2990,8 +3027,37 @@ async function listComprasRaw(filters: PurchaseFilters = {}): Promise<Compra[]> 
     query = query.eq('proposta_id', filters.propostaId)
   }
 
+  if (filters.solicitanteId && filters.solicitanteNome) {
+    const requesterQuery = client.from('compras').select('*').order('updated_at', { ascending: false }).eq('solicitante_id', filters.solicitanteId)
+    const requesterNameFallbackQuery = client
+      .from('compras')
+      .select('*')
+      .order('updated_at', { ascending: false })
+      .is('solicitante_id', null)
+      .eq('solicitado_por', filters.solicitanteNome)
+
+    const [requesterResult, requesterNameFallbackResult] = await Promise.all([
+      applyPurchaseFiltersToSupabaseQuery(requesterQuery, filters, { skipRequesterFilters: true }),
+      applyPurchaseFiltersToSupabaseQuery(requesterNameFallbackQuery, filters, { skipRequesterFilters: true }),
+    ])
+
+    throwIfSupabaseError(requesterResult.error)
+    throwIfSupabaseError(requesterNameFallbackResult.error)
+
+    const rowsById = new Map<number, Row>()
+    ;[...(requesterResult.data ?? []), ...(requesterNameFallbackResult.data ?? [])].forEach((row: Row) => {
+      rowsById.set(toNumber(row.id), row)
+    })
+
+    return [...rowsById.values()]
+      .sort((left, right) => new Date(String(right.updated_at ?? '')).getTime() - new Date(String(left.updated_at ?? '')).getTime())
+      .map((row: Row) => normalizeCompra(row))
+  }
+
   if (filters.solicitanteId) {
     query = query.eq('solicitante_id', filters.solicitanteId)
+  } else if (filters.solicitanteNome) {
+    query = query.eq('solicitado_por', filters.solicitanteNome)
   }
 
   if (filters.status) {
@@ -3009,6 +3075,56 @@ async function listComprasRaw(filters: PurchaseFilters = {}): Promise<Compra[]> 
   const { data, error } = await query
   throwIfSupabaseError(error)
   return (data ?? []).map((row: Row) => normalizeCompra(row))
+}
+
+function applyPurchaseFiltersToSupabaseQuery(
+  query: {
+    eq: (column: string, value: unknown) => unknown
+  },
+  filters: PurchaseFilters,
+  options: { skipRequesterFilters?: boolean } = {},
+) {
+  let nextQuery: any = query
+
+  if (filters.onlyArchived) {
+    nextQuery = nextQuery.eq('arquivado', true)
+  } else if (!filters.includeArchived) {
+    nextQuery = nextQuery.eq('arquivado', false)
+  }
+
+  if (filters.id) {
+    nextQuery = nextQuery.eq('id', filters.id)
+  }
+
+  if (filters.clienteId) {
+    nextQuery = nextQuery.eq('cliente_id', filters.clienteId)
+  }
+
+  if (filters.propostaId) {
+    nextQuery = nextQuery.eq('proposta_id', filters.propostaId)
+  }
+
+  if (!options.skipRequesterFilters) {
+    if (filters.solicitanteId) {
+      nextQuery = nextQuery.eq('solicitante_id', filters.solicitanteId)
+    } else if (filters.solicitanteNome) {
+      nextQuery = nextQuery.eq('solicitado_por', filters.solicitanteNome)
+    }
+  }
+
+  if (filters.status) {
+    nextQuery = nextQuery.eq('status', filters.status)
+  }
+
+  if (filters.etapaAutorizacao) {
+    nextQuery = nextQuery.eq('etapa_autorizacao', filters.etapaAutorizacao)
+  }
+
+  if (filters.etapaFluxo) {
+    nextQuery = nextQuery.eq('etapa_fluxo', filters.etapaFluxo)
+  }
+
+  return nextQuery
 }
 
 async function updateCompraAuthorizationStage(id: number, etapaAutorizacao: EtapaAutorizacao) {
