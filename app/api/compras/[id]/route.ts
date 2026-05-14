@@ -2,6 +2,7 @@ import { rm } from 'fs/promises'
 import path from 'path'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAnyFeature, requireFeature } from '@/lib/auth/api'
+import { hasFeatureAccess } from '@/lib/auth/permissions'
 import { isCompraLockedAfterAdminApproval } from '@/lib/domain'
 import { getCompraDetail, permanentlyDeleteCompra, setCompraArchivedState, updateCompra } from '@/lib/repositories'
 
@@ -51,6 +52,7 @@ export async function PUT(
     ] as const
     const bodyKeys = Object.keys(body)
     const isAuthorizationUpdate = body.status === 'pedido_autorizado'
+    const isArchiveToggle = typeof body.arquivado === 'boolean'
     const isDeliveryRevision =
       body.status_entrega !== undefined ||
       body.data_entrega_real !== undefined ||
@@ -65,9 +67,11 @@ export async function PUT(
       ? await requireFeature(request, 'autorizacoes')
       : isDeliveryRevision
         ? await requireFeature(request, 'revisar_entrega')
-        : isQuoteOperationalUpdate
-          ? await requireAnyFeature(request, ['compras', 'editar_compra'])
-        : await requireFeature(request, 'editar_compra')
+        : isArchiveToggle
+          ? await requireFeature(request, 'arquivar_compra')
+          : isQuoteOperationalUpdate
+            ? await requireFeature(request, 'editar_compra')
+          : await requireFeature(request, 'editar_compra')
 
     if ('response' in guard) {
       return guard.response
@@ -81,9 +85,16 @@ export async function PUT(
     }
 
     if (typeof body.arquivado === 'boolean') {
-      const archiveGuard = await requireFeature(request, 'editar_compra')
-      if ('response' in archiveGuard) {
-        return archiveGuard.response
+      if (
+        guard.session.perfil !== 'admin' &&
+        compraAtual &&
+        isCompraLockedAfterAdminApproval(compraAtual) &&
+        !hasFeatureAccess(guard.session.perfil, 'arquivar_compra_pos_aprovacao_admin', guard.session.features)
+      ) {
+        return NextResponse.json(
+          { error: 'Depois da aprovacao do ADM, o arquivamento da compra exige aprovacao administrativa.' },
+          { status: 403 },
+        )
       }
 
       const result = await setCompraArchivedState(Number(id), body.arquivado)
@@ -97,7 +108,8 @@ export async function PUT(
       isQuoteOperationalUpdate &&
       guard.session.perfil !== 'admin' &&
       compraAtual &&
-      isCompraLockedAfterAdminApproval(compraAtual)
+      isCompraLockedAfterAdminApproval(compraAtual) &&
+      !hasFeatureAccess(guard.session.perfil, 'editar_compra_pos_aprovacao_admin', guard.session.features)
     ) {
       return NextResponse.json(
         { error: 'Depois da aprovacao do ADM, alteracoes na compra exigem aprovacao administrativa.' },
@@ -162,7 +174,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const guard = await requireFeature(request, 'editar_compra')
+    const guard = await requireFeature(request, 'excluir_compra')
     if ('response' in guard) {
       return guard.response
     }
@@ -174,7 +186,11 @@ export async function DELETE(
       return NextResponse.json({ error: 'Compra nao encontrada.' }, { status: 404 })
     }
 
-    if (guard.session.perfil !== 'admin' && isCompraLockedAfterAdminApproval(compraAtual)) {
+    if (
+      guard.session.perfil !== 'admin' &&
+      isCompraLockedAfterAdminApproval(compraAtual) &&
+      !hasFeatureAccess(guard.session.perfil, 'excluir_compra_pos_aprovacao_admin', guard.session.features)
+    ) {
       return NextResponse.json(
         { error: 'Exclusoes de compras exigem aprovacao administrativa.' },
         { status: 403 },

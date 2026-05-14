@@ -7,7 +7,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const guard = await requireFeature(request, "solicitacoes_autorizacao")
+    const guard = await requireFeature(request, "aprovar_compra_admin")
     if ("response" in guard) {
       return guard.response
     }

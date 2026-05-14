@@ -81,6 +81,27 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
     valor_categoria_outros: "",
   })
   const canViewAsCompras = Boolean(session && hasFeatureAccess(session.perfil, "compras", session.features))
+  const canEditSolicitacaoFeature = Boolean(session && hasFeatureAccess(session.perfil, "editar_solicitacao", session.features))
+  const canArchiveSolicitacaoFeature = Boolean(session && hasFeatureAccess(session.perfil, "arquivar_solicitacao", session.features))
+  const canDeleteSolicitacaoFeature = Boolean(session && hasFeatureAccess(session.perfil, "excluir_solicitacao", session.features))
+  const canApproveSolicitacaoFeature = Boolean(session && hasFeatureAccess(session.perfil, "aprovar_solicitacao", session.features))
+  const canRetifySolicitacaoFeature = Boolean(session && hasFeatureAccess(session.perfil, "retificar_solicitacao", session.features))
+  const canDeleteAttachment = Boolean(
+    session && hasFeatureAccess(session.perfil, "excluir_anexo_compra", session.features),
+  )
+  const canDeleteAttachmentAfterAdminApproval = Boolean(
+    session &&
+      hasFeatureAccess(session.perfil, "excluir_anexo_compra_pos_aprovacao_admin", session.features),
+  )
+  const canEditSolicitacaoAfterAdminApprovalFeature = Boolean(
+    session && hasFeatureAccess(session.perfil, "editar_solicitacao_pos_aprovacao_admin", session.features),
+  )
+  const canArchiveSolicitacaoAfterAdminApprovalFeature = Boolean(
+    session && hasFeatureAccess(session.perfil, "arquivar_solicitacao_pos_aprovacao_admin", session.features),
+  )
+  const canDeleteSolicitacaoAfterAdminApprovalFeature = Boolean(
+    session && hasFeatureAccess(session.perfil, "excluir_solicitacao_pos_aprovacao_admin", session.features),
+  )
   const canManageAttachments = Boolean(
     session &&
       (hasFeatureAccess(session.perfil, "solicitacoes", session.features) ||
@@ -89,8 +110,9 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
   const canDeleteAttachments = Boolean(
     compra &&
       (session?.perfil === "admin" ||
-        (canViewAsCompras && !isCompraLockedAfterAdminApproval(compra)) ||
-        (canViewAsCompras && isCompraLockedAfterAdminApproval(compra))),
+        (canViewAsCompras &&
+          canDeleteAttachment &&
+          (!isCompraLockedAfterAdminApproval(compra) || canDeleteAttachmentAfterAdminApproval))),
   )
   const requiresAdminApprovalForSensitiveChanges = Boolean(
     compra && session?.perfil !== "admin" && canViewAsCompras && isCompraLockedAfterAdminApproval(compra),
@@ -364,7 +386,7 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
     setSavingRequesterData(true)
 
     try {
-      if (requiresAdminApprovalForRequesterChanges) {
+      if (requiresAdminApprovalForRequesterEdit) {
         const motivo = window.prompt("Descreva o motivo da alteracao para enviar ao administrador.")
         if (motivo === null) {
           return
@@ -449,7 +471,7 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
 
     const nextArchivedState = !compra.arquivado
 
-    if (requiresAdminApprovalForRequesterChanges) {
+    if (requiresAdminApprovalForRequesterArchive) {
       const motivo = window.prompt(
         nextArchivedState
           ? "Descreva o motivo do arquivamento para enviar ao administrador."
@@ -519,7 +541,7 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
       return
     }
 
-    if (requiresAdminApprovalForRequesterChanges) {
+    if (requiresAdminApprovalForRequesterDelete) {
       const motivo = window.prompt("Descreva o motivo da exclusao para enviar ao administrador.")
       if (motivo === null) {
         return
@@ -598,17 +620,54 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
     )
   }
 
-  const canApproveAsRequester = session?.userId === compra.solicitante_id && compra.etapa_fluxo === "analise_solicitante"
   const canAdminManageSolicitacao = session?.perfil === "admin"
+  const canApproveAsRequester =
+    compra.etapa_fluxo === "analise_solicitante" &&
+    canApproveSolicitacaoFeature &&
+    (session?.perfil === "admin" ||
+      session?.userId === compra.solicitante_id ||
+      (!compra.solicitante_id && compra.solicitado_por?.trim() === session?.nome?.trim()))
   const requesterOwnsSolicitacao = Boolean(
     session?.userId === compra.solicitante_id || (!compra.solicitante_id && compra.solicitado_por?.trim() === session?.nome?.trim()),
   )
   const shouldShowOperationalContext = canViewAsCompras || canAdminManageSolicitacao
-  const canManageSolicitacaoActions = canAdminManageSolicitacao || requesterOwnsSolicitacao
+  const canManageSolicitacaoActions =
+    (canAdminManageSolicitacao && (canEditSolicitacaoFeature || canArchiveSolicitacaoFeature || canDeleteSolicitacaoFeature)) ||
+    (requesterOwnsSolicitacao && (canEditSolicitacaoFeature || canArchiveSolicitacaoFeature || canDeleteSolicitacaoFeature))
   const isSolicitacaoLockedForRequester = requesterOwnsSolicitacao && isCompraLockedAfterAdminApproval(compra)
   const requiresAdminApprovalForRequesterChanges = !canAdminManageSolicitacao && isSolicitacaoLockedForRequester
-  const canDirectlyManageSolicitacao = canAdminManageSolicitacao || (requesterOwnsSolicitacao && !isCompraLockedAfterAdminApproval(compra))
-  const requesterActionLabel = requiresAdminApprovalForRequesterChanges ? "Solicitar alteracao" : "Editar solicitacao"
+  const canEditRequesterData =
+    (canAdminManageSolicitacao && canEditSolicitacaoFeature) ||
+    (requesterOwnsSolicitacao &&
+      canEditSolicitacaoFeature &&
+      (!isCompraLockedAfterAdminApproval(compra) || canEditSolicitacaoAfterAdminApprovalFeature))
+  const canDirectlyDeleteSolicitacao =
+    (canAdminManageSolicitacao && canDeleteSolicitacaoFeature) ||
+    (requesterOwnsSolicitacao &&
+      canDeleteSolicitacaoFeature &&
+      (!isCompraLockedAfterAdminApproval(compra) || canDeleteSolicitacaoAfterAdminApprovalFeature))
+  const requiresAdminApprovalForRequesterEdit =
+    requesterOwnsSolicitacao &&
+    canEditSolicitacaoFeature &&
+    isCompraLockedAfterAdminApproval(compra) &&
+    !canEditSolicitacaoAfterAdminApprovalFeature
+  const requiresAdminApprovalForRequesterArchive =
+    requesterOwnsSolicitacao &&
+    canArchiveSolicitacaoFeature &&
+    isCompraLockedAfterAdminApproval(compra) &&
+    !canArchiveSolicitacaoAfterAdminApprovalFeature
+  const requiresAdminApprovalForRequesterDelete =
+    requesterOwnsSolicitacao &&
+    canDeleteSolicitacaoFeature &&
+    isCompraLockedAfterAdminApproval(compra) &&
+    !canDeleteSolicitacaoAfterAdminApprovalFeature
+  const requesterActionLabel = requiresAdminApprovalForRequesterEdit ? "Solicitar alteracao" : "Editar solicitacao"
+  const canArchiveSolicitacaoAction =
+    (canAdminManageSolicitacao && canArchiveSolicitacaoFeature) ||
+    (requesterOwnsSolicitacao && canArchiveSolicitacaoFeature)
+  const canDeleteSolicitacaoAction =
+    (canAdminManageSolicitacao && canDeleteSolicitacaoFeature) ||
+    (requesterOwnsSolicitacao && canDeleteSolicitacaoFeature)
   const canEditQuoteData = canViewAsCompras && compra.status !== "pedido_autorizado"
   const propostaOrcamento = compra.proposta_orcamento
   const quoteResumo = [
@@ -671,20 +730,26 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={handleStartRequesterEdit}>{requesterActionLabel}</DropdownMenuItem>
-                  <DropdownMenuItem onClick={handleArchiveToggle} disabled={togglingArchive}>
-                    {requiresAdminApprovalForRequesterChanges
-                      ? compra.arquivado
-                        ? "Solicitar desarquivamento"
-                        : "Solicitar arquivamento"
-                      : compra.arquivado
-                        ? "Desarquivar solicitacao"
-                        : "Arquivar solicitacao"}
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem variant="destructive" onClick={handleDeleteSolicitacao} disabled={deletingSolicitacao || togglingArchive}>
-                    {canDirectlyManageSolicitacao ? "Excluir solicitacao" : "Solicitar exclusao"}
-                  </DropdownMenuItem>
+                  {canEditRequesterData || requiresAdminApprovalForRequesterEdit ? (
+                    <DropdownMenuItem onClick={handleStartRequesterEdit}>{requesterActionLabel}</DropdownMenuItem>
+                  ) : null}
+                  {canArchiveSolicitacaoAction ? (
+                    <DropdownMenuItem onClick={handleArchiveToggle} disabled={togglingArchive}>
+                      {requiresAdminApprovalForRequesterArchive
+                        ? compra.arquivado
+                          ? "Solicitar desarquivamento"
+                          : "Solicitar arquivamento"
+                        : compra.arquivado
+                          ? "Desarquivar solicitacao"
+                          : "Arquivar solicitacao"}
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canArchiveSolicitacaoAction && canDeleteSolicitacaoAction ? <DropdownMenuSeparator /> : null}
+                  {canDeleteSolicitacaoAction ? (
+                    <DropdownMenuItem variant="destructive" onClick={handleDeleteSolicitacao} disabled={deletingSolicitacao || togglingArchive}>
+                      {canDirectlyDeleteSolicitacao && !requiresAdminApprovalForRequesterDelete ? "Excluir solicitacao" : "Solicitar exclusao"}
+                    </DropdownMenuItem>
+                  ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : null}
@@ -853,43 +918,53 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
             ) : null}
 
             <SectionCard title="Acoes desta etapa" description="As transicoes do pedido acontecem por acoes diretas, sem troca manual de status.">
-              {canApproveAsRequester ? (
+              {canApproveAsRequester || (canRetifySolicitacaoFeature && (requesterOwnsSolicitacao || canAdminManageSolicitacao)) ? (
                 <div className="space-y-4">
-                  <Button
-                    className="w-full justify-start"
-                    disabled={processing}
-                    onClick={() =>
-                      runAction(`/api/solicitacoes/${compra.id}/aprovar`, null, "Solicitacao assinada e aprovada para seguir a autorizacao.")
-                    }
-                  >
-                    {processing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-                    Assinar e aprovar cotacao
-                  </Button>
-
-                  <div className="space-y-2 rounded-lg border p-4">
-                    <Label htmlFor="motivo-retificacao">Motivo da retificacao</Label>
-                    <Textarea
-                      id="motivo-retificacao"
-                      value={motivoRetificacao}
-                      onChange={(event) => setMotivoRetificacao(event.target.value)}
-                      placeholder="Explique o que precisa ser ajustado antes de seguir."
-                    />
+                  {canApproveAsRequester ? (
                     <Button
-                      variant="outline"
                       className="w-full justify-start"
-                      disabled={processing || !motivoRetificacao.trim()}
+                      disabled={processing}
                       onClick={() =>
                         runAction(
-                          `/api/solicitacoes/${compra.id}/retificacao`,
-                          { motivo: motivoRetificacao.trim() },
-                          "Retificacao enviada ao setor de compras.",
+                          `/api/solicitacoes/${compra.id}/aprovar`,
+                          null,
+                          canAdminManageSolicitacao
+                            ? "Solicitacao aprovada pelo administrador para seguir ao proximo fluxo."
+                            : "Solicitacao assinada e aprovada para seguir a autorizacao.",
                         )
                       }
                     >
-                      {processing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCcw className="mr-2 h-4 w-4" />}
-                      Solicitar retificacao
+                      {processing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                      {canAdminManageSolicitacao ? "Aprovar solicitacao" : "Assinar e aprovar cotacao"}
                     </Button>
-                  </div>
+                  ) : null}
+
+                  {canRetifySolicitacaoFeature ? (
+                    <div className="space-y-2 rounded-lg border p-4">
+                      <Label htmlFor="motivo-retificacao">Motivo da retificacao</Label>
+                      <Textarea
+                        id="motivo-retificacao"
+                        value={motivoRetificacao}
+                        onChange={(event) => setMotivoRetificacao(event.target.value)}
+                        placeholder="Explique o que precisa ser ajustado antes de seguir."
+                      />
+                      <Button
+                        variant="outline"
+                        className="w-full justify-start"
+                        disabled={processing || !motivoRetificacao.trim()}
+                        onClick={() =>
+                          runAction(
+                            `/api/solicitacoes/${compra.id}/retificacao`,
+                            { motivo: motivoRetificacao.trim() },
+                            "Retificacao enviada ao setor de compras.",
+                          )
+                        }
+                      >
+                        {processing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCcw className="mr-2 h-4 w-4" />}
+                        Solicitar retificacao
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">

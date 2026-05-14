@@ -52,6 +52,15 @@ export default function FinanceiroPage() {
     direction: "desc",
   })
   const canViewCompras = Boolean(session && hasFeatureAccess(session.perfil, "compras", session.features))
+  const canApproveFinance = Boolean(
+    session && hasFeatureAccess(session.perfil, "aprovar_compra_financeiro", session.features),
+  )
+  const canRejectFinance = Boolean(
+    session && hasFeatureAccess(session.perfil, "recusar_compra_financeiro", session.features),
+  )
+  const canConfirmFinanceDocuments = Boolean(
+    session && hasFeatureAccess(session.perfil, "confirmar_documentos_financeiro", session.features),
+  )
 
   async function fetchData(options: { silent?: boolean } = {}) {
     const { silent = false } = options
@@ -253,34 +262,38 @@ export default function FinanceiroPage() {
                   </Link>
                 </DropdownMenuItem>
               ) : null}
-              <DropdownMenuItem
-                onClick={() =>
-                  runAction(
-                    compra.id,
-                    `/api/compras/${compra.id}/aprovacao-financeira`,
-                    "Liberacao financeira registrada com sucesso.",
-                  )
-                }
-                disabled={processingId === compra.id}
-              >
-                {processingId === compra.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeDollarSign className="h-4 w-4" />}
-                {processingId === compra.id ? "Registrando..." : "Aprovar solicitacao"}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => {
-                  const motivo = window.prompt("Informe o motivo da devolucao ao comprador (opcional).", "") ?? ""
-                  runAction(
-                    compra.id,
-                    `/api/compras/${compra.id}/recusa-financeira`,
-                    "Pedido devolvido ao comprador.",
-                    { motivo },
-                  )
-                }}
-                disabled={processingId === compra.id}
-              >
-                {processingId === compra.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                {processingId === compra.id ? "Devolvendo..." : "Recusar e devolver"}
-              </DropdownMenuItem>
+              {canApproveFinance ? (
+                <DropdownMenuItem
+                  onClick={() =>
+                    runAction(
+                      compra.id,
+                      `/api/compras/${compra.id}/aprovacao-financeira`,
+                      "Liberacao financeira registrada com sucesso.",
+                    )
+                  }
+                  disabled={processingId === compra.id}
+                >
+                  {processingId === compra.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeDollarSign className="h-4 w-4" />}
+                  {processingId === compra.id ? "Registrando..." : "Aprovar solicitacao"}
+                </DropdownMenuItem>
+              ) : null}
+              {canRejectFinance ? (
+                <DropdownMenuItem
+                  onClick={() => {
+                    const motivo = window.prompt("Informe o motivo da devolucao ao comprador (opcional).", "") ?? ""
+                    runAction(
+                      compra.id,
+                      `/api/compras/${compra.id}/recusa-financeira`,
+                      "Pedido devolvido ao comprador.",
+                      { motivo },
+                    )
+                  }}
+                  disabled={processingId === compra.id}
+                >
+                  {processingId === compra.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                  {processingId === compra.id ? "Devolvendo..." : "Recusar e devolver"}
+                </DropdownMenuItem>
+              ) : null}
             </RowActionsMenu>
           )}
         />
@@ -320,19 +333,21 @@ export default function FinanceiroPage() {
                   </Link>
                 </DropdownMenuItem>
               ) : null}
-              <DropdownMenuItem
-                onClick={() =>
-                  runAction(
-                    compra.id,
-                    `/api/compras/${compra.id}/confirmacao-documentos-financeiro`,
-                    "Baixa financeira concluida com sucesso.",
-                  )
-                }
-                disabled={processingId === compra.id}
-              >
-                {processingId === compra.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                {processingId === compra.id ? "Concluindo..." : "Dar OK e concluir"}
-              </DropdownMenuItem>
+              {canConfirmFinanceDocuments ? (
+                <DropdownMenuItem
+                  onClick={() =>
+                    runAction(
+                      compra.id,
+                      `/api/compras/${compra.id}/confirmacao-documentos-financeiro`,
+                      "Baixa financeira concluida com sucesso.",
+                    )
+                  }
+                  disabled={processingId === compra.id}
+                >
+                  {processingId === compra.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                  {processingId === compra.id ? "Concluindo..." : "Dar OK e concluir"}
+                </DropdownMenuItem>
+              ) : null}
             </RowActionsMenu>
           )}
         />

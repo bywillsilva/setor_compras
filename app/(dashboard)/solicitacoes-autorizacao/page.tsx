@@ -54,6 +54,11 @@ export default function SolicitacoesAutorizacaoPage() {
     direction: "desc",
   })
   const canViewCompras = Boolean(session && hasFeatureAccess(session.perfil, "compras", session.features))
+  const canManageAdmApproval = Boolean(
+    session &&
+      (hasFeatureAccess(session.perfil, "aprovar_compra_admin", session.features) ||
+        hasFeatureAccess(session.perfil, "recusar_compra_admin", session.features)),
+  )
 
   async function fetchData(options: { silent?: boolean } = {}) {
     const { silent = false } = options
@@ -296,12 +301,14 @@ export default function SolicitacoesAutorizacaoPage() {
                               <DropdownMenuSeparator />
                             </>
                           ) : null}
-                          <DropdownMenuItem asChild>
-                            <Link href={`/solicitacoes-autorizacao/${compra.id}`}>
-                              <CheckCircle2 className="h-4 w-4" />
-                              Autorizar pedido
-                            </Link>
-                          </DropdownMenuItem>
+                          {canManageAdmApproval ? (
+                            <DropdownMenuItem asChild>
+                              <Link href={`/solicitacoes-autorizacao/${compra.id}`}>
+                                <CheckCircle2 className="h-4 w-4" />
+                                Autorizar pedido
+                              </Link>
+                            </DropdownMenuItem>
+                          ) : null}
                         </RowActionsMenu>
                       </TableCell>
                     </TableRow>

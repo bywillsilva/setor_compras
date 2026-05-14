@@ -4,7 +4,9 @@ import { use, useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, Loader2, Save, ShieldCheck } from "lucide-react"
+import { useCurrentSession } from "@/components/auth-provider"
 import { useLiveRefresh } from "@/components/shared/use-live-refresh"
+import { hasFeatureAccess } from "@/lib/auth/permissions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -19,6 +21,7 @@ type CompraDetalhe = Compra & {
 
 export default function SolicitacaoAutorizacaoDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
+  const session = useCurrentSession()
   const router = useRouter()
   const [compra, setCompra] = useState<CompraDetalhe | null>(null)
   const [loading, setLoading] = useState(true)
@@ -30,6 +33,8 @@ export default function SolicitacaoAutorizacaoDetailPage({ params }: { params: P
     valor_total: "",
   })
   const [isDirty, setIsDirty] = useState(false)
+  const canApprove = Boolean(session && hasFeatureAccess(session.perfil, "aprovar_compra_admin", session.features))
+  const canReject = Boolean(session && hasFeatureAccess(session.perfil, "recusar_compra_admin", session.features))
 
   async function fetchCompra() {
     try {
@@ -248,14 +253,18 @@ export default function SolicitacaoAutorizacaoDetailPage({ params }: { params: P
                   Cancelar
                 </Button>
               </Link>
-                <Button type="button" variant="outline" onClick={handleReject} disabled={saving || rejecting}>
-                  {rejecting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  {rejecting ? "Recusando..." : "Recusar e devolver"}
-                </Button>
-                <Button onClick={handleSave} disabled={saving || rejecting}>
-                  {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                  {saving ? "Salvando..." : "Aprovar pedido"}
-                </Button>
+                {canReject ? (
+                  <Button type="button" variant="outline" onClick={handleReject} disabled={saving || rejecting}>
+                    {rejecting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    {rejecting ? "Recusando..." : "Recusar e devolver"}
+                  </Button>
+                ) : null}
+                {canApprove ? (
+                  <Button onClick={handleSave} disabled={saving || rejecting}>
+                    {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                    {saving ? "Salvando..." : "Aprovar pedido"}
+                  </Button>
+                ) : null}
             </div>
           </CardContent>
         </Card>

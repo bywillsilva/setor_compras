@@ -16,4 +16,6 @@ node_modules
 .turbo/
 *.tsbuildinfo
 scripts/supabase/.temp/
+tmp/
+*.log
 .DS_Store

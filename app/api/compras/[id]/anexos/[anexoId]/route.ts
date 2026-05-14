@@ -32,9 +32,18 @@ export async function DELETE(
     }
 
     if (session.perfil !== 'admin') {
-      const canManageAsComprador = hasFeatureAccess(session.perfil, 'compras', session.features)
+      const canDeleteAttachment = hasFeatureAccess(session.perfil, 'excluir_anexo_compra', session.features)
+      const canDeleteAttachmentAfterApproval = hasFeatureAccess(
+        session.perfil,
+        'excluir_anexo_compra_pos_aprovacao_admin',
+        session.features,
+      )
 
-      if (!canManageAsComprador || isCompraLockedAfterAdminApproval(compra)) {
+      if (!canDeleteAttachment) {
+        return NextResponse.json({ error: 'Voce nao tem permissao para excluir anexos desta compra.' }, { status: 403 })
+      }
+
+      if (isCompraLockedAfterAdminApproval(compra) && !canDeleteAttachmentAfterApproval) {
         return NextResponse.json(
           { error: 'Depois da aprovacao do ADM, a exclusao de anexos exige autorizacao administrativa.' },
           { status: 403 },
@@ -78,16 +87,21 @@ async function validateAttachmentAccess(request: NextRequest, compraId: number) 
     return NextResponse.json({ error: 'Sessao expirada. Faca login novamente.' }, { status: 401 })
   }
 
-  if (hasFeatureAccess(session.perfil, 'compras')) {
+  if (session.perfil === 'admin' || hasFeatureAccess(session.perfil, 'compras', session.features)) {
     return null
   }
 
-  if (!hasFeatureAccess(session.perfil, 'solicitacoes')) {
+  if (!hasFeatureAccess(session.perfil, 'solicitacoes', session.features)) {
     return NextResponse.json({ error: 'Voce nao tem permissao para esta acao.' }, { status: 403 })
   }
 
   const compra = await getCompraById(compraId)
-  if (!compra || compra.solicitante_id !== session.userId) {
+  const canViewAsRequester =
+    compra &&
+    (compra.solicitante_id === session.userId ||
+      (!compra.solicitante_id && compra.solicitado_por?.trim() === session.nome.trim()))
+
+  if (!canViewAsRequester) {
     return NextResponse.json({ error: 'Voce nao tem acesso a esta solicitacao.' }, { status: 403 })
   }
 

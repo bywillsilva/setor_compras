@@ -73,10 +73,20 @@ export async function PUT(
       return NextResponse.json({ error: "Voce nao tem acesso a esta solicitacao." }, { status: 403 })
     }
 
-    const canRequesterEdit = canAdminManage || (canViewAsRequester && !isCompraLockedAfterAdminApproval(compra))
-    const canRequesterManageArchive = canAdminManage || (canViewAsRequester && !isCompraLockedAfterAdminApproval(compra))
+    const canRequesterEdit =
+      (canAdminManage && hasFeatureAccess(guard.session.perfil, "editar_solicitacao", guard.session.features)) ||
+      (canViewAsRequester &&
+        hasFeatureAccess(guard.session.perfil, "editar_solicitacao", guard.session.features) &&
+        (!isCompraLockedAfterAdminApproval(compra) ||
+          hasFeatureAccess(guard.session.perfil, "editar_solicitacao_pos_aprovacao_admin", guard.session.features)))
+    const canRequesterManageArchive =
+      (canAdminManage && hasFeatureAccess(guard.session.perfil, "arquivar_solicitacao", guard.session.features)) ||
+      (canViewAsRequester &&
+        hasFeatureAccess(guard.session.perfil, "arquivar_solicitacao", guard.session.features) &&
+        (!isCompraLockedAfterAdminApproval(compra) ||
+          hasFeatureAccess(guard.session.perfil, "arquivar_solicitacao_pos_aprovacao_admin", guard.session.features)))
 
-    if (!canViewAsCompras && !canRequesterEdit) {
+    if (!canRequesterEdit) {
       return NextResponse.json(
         { error: "Esta solicitacao nao pode mais ser editada pelo solicitante nesta etapa." },
         { status: 403 },
@@ -144,7 +154,12 @@ export async function DELETE(
       return NextResponse.json({ error: "Voce nao tem acesso a esta solicitacao." }, { status: 403 })
     }
 
-    const canRequesterDelete = canAdminManage || (canViewAsRequester && !isCompraLockedAfterAdminApproval(compra))
+    const canRequesterDelete =
+      (canAdminManage && hasFeatureAccess(guard.session.perfil, "excluir_solicitacao", guard.session.features)) ||
+      (canViewAsRequester &&
+        hasFeatureAccess(guard.session.perfil, "excluir_solicitacao", guard.session.features) &&
+        (!isCompraLockedAfterAdminApproval(compra) ||
+          hasFeatureAccess(guard.session.perfil, "excluir_solicitacao_pos_aprovacao_admin", guard.session.features)))
 
     if (!canRequesterDelete) {
       return NextResponse.json(

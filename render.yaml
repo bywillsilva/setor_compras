@@ -3,7 +3,7 @@ services:
     name: setor-compras
     runtime: node
     buildCommand: npm ci && npm run build
-    startCommand: npm run start -- --hostname 0.0.0.0 --port $PORT
+    startCommand: npm run start
     healthCheckPath: /auth/login
     envVars:
       - key: NODE_VERSION

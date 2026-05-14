@@ -50,6 +50,9 @@ export default function AutorizacoesPage() {
     session && hasFeatureAccess(session.perfil, "solicitar_autorizacao", session.features),
   )
   const canViewCompras = Boolean(session && hasFeatureAccess(session.perfil, "compras", session.features))
+  const canConfirmFornecedor = Boolean(
+    session && hasFeatureAccess(session.perfil, "confirmar_fornecedor", session.features),
+  )
 
   async function fetchData(options: { silent?: boolean } = {}) {
     const { silent = false } = options
@@ -351,7 +354,7 @@ export default function AutorizacoesPage() {
                               </>
                             ) : null}
 
-                            {canFinalize ? (
+                            {canFinalize && canConfirmFornecedor ? (
                               <DropdownMenuItem asChild>
                                 <Link href={`/autorizacoes/${compra.id}`}>
                                   <CheckCircle2 className="h-4 w-4" />
@@ -378,14 +381,14 @@ export default function AutorizacoesPage() {
                                 <Loader2 className="h-4 w-4" />
                                 Aguardando financeiro
                               </DropdownMenuItem>
-                            ) : (
+                            ) : canRequestApproval ? (
                               <DropdownMenuItem asChild>
                                 <Link href={`/solicitacoes/${compra.id}`}>
                                   <Eye className="h-4 w-4" />
                                   Acompanhar solicitacao
                                 </Link>
                               </DropdownMenuItem>
-                            )}
+                            ) : null}
                           </RowActionsMenu>
                         </TableCell>
                       </TableRow>

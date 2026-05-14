@@ -4,7 +4,9 @@ import { use, useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, CheckCircle2, Loader2, Save } from "lucide-react"
+import { useCurrentSession } from "@/components/auth-provider"
 import { useLiveRefresh } from "@/components/shared/use-live-refresh"
+import { hasFeatureAccess } from "@/lib/auth/permissions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -24,12 +26,16 @@ type CompraDetalhe = Compra & {
 
 export default function AutorizacaoDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
+  const session = useCurrentSession()
   const router = useRouter()
   const [compra, setCompra] = useState<CompraDetalhe | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [previsaoEntrega, setPrevisaoEntrega] = useState("")
+  const canConfirmFornecedor = Boolean(
+    session && hasFeatureAccess(session.perfil, "confirmar_fornecedor", session.features),
+  )
 
   async function fetchCompra() {
     try {
@@ -222,10 +228,12 @@ export default function AutorizacaoDetailPage({ params }: { params: Promise<{ id
                   Cancelar
                 </Button>
               </Link>
-              <Button onClick={handleSave} disabled={saving}>
-                {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                {saving ? "Salvando..." : "Confirmar pedido"}
-              </Button>
+              {canConfirmFornecedor ? (
+                <Button onClick={handleSave} disabled={saving}>
+                  {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                  {saving ? "Salvando..." : "Confirmar pedido"}
+                </Button>
+              ) : null}
             </div>
           </CardContent>
         </Card>

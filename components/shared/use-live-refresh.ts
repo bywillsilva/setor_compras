@@ -8,6 +8,7 @@ type UseLiveRefreshOptions = {
   quietWindowMs?: number
   focusDelayMs?: number
   minIntervalMs?: number
+  reconnectDelayMs?: number
 }
 
 function isEditableTarget(target: Element | null) {
@@ -32,10 +33,11 @@ export function useLiveRefresh(
   refresh: () => void | Promise<void>,
   {
     enabled = true,
-    intervalMs = 15000,
+    intervalMs = 20000,
     quietWindowMs = 4000,
     focusDelayMs = 900,
     minIntervalMs = 2500,
+    reconnectDelayMs = 600,
   }: UseLiveRefreshOptions = {},
 ) {
   const refreshRef = useRef(refresh)
@@ -87,7 +89,13 @@ export function useLiveRefresh(
       try {
         await refreshRef.current()
       } catch (error) {
-        console.error(error)
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return
+        }
+
+        if (process.env.NODE_ENV !== "production") {
+          console.error(error)
+        }
       } finally {
         lastRefreshRef.current = Date.now()
         runningRef.current = false
@@ -115,6 +123,10 @@ export function useLiveRefresh(
       }
     }
 
+    function handleOnline() {
+      scheduleRefresh(reconnectDelayMs)
+    }
+
     const timer = window.setInterval(() => {
       void runRefresh()
     }, intervalMs)
@@ -123,6 +135,7 @@ export function useLiveRefresh(
     window.addEventListener("keydown", markInteraction, true)
     window.addEventListener("touchstart", markInteraction, true)
     window.addEventListener("focus", handleFocus)
+    window.addEventListener("online", handleOnline)
     document.addEventListener("visibilitychange", handleVisibilityChange)
 
     return () => {
@@ -134,7 +147,8 @@ export function useLiveRefresh(
       window.removeEventListener("keydown", markInteraction, true)
       window.removeEventListener("touchstart", markInteraction, true)
       window.removeEventListener("focus", handleFocus)
+      window.removeEventListener("online", handleOnline)
       document.removeEventListener("visibilitychange", handleVisibilityChange)
     }
-  }, [enabled, focusDelayMs, intervalMs, minIntervalMs, quietWindowMs])
+  }, [enabled, focusDelayMs, intervalMs, minIntervalMs, quietWindowMs, reconnectDelayMs])
 }

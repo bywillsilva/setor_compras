@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireFeature } from "@/lib/auth/api"
+import { hasFeatureAccess } from "@/lib/auth/permissions"
 import { getCompraById, requestCompraRetification } from "@/lib/repositories"
 
 export async function POST(
@@ -19,7 +20,13 @@ export async function POST(
       return NextResponse.json({ error: "Solicitacao nao encontrada." }, { status: 404 })
     }
 
-    if (compra.solicitante_id !== guard.session.userId) {
+    const canRequestRetification =
+      hasFeatureAccess(guard.session.perfil, "retificar_solicitacao", guard.session.features) &&
+      (guard.session.perfil === "admin" ||
+        compra.solicitante_id === guard.session.userId ||
+        (!compra.solicitante_id && compra.solicitado_por?.trim() === guard.session.nome.trim()))
+
+    if (!canRequestRetification) {
       return NextResponse.json({ error: "Voce nao pode retificar esta solicitacao." }, { status: 403 })
     }
 

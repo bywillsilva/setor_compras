@@ -67,7 +67,9 @@ export default function ComprasPage() {
   const canRequestApproval = Boolean(
     session && hasFeatureAccess(session.perfil, "solicitar_autorizacao", session.features),
   )
-  const canFinalizeFornecedor = Boolean(session && hasFeatureAccess(session.perfil, "autorizacoes", session.features))
+  const canFinalizeFornecedor = Boolean(
+    session && hasFeatureAccess(session.perfil, "confirmar_fornecedor", session.features),
+  )
 
   async function fetchCompras(
     selectedArchiveFilter = filters.archive,
@@ -552,12 +554,12 @@ export default function ComprasPage() {
                                       {compra.status_entrega === "entregue" ? "Revisar entrega" : "Informar entrega"}
                                     </Link>
                                   </DropdownMenuItem>
-                                ) : (
+                                ) : canRequestApproval ? (
                                   <DropdownMenuItem disabled>
                                     <AlertTriangle className="h-4 w-4" />
                                     Sem acao imediata
                                   </DropdownMenuItem>
-                                )}
+                                ) : null}
                               </>
                             ) : null}
                           </RowActionsMenu>

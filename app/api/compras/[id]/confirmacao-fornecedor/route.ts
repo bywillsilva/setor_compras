@@ -7,7 +7,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const guard = await requireFeature(request, "autorizacoes")
+    const guard = await requireFeature(request, "confirmar_fornecedor")
     if ("response" in guard) {
       return guard.response
     }

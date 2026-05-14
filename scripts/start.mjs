@@ -13,6 +13,23 @@ const child = spawn(process.execPath, [nextBin, "start", "-H", host, "-p", port]
   env: process.env,
 })
 
+let shuttingDown = false
+
+function forwardSignal(signal) {
+  if (shuttingDown) {
+    return
+  }
+
+  shuttingDown = true
+
+  if (!child.killed) {
+    child.kill(signal)
+    return
+  }
+
+  process.kill(process.pid, signal)
+}
+
 child.on("exit", (code, signal) => {
   if (signal) {
     process.kill(process.pid, signal)
@@ -26,3 +43,6 @@ child.on("error", (error) => {
   console.error("Falha ao iniciar o servidor Next.js.", error)
   process.exit(1)
 })
+
+process.on("SIGINT", () => forwardSignal("SIGINT"))
+process.on("SIGTERM", () => forwardSignal("SIGTERM"))

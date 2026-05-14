@@ -387,7 +387,13 @@ export default function SolicitacoesPage() {
                 <TableBody>
                   {enviadasPagination.items.map((compra) => {
                     const isProcessing = processingId === compra.id
-                    const canApprove = session?.userId === compra.solicitante_id && compra.etapa_fluxo === "analise_solicitante"
+                    const canApprove =
+                      compra.etapa_fluxo === "analise_solicitante" &&
+                      session &&
+                      hasFeatureAccess(session.perfil, "aprovar_solicitacao", session.features) &&
+                      (session.perfil === "admin" ||
+                        session.userId === compra.solicitante_id ||
+                        (!compra.solicitante_id && compra.solicitado_por?.trim() === session.nome?.trim()))
 
                     return (
                       <TableRow key={compra.id}>
@@ -432,19 +438,15 @@ export default function SolicitacoesPage() {
                                 Abrir solicitacao
                               </Link>
                             </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-
                             {canApprove ? (
-                              <DropdownMenuItem onClick={() => handleApprove(compra.id)} disabled={isProcessing}>
-                                {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                                {isProcessing ? "Aprovando..." : "Aprovar solicitacao de compra"}
-                              </DropdownMenuItem>
-                            ) : (
-                              <DropdownMenuItem disabled>
-                                <ClipboardList className="h-4 w-4" />
-                                Sem acao imediata
-                              </DropdownMenuItem>
-                            )}
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => handleApprove(compra.id)} disabled={isProcessing}>
+                                  {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                                  {isProcessing ? "Aprovando..." : "Aprovar solicitacao de compra"}
+                                </DropdownMenuItem>
+                              </>
+                            ) : null}
                           </RowActionsMenu>
                         </TableCell>
                       </TableRow>
@@ -535,7 +537,13 @@ export default function SolicitacoesPage() {
                 <TableBody>
                   {aprovacaoPagination.items.map((compra) => {
                     const isProcessing = processingId === compra.id
-                    const canApprove = session?.userId === compra.solicitante_id && compra.etapa_fluxo === "analise_solicitante"
+                    const canApprove =
+                      compra.etapa_fluxo === "analise_solicitante" &&
+                      session &&
+                      hasFeatureAccess(session.perfil, "aprovar_solicitacao", session.features) &&
+                      (session.perfil === "admin" ||
+                        session.userId === compra.solicitante_id ||
+                        (!compra.solicitante_id && compra.solicitado_por?.trim() === session.nome?.trim()))
 
                     return (
                       <TableRow key={compra.id}>
@@ -580,19 +588,15 @@ export default function SolicitacoesPage() {
                                 Abrir solicitacao
                               </Link>
                             </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-
                             {canApprove ? (
-                              <DropdownMenuItem onClick={() => handleApprove(compra.id)} disabled={isProcessing}>
-                                {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                                {isProcessing ? "Aprovando..." : "Aprovar solicitacao de compra"}
-                              </DropdownMenuItem>
-                            ) : (
-                              <DropdownMenuItem disabled>
-                                <ClipboardList className="h-4 w-4" />
-                                Sem acao imediata
-                              </DropdownMenuItem>
-                            )}
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => handleApprove(compra.id)} disabled={isProcessing}>
+                                  {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                                  {isProcessing ? "Aprovando..." : "Aprovar solicitacao de compra"}
+                                </DropdownMenuItem>
+                              </>
+                            ) : null}
                           </RowActionsMenu>
                         </TableCell>
                       </TableRow>

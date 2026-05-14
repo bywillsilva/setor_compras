@@ -92,17 +92,40 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
     session && hasFeatureAccess(session.perfil, "solicitar_autorizacao", session.features),
   )
   const isAdmin = session?.perfil === "admin"
-  const canManageCotacaoData = Boolean(session && hasFeatureAccess(session.perfil, "compras", session.features))
-  const canFinalizeFornecedor = Boolean(
-    session && hasFeatureAccess(session.perfil, "autorizacoes", session.features),
+  const canEditCompra = Boolean(session && hasFeatureAccess(session.perfil, "editar_compra", session.features))
+  const canArchiveCompra = Boolean(session && hasFeatureAccess(session.perfil, "arquivar_compra", session.features))
+  const canDeleteCompra = Boolean(session && hasFeatureAccess(session.perfil, "excluir_compra", session.features))
+  const canDeleteAttachment = Boolean(
+    session && hasFeatureAccess(session.perfil, "excluir_anexo_compra", session.features),
   )
-  const canApproveAdm = Boolean(
-    session && hasFeatureAccess(session.perfil, "solicitacoes_autorizacao", session.features),
+  const canEditCompraAfterAdminApproval = Boolean(
+    session && hasFeatureAccess(session.perfil, "editar_compra_pos_aprovacao_admin", session.features),
+  )
+  const canArchiveCompraAfterAdminApproval = Boolean(
+    session && hasFeatureAccess(session.perfil, "arquivar_compra_pos_aprovacao_admin", session.features),
+  )
+  const canDeleteCompraAfterAdminApproval = Boolean(
+    session && hasFeatureAccess(session.perfil, "excluir_compra_pos_aprovacao_admin", session.features),
+  )
+  const canDeleteAttachmentAfterAdminApproval = Boolean(
+    session && hasFeatureAccess(session.perfil, "excluir_anexo_compra_pos_aprovacao_admin", session.features),
+  )
+  const canFinalizeFornecedor = Boolean(
+    session && hasFeatureAccess(session.perfil, "confirmar_fornecedor", session.features),
+  )
+  const canManageAdmApproval = Boolean(
+    session &&
+      (hasFeatureAccess(session.perfil, "aprovar_compra_admin", session.features) ||
+        hasFeatureAccess(session.perfil, "recusar_compra_admin", session.features)),
   )
   const requiresAdminApprovalForSensitiveChanges = Boolean(
     compra && !isAdmin && isCompraLockedAfterAdminApproval(compra),
   )
-  const canManageAttachmentDeletion = Boolean(isAdmin || canManageCotacaoData)
+  const canManageAttachmentDeletion = Boolean(
+    isAdmin ||
+      canDeleteAttachment ||
+      (requiresAdminApprovalForSensitiveChanges && canDeleteAttachment && !canDeleteAttachmentAfterAdminApproval),
+  )
   const [formData, setFormData] = useState<{
     fornecedor: string
     descricao: string
@@ -166,7 +189,10 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
     setSaving(true)
 
     try {
-      if (!isAdmin && (!canManageCotacaoData || requiresAdminApprovalForSensitiveChanges)) {
+      if (
+        !isAdmin &&
+        (!canEditCompra || (requiresAdminApprovalForSensitiveChanges && !canEditCompraAfterAdminApproval))
+      ) {
         const motivo = window.prompt("Descreva o motivo da alteracao para enviar ao administrador.")
         if (motivo === null) {
           return
@@ -251,6 +277,44 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
     setTogglingArchive(true)
 
     try {
+      if (!canDirectArchiveCompra) {
+        const motivo = window.prompt(
+          nextArchivedState
+            ? "Descreva o motivo do arquivamento para enviar ao administrador."
+            : "Descreva o motivo do desarquivamento para enviar ao administrador.",
+        )
+        if (motivo === null) {
+          return
+        }
+
+        const response = await fetch("/api/solicitacoes-sensiveis", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            entidade: "compra",
+            entidade_id: compra.id,
+            acao: "editar",
+            motivo:
+              motivo.trim() ||
+              (nextArchivedState
+                ? "Arquivamento solicitado para o pedido de compra."
+                : "Desarquivamento solicitado para o pedido de compra."),
+            payload: {
+              operation: "toggle_archive",
+              arquivado: nextArchivedState,
+            },
+          }),
+        })
+        const payload = await response.json().catch(() => null)
+
+        if (!response.ok) {
+          throw new Error(payload?.error || "Erro ao solicitar arquivamento do pedido.")
+        }
+
+        alert("Solicitacao enviada ao administrador.")
+        return
+      }
+
       const response = await fetch(`/api/compras/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -549,9 +613,22 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
     { label: "Perdas/Reposicao", value: compra.valor_categoria_perdas },
     { label: "Outros", value: compra.valor_categoria_outros },
   ]
+  const canRequestEditCompra = Boolean(
+    !isAdmin && canEditCompra && compra.status !== "pedido_autorizado" && requiresAdminApprovalForSensitiveChanges,
+  )
   const canDirectEditCotacao =
-    canManageCotacaoData && compra.status !== "pedido_autorizado" && !requiresAdminApprovalForSensitiveChanges
-  const canDirectDeleteCompra = (isAdmin || canManageCotacaoData) && !requiresAdminApprovalForSensitiveChanges
+    (isAdmin || canEditCompra) &&
+    compra.status !== "pedido_autorizado" &&
+    (!requiresAdminApprovalForSensitiveChanges || canEditCompraAfterAdminApproval)
+  const canShowEditAction = Boolean(isAdmin || canEditCompra || canRequestEditCompra)
+  const canDirectArchiveCompra =
+    (isAdmin || canArchiveCompra) &&
+    (!requiresAdminApprovalForSensitiveChanges || canArchiveCompraAfterAdminApproval)
+  const canArchiveCompraAction = Boolean(isAdmin || canArchiveCompra)
+  const canDirectDeleteCompra =
+    (isAdmin || canDeleteCompra) &&
+    (!requiresAdminApprovalForSensitiveChanges || canDeleteCompraAfterAdminApproval)
+  const canDeleteCompraAction = Boolean(isAdmin || canDeleteCompra)
 
   return (
     <div className="space-y-6 p-4 sm:p-6">
@@ -647,7 +724,7 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
               <CheckCircle2 className="mr-2 h-4 w-4" />
               {requestingAuthorization ? "Solicitando..." : "Solicitar assinatura do ADM"}
             </Button>
-          ) : compra.status !== "pedido_autorizado" && canApproveAdm && compra.etapa_fluxo === "aguardando_admin" ? (
+          ) : compra.status !== "pedido_autorizado" && canManageAdmApproval && compra.etapa_fluxo === "aguardando_admin" ? (
             <Link href={`/solicitacoes-autorizacao/${compra.id}`}>
               <Button variant="outline">
                 <CheckCircle2 className="mr-2 h-4 w-4" />
@@ -678,16 +755,28 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
                 </Button>
               </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => setEditing(true)}>
-                    {isAdmin ? "Editar dados gerais" : canDirectEditCotacao ? "Editar dados da cotacao" : "Solicitar alteracao"}
-                  </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleArchiveToggle} disabled={togglingArchive}>
-                  {compra.arquivado ? "Desarquivar pedido" : "Arquivar pedido"}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem variant="destructive" onClick={handleDelete} disabled={deleting || togglingArchive}>
-                  {canDirectDeleteCompra ? "Excluir pedido" : "Solicitar exclusao"}
-                </DropdownMenuItem>
+                  {canShowEditAction ? (
+                    <DropdownMenuItem onClick={() => setEditing(true)}>
+                      {isAdmin ? "Editar dados gerais" : canDirectEditCotacao ? "Editar dados da cotacao" : "Solicitar alteracao"}
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canArchiveCompraAction ? (
+                    <DropdownMenuItem onClick={handleArchiveToggle} disabled={togglingArchive}>
+                      {canDirectArchiveCompra
+                        ? compra.arquivado
+                          ? "Desarquivar pedido"
+                          : "Arquivar pedido"
+                        : compra.arquivado
+                          ? "Solicitar desarquivamento"
+                          : "Solicitar arquivamento"}
+                    </DropdownMenuItem>
+                  ) : null}
+                  {(canShowEditAction || canArchiveCompraAction) && canDeleteCompraAction ? <DropdownMenuSeparator /> : null}
+                  {canDeleteCompraAction ? (
+                    <DropdownMenuItem variant="destructive" onClick={handleDelete} disabled={deleting || togglingArchive}>
+                      {canDirectDeleteCompra ? "Excluir pedido" : "Solicitar exclusao"}
+                    </DropdownMenuItem>
+                  ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
