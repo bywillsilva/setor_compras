@@ -33,7 +33,7 @@ import {
 } from "@/lib/domain"
 import type { Compra } from "@/lib/types"
 
-type SortColumn = "pedido" | "cliente" | "valor" | "atualizado"
+type SortColumn = "pedido" | "cliente" | "fornecedor" | "valor" | "atualizado"
 
 export default function FinanceiroPage() {
   const session = useCurrentSession()
@@ -43,6 +43,7 @@ export default function FinanceiroPage() {
   const [filters, setFilters] = useState({
     pedido: "",
     cliente: "",
+    fornecedor: "",
     etapa: "todos",
     updatedFrom: "",
     updatedTo: "",
@@ -128,6 +129,10 @@ export default function FinanceiroPage() {
           !filters.cliente ||
           (compra.cliente_nome ?? "").toLowerCase().includes(filters.cliente.toLowerCase()) ||
           (compra.proposta_nome ?? "").toLowerCase().includes(filters.cliente.toLowerCase())
+        const matchesFornecedor =
+          !filters.fornecedor ||
+          compra.fornecedor.toLowerCase().includes(filters.fornecedor.toLowerCase()) ||
+          compra.descricao.toLowerCase().includes(filters.fornecedor.toLowerCase())
         const matchesEtapa =
           filters.etapa === "todos" ||
           (filters.etapa === "aguardando_financeiro" && compra.etapa_fluxo === "aguardando_financeiro") ||
@@ -139,7 +144,7 @@ export default function FinanceiroPage() {
         const matchesUpdatedFrom = !filters.updatedFrom || compra.updated_at.slice(0, 10) >= filters.updatedFrom
         const matchesUpdatedTo = !filters.updatedTo || compra.updated_at.slice(0, 10) <= filters.updatedTo
 
-        return matchesPedido && matchesCliente && matchesEtapa && matchesUpdatedFrom && matchesUpdatedTo
+        return matchesPedido && matchesCliente && matchesFornecedor && matchesEtapa && matchesUpdatedFrom && matchesUpdatedTo
       })
       .sort((left, right) => sortCompras(left, right, sort))
   }, [compras, filters, sort])
@@ -209,7 +214,7 @@ export default function FinanceiroPage() {
           />
         }
       >
-        <ListFilterGrid columns="grid gap-3 md:grid-cols-3">
+        <ListFilterGrid columns="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <ListFilterField label="Pedido">
             <TableFilterInput
               value={filters.pedido}
@@ -223,6 +228,14 @@ export default function FinanceiroPage() {
               value={filters.cliente}
               onChange={(value) => setFilters((current) => ({ ...current, cliente: value }))}
               placeholder="Cliente ou proposta"
+            />
+          </ListFilterField>
+
+          <ListFilterField label="Fornecedor ou material">
+            <TableFilterInput
+              value={filters.fornecedor}
+              onChange={(value) => setFilters((current) => ({ ...current, fornecedor: value }))}
+              placeholder="Buscar fornecedor ou material"
             />
           </ListFilterField>
 
@@ -410,7 +423,14 @@ function FinanceTable({
                 onClick={() => onSort("cliente")}
               />
             </TableHead>
-            <TableHead>Fornecedor</TableHead>
+            <TableHead>
+              <SortableTableHead
+                label="Fornecedor"
+                isActive={sort.column === "fornecedor"}
+                direction={sort.direction}
+                onClick={() => onSort("fornecedor")}
+              />
+            </TableHead>
             <TableHead>
               <SortableTableHead
                 label="Valor"
@@ -489,6 +509,8 @@ function sortCompras(left: Compra, right: Compra, sort: { column: SortColumn; di
       return (`#${left.id}`.localeCompare(`#${right.id}`, "pt-BR")) * modifier
     case "cliente":
       return ((left.cliente_nome ?? "").localeCompare(right.cliente_nome ?? "", "pt-BR")) * modifier
+    case "fornecedor":
+      return left.fornecedor.localeCompare(right.fornecedor, "pt-BR") * modifier
     case "valor":
       return (Number(left.valor_total ?? 0) - Number(right.valor_total ?? 0)) * modifier
     case "atualizado":
