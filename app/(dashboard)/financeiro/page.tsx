@@ -410,6 +410,7 @@ function FinanceTable({
                 onClick={() => onSort("cliente")}
               />
             </TableHead>
+            <TableHead>Fornecedor</TableHead>
             <TableHead>
               <SortableTableHead
                 label="Valor"
@@ -446,6 +447,16 @@ function FinanceTable({
                     text={compra.proposta_nome}
                     fallback="Sem proposta"
                     className="max-w-[190px]"
+                  />
+                </div>
+              </TableCell>
+              <TableCell>
+                <div className="space-y-1">
+                  <div className="font-medium">{compra.fornecedor || "Sem fornecedor"}</div>
+                  <TableTextPreview
+                    text={compra.descricao}
+                    fallback="Sem descricao"
+                    className="max-w-[220px]"
                   />
                 </div>
               </TableCell>
