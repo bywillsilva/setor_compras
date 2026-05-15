@@ -14,7 +14,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   ETAPA_FLUXO_BADGE_CLASSES,
-  ETAPA_FLUXO_LABELS,
+  getEtapaFluxoLabel,
+  shouldShowCompraStatusBadge,
   STATUS_BADGE_CLASSES,
   STATUS_LABELS,
 } from "@/lib/domain"
@@ -154,8 +155,10 @@ export default function AutorizacaoDetailPage({ params }: { params: Promise<{ id
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-bold text-foreground">Fechamento do pedido #{compra.id}</h1>
-            <Badge className={ETAPA_FLUXO_BADGE_CLASSES[compra.etapa_fluxo]}>{ETAPA_FLUXO_LABELS[compra.etapa_fluxo]}</Badge>
-            <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
+            <Badge className={ETAPA_FLUXO_BADGE_CLASSES[compra.etapa_fluxo]}>{getEtapaFluxoLabel(compra)}</Badge>
+            {shouldShowCompraStatusBadge(compra) ? (
+              <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
+            ) : null}
           </div>
           <p className="text-muted-foreground">
             {compra.cliente_nome} - {compra.proposta_nome}

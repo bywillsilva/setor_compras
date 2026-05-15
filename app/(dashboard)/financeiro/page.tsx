@@ -27,7 +27,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { hasFeatureAccess } from "@/lib/auth/permissions"
 import {
   ETAPA_FLUXO_BADGE_CLASSES,
-  ETAPA_FLUXO_LABELS,
+  getEtapaFluxoLabel,
+  shouldShowCompraStatusBadge,
   STATUS_BADGE_CLASSES,
   STATUS_LABELS,
 } from "@/lib/domain"
@@ -70,12 +71,23 @@ export default function FinanceiroPage() {
       if (!silent) {
         setLoading(true)
       }
-      const response = await fetch("/api/compras", { cache: "no-store" })
-      if (!response.ok) {
+      const [approvalsResponse, documentsResponse] = await Promise.all([
+        fetch("/api/compras?etapa_fluxo=aguardando_financeiro", { cache: "no-store" }),
+        fetch("/api/compras?status=pedido_autorizado", { cache: "no-store" }),
+      ])
+
+      if (!approvalsResponse.ok || !documentsResponse.ok) {
         throw new Error("Erro ao carregar fila financeira.")
       }
 
-      setCompras(await response.json())
+      const [approvals, documents] = await Promise.all([approvalsResponse.json(), documentsResponse.json()])
+      const comprasMap = new Map<number, Compra>()
+
+      ;[...(approvals as Compra[]), ...(documents as Compra[])].forEach((compra) => {
+        comprasMap.set(compra.id, compra)
+      })
+
+      setCompras([...comprasMap.values()].sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at)))
     } catch (error) {
       console.error(error)
     } finally {
@@ -484,9 +496,9 @@ function FinanceTable({
               <TableCell>
                 <div className="space-y-2">
                   <Badge className={ETAPA_FLUXO_BADGE_CLASSES[compra.etapa_fluxo]}>
-                    {ETAPA_FLUXO_LABELS[compra.etapa_fluxo]}
+                    {getEtapaFluxoLabel(compra)}
                   </Badge>
-                  {compra.status !== compra.etapa_fluxo ? (
+                  {shouldShowCompraStatusBadge(compra) ? (
                     <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
                   ) : null}
                 </div>

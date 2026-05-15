@@ -71,6 +71,26 @@ export function getEtapaFluxoLabel(compra: Pick<Compra, "etapa_fluxo" | "solicit
   return ETAPA_FLUXO_LABELS[compra.etapa_fluxo]
 }
 
+export function shouldShowCompraStatusBadge(compra: Pick<Compra, "status" | "etapa_fluxo">) {
+  if (compra.etapa_fluxo === "cotacao_em_andamento" && compra.status === "cotacao") {
+    return false
+  }
+
+  if (compra.etapa_fluxo === "analise_solicitante" && compra.status === "em_analise") {
+    return false
+  }
+
+  if (compra.etapa_fluxo === "retificacao" && compra.status === "retificacao") {
+    return false
+  }
+
+  if (compra.etapa_fluxo === "pedido_autorizado" && compra.status === "pedido_autorizado") {
+    return false
+  }
+
+  return true
+}
+
 export function isCompraLockedAfterAdminApproval(
   compra: Pick<Compra, "etapa_fluxo" | "aprovado_admin_em" | "aprovado_admin_por">,
 ) {

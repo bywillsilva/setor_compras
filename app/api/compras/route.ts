@@ -15,17 +15,21 @@ export async function GET(request: NextRequest) {
     const propostaId = searchParams.get('proposta_id')
     const solicitanteId = searchParams.get('solicitante_id')
     const status = searchParams.get('status')
+    const excludeStatus = searchParams.get('exclude_status')
     const etapaAutorizacao = searchParams.get('etapa_autorizacao')
     const etapaFluxo = searchParams.get('etapa_fluxo')
     const arquivados = searchParams.get('arquivados')
+    const onlyWithSolicitante = searchParams.get('only_with_solicitante')
 
     const compras = await listCompras({
       clienteId: clienteId ? Number(clienteId) : undefined,
       propostaId: propostaId ? Number(propostaId) : undefined,
       solicitanteId: solicitanteId ? Number(solicitanteId) : undefined,
       status: status ? (status as StatusPedido) : undefined,
+      excludeStatus: excludeStatus ? (excludeStatus as StatusPedido) : undefined,
       etapaAutorizacao: etapaAutorizacao ? (etapaAutorizacao as EtapaAutorizacao) : undefined,
       etapaFluxo: etapaFluxo ? (etapaFluxo as EtapaFluxoCompra) : undefined,
+      onlyWithSolicitante: onlyWithSolicitante === 'true',
       includeArchived: arquivados === 'todos',
       onlyArchived: arquivados === 'arquivados',
     })

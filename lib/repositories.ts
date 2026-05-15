@@ -750,6 +750,28 @@ export async function listClientes(filters: { includeArchived?: boolean; onlyArc
     .filter((cliente: Cliente) => (filters.onlyArchived ? cliente.arquivado : filters.includeArchived || !cliente.arquivado))
 }
 
+async function listClientesByIds(ids: number[]): Promise<Cliente[]> {
+  const uniqueIds = [...new Set(ids.filter((id) => Number.isFinite(id) && id > 0))]
+
+  if (uniqueIds.length === 0) {
+    return []
+  }
+
+  if (getDatabaseType() === 'mysql') {
+    const rows = await mysqlSelect(
+      `SELECT * FROM clientes WHERE id IN (${uniqueIds.map(() => '?').join(', ')})`,
+      uniqueIds,
+    )
+
+    return rows.map(normalizeCliente)
+  }
+
+  const client = getSupabaseOrThrow()
+  const { data, error } = await client.from('clientes').select('*').in('id', uniqueIds)
+  throwIfSupabaseError(error)
+  return (data ?? []).map((row: Row) => normalizeCliente(row))
+}
+
 export async function getClienteById(id: number): Promise<Cliente | null> {
   if (getDatabaseType() === 'mysql') {
     const rows = await mysqlSelect('SELECT * FROM clientes WHERE id = ? LIMIT 1', [id])
@@ -855,16 +877,36 @@ export async function listPropostas(filters: {
   includeArchived?: boolean
   onlyArchived?: boolean
 } = {}): Promise<Proposta[]> {
-  const [propostas, clientes] = await Promise.all([
-    listPropostasRaw(filters),
-    listClientes({ includeArchived: true }),
-  ])
+  const propostas = await listPropostasRaw(filters)
+  const clientes = await listClientesByIds(propostas.map((proposta) => proposta.cliente_id))
   const clientesById = new Map(clientes.map((cliente) => [cliente.id, cliente.nome]))
 
   return propostas.map((proposta) => ({
     ...proposta,
     cliente_nome: clientesById.get(proposta.cliente_id) ?? 'Cliente não identificado',
   }))
+}
+
+async function listPropostasByIds(ids: number[]): Promise<Proposta[]> {
+  const uniqueIds = [...new Set(ids.filter((id) => Number.isFinite(id) && id > 0))]
+
+  if (uniqueIds.length === 0) {
+    return []
+  }
+
+  if (getDatabaseType() === 'mysql') {
+    const rows = await mysqlSelect(
+      `SELECT * FROM propostas WHERE id IN (${uniqueIds.map(() => '?').join(', ')})`,
+      uniqueIds,
+    )
+
+    return rows.map(normalizeProposta)
+  }
+
+  const client = getSupabaseOrThrow()
+  const { data, error } = await client.from('propostas').select('*').in('id', uniqueIds)
+  throwIfSupabaseError(error)
+  return (data ?? []).map((row: Row) => normalizeProposta(row))
 }
 
 export async function getPropostaById(id: number): Promise<Proposta | null> {
@@ -1191,10 +1233,11 @@ export async function rejectSensitiveChangeRequest(id: number, usuario: string, 
 }
 
 export async function listCompras(filters: PurchaseFilters = {}): Promise<Compra[]> {
-  const [compras, clientes, propostas] = await Promise.all([
-    listComprasRaw(filters),
-    listClientes({ includeArchived: true }),
-    listPropostasRaw({ includeArchived: true }),
+  const compras = await listComprasRaw(filters)
+
+  const [clientes, propostas] = await Promise.all([
+    listClientesByIds(compras.map((compra) => compra.cliente_id)),
+    listPropostasByIds(compras.map((compra) => compra.proposta_id)),
   ])
 
   const clientesById = new Map(clientes.map((cliente) => [cliente.id, cliente.nome]))
@@ -2991,6 +3034,11 @@ async function listComprasRaw(filters: PurchaseFilters = {}): Promise<Compra[]> 
       params.push(filters.status)
     }
 
+    if (filters.excludeStatus) {
+      sql += ' AND status <> ?'
+      params.push(filters.excludeStatus)
+    }
+
     if (filters.etapaAutorizacao) {
       sql += ' AND etapa_autorizacao = ?'
       params.push(filters.etapaAutorizacao)
@@ -2999,6 +3047,10 @@ async function listComprasRaw(filters: PurchaseFilters = {}): Promise<Compra[]> 
     if (filters.etapaFluxo) {
       sql += ' AND etapa_fluxo = ?'
       params.push(filters.etapaFluxo)
+    }
+
+    if (filters.onlyWithSolicitante) {
+      sql += " AND ((solicitante_id IS NOT NULL) OR (solicitado_por IS NOT NULL AND solicitado_por <> ''))"
     }
 
     sql += ' ORDER BY updated_at DESC'
@@ -3064,12 +3116,20 @@ async function listComprasRaw(filters: PurchaseFilters = {}): Promise<Compra[]> 
     query = query.eq('status', filters.status)
   }
 
+  if (filters.excludeStatus) {
+    query = query.neq('status', filters.excludeStatus)
+  }
+
   if (filters.etapaAutorizacao) {
     query = query.eq('etapa_autorizacao', filters.etapaAutorizacao)
   }
 
   if (filters.etapaFluxo) {
     query = query.eq('etapa_fluxo', filters.etapaFluxo)
+  }
+
+  if (filters.onlyWithSolicitante) {
+    query = query.or('solicitante_id.not.is.null,solicitado_por.not.is.null')
   }
 
   const { data, error } = await query
@@ -3116,12 +3176,20 @@ function applyPurchaseFiltersToSupabaseQuery(
     nextQuery = nextQuery.eq('status', filters.status)
   }
 
+  if (filters.excludeStatus) {
+    nextQuery = nextQuery.neq('status', filters.excludeStatus)
+  }
+
   if (filters.etapaAutorizacao) {
     nextQuery = nextQuery.eq('etapa_autorizacao', filters.etapaAutorizacao)
   }
 
   if (filters.etapaFluxo) {
     nextQuery = nextQuery.eq('etapa_fluxo', filters.etapaFluxo)
+  }
+
+  if (filters.onlyWithSolicitante) {
+    nextQuery = nextQuery.or('solicitante_id.not.is.null,solicitado_por.not.is.null')
   }
 
   return nextQuery

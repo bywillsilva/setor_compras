@@ -67,7 +67,7 @@ export default function SolicitacoesAutorizacaoPage() {
       if (!silent) {
         setLoading(true)
       }
-        const comprasResponse = await fetch("/api/compras", { cache: "no-store" })
+        const comprasResponse = await fetch("/api/compras?etapa_fluxo=aguardando_admin", { cache: "no-store" })
 
         if (comprasResponse.ok) {
           setCompras(await comprasResponse.json())

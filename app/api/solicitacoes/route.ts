@@ -11,13 +11,14 @@ export async function GET(request: NextRequest) {
 
     const compras =
       guard.session.perfil === "admin"
-        ? await listCompras()
+        ? await listCompras({ onlyWithSolicitante: true })
         : await listCompras({
             solicitanteId: guard.session.userId,
             solicitanteNome: guard.session.nome,
+            onlyWithSolicitante: true,
           })
 
-    return NextResponse.json(compras.filter((compra) => Boolean(compra.solicitante_id || compra.solicitado_por?.trim())))
+    return NextResponse.json(compras)
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Erro ao buscar solicitacoes." },

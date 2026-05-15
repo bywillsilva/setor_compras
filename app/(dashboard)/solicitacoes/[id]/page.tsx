@@ -26,8 +26,9 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   CATEGORIA_LABELS,
   ETAPA_FLUXO_BADGE_CLASSES,
-  ETAPA_FLUXO_LABELS,
+  getEtapaFluxoLabel,
   isCompraLockedAfterAdminApproval,
+  shouldShowCompraStatusBadge,
   STATUS_BADGE_CLASSES,
   STATUS_LABELS,
   TIPO_ANEXO_LABELS,
@@ -758,14 +759,16 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <Badge className={ETAPA_FLUXO_BADGE_CLASSES[compra.etapa_fluxo]}>{ETAPA_FLUXO_LABELS[compra.etapa_fluxo]}</Badge>
-        <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
+        <Badge className={ETAPA_FLUXO_BADGE_CLASSES[compra.etapa_fluxo]}>{getEtapaFluxoLabel(compra)}</Badge>
+        {shouldShowCompraStatusBadge(compra) ? (
+          <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
+        ) : null}
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryMetricCard title="Solicitante" value={compra.solicitado_por || "Nao informado"} description="Responsavel pelo envio desta solicitacao." />
         <SummaryMetricCard title="Fornecedor" value={compra.fornecedor || "Nao definido"} description="Referencia informada para iniciar a cotacao." />
-        <SummaryMetricCard title="Etapa atual" value={ETAPA_FLUXO_LABELS[compra.etapa_fluxo]} description="Momento atual desta solicitacao dentro do fluxo." />
+        <SummaryMetricCard title="Etapa atual" value={getEtapaFluxoLabel(compra)} description="Momento atual desta solicitacao dentro do fluxo." />
         <SummaryMetricCard title="Anexos" value={compra.anexos.length} description="Arquivos e referencias enviados junto ao pedido." />
       </div>
 

@@ -279,8 +279,10 @@ export interface PurchaseFilters {
   solicitanteId?: number
   solicitanteNome?: string
   status?: StatusPedido
+  excludeStatus?: StatusPedido
   etapaAutorizacao?: EtapaAutorizacao
   etapaFluxo?: EtapaFluxoCompra
+  onlyWithSolicitante?: boolean
   includeArchived?: boolean
   onlyArchived?: boolean
 }

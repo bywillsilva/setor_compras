@@ -56,6 +56,7 @@ import {
   isCompraLockedAfterAdminApproval,
   getDeliverySituation,
   getCompraCategoriasAtivas,
+  shouldShowCompraStatusBadge,
   STATUS_BADGE_CLASSES,
   STATUS_ENTREGA_LABELS,
   STATUS_LABELS,
@@ -643,16 +644,18 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-bold text-foreground">Pedido #{compra.id}</h1>
-              <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
+              {shouldShowCompraStatusBadge(compra) ? (
+                <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
+              ) : null}
               <Badge className={ETAPA_FLUXO_BADGE_CLASSES[compra.etapa_fluxo]}>{getEtapaFluxoLabel(compra)}</Badge>
               {compra.arquivado && <Badge variant="outline">Arquivado</Badge>}
               {compra.status === "pedido_autorizado" && <DeliveryStatusBadge compra={compra} />}
             </div>
-            <p className="text-muted-foreground">
-              {compra.cliente_nome} - {compra.proposta_nome}
-            </p>
+              <p className="text-muted-foreground">
+                {compra.cliente_nome} - {compra.proposta_nome}
+              </p>
+            </div>
           </div>
-        </div>
 
         <div className="flex flex-wrap gap-2">
           {compra.status !== "pedido_autorizado" &&
@@ -858,7 +861,7 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
         <SummaryCard
           title="Status do pedido"
           icon={<Package className="h-4 w-4 text-muted-foreground" />}
-          primary={<Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>}
+          primary={STATUS_LABELS[compra.status]}
           secondary={getOperationalNote(compra)}
         />
         <SummaryCard
@@ -876,7 +879,7 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
         <SummaryCard
           title="Entrega"
           icon={<Truck className="h-4 w-4 text-muted-foreground" />}
-          primary={compra.status === "pedido_autorizado" ? <DeliveryStatusBadge compra={compra} /> : deliveryLabel}
+          primary={deliveryLabel}
           secondary={
             compra.previsao_entrega
               ? `Previsao ${formatDate(compra.previsao_entrega)}`

@@ -29,6 +29,8 @@ import { hasFeatureAccess } from "@/lib/auth/permissions"
 import {
   ETAPA_FLUXO_BADGE_CLASSES,
   ETAPA_FLUXO_LABELS,
+  getEtapaFluxoLabel,
+  shouldShowCompraStatusBadge,
   STATUS_BADGE_CLASSES,
   STATUS_LABELS,
 } from "@/lib/domain"
@@ -422,9 +424,9 @@ export default function SolicitacoesPage() {
                         <TableCell>
                           <div className="space-y-2">
                             <Badge className={ETAPA_FLUXO_BADGE_CLASSES[compra.etapa_fluxo]}>
-                              {ETAPA_FLUXO_LABELS[compra.etapa_fluxo]}
+                              {getEtapaFluxoLabel(compra)}
                             </Badge>
-                            {shouldShowSolicitacaoStatus(compra) ? (
+                            {shouldShowCompraStatusBadge(compra) ? (
                               <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
                             ) : null}
                           </div>
@@ -572,9 +574,9 @@ export default function SolicitacoesPage() {
                         <TableCell>
                           <div className="space-y-2">
                             <Badge className={ETAPA_FLUXO_BADGE_CLASSES[compra.etapa_fluxo]}>
-                              {ETAPA_FLUXO_LABELS[compra.etapa_fluxo]}
+                              {getEtapaFluxoLabel(compra)}
                             </Badge>
-                            {shouldShowSolicitacaoStatus(compra) ? (
+                            {shouldShowCompraStatusBadge(compra) ? (
                               <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
                             ) : null}
                           </div>
@@ -643,26 +645,6 @@ function sortCompras(
     default:
       return (new Date(left.updated_at).getTime() - new Date(right.updated_at).getTime()) * modifier
   }
-}
-
-function shouldShowSolicitacaoStatus(compra: Compra) {
-  if (compra.etapa_fluxo === "cotacao_em_andamento" && compra.status === "cotacao") {
-    return false
-  }
-
-  if (compra.etapa_fluxo === "analise_solicitante" && compra.status === "em_analise") {
-    return false
-  }
-
-  if (compra.etapa_fluxo === "retificacao" && compra.status === "retificacao") {
-    return false
-  }
-
-  if (compra.etapa_fluxo === "pedido_autorizado" && compra.status === "pedido_autorizado") {
-    return false
-  }
-
-  return true
 }
 
 function isSolicitacaoOwnedByCurrentUser(compra: Compra, userId?: number, nome?: string) {

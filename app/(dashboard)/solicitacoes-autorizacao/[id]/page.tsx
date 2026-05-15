@@ -12,7 +12,13 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ETAPA_FLUXO_BADGE_CLASSES, ETAPA_FLUXO_LABELS, STATUS_BADGE_CLASSES, STATUS_LABELS } from "@/lib/domain"
+import {
+  ETAPA_FLUXO_BADGE_CLASSES,
+  getEtapaFluxoLabel,
+  shouldShowCompraStatusBadge,
+  STATUS_BADGE_CLASSES,
+  STATUS_LABELS,
+} from "@/lib/domain"
 import type { Compra } from "@/lib/types"
 
 type CompraDetalhe = Compra & {
@@ -170,8 +176,10 @@ export default function SolicitacaoAutorizacaoDetailPage({ params }: { params: P
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-bold text-foreground">Aprovacao ADM do pedido #{compra.id}</h1>
-            <Badge className={ETAPA_FLUXO_BADGE_CLASSES[compra.etapa_fluxo]}>{ETAPA_FLUXO_LABELS[compra.etapa_fluxo]}</Badge>
-            <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
+            <Badge className={ETAPA_FLUXO_BADGE_CLASSES[compra.etapa_fluxo]}>{getEtapaFluxoLabel(compra)}</Badge>
+            {shouldShowCompraStatusBadge(compra) ? (
+              <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
+            ) : null}
           </div>
           <p className="text-muted-foreground">
             {compra.cliente_nome} - {compra.proposta_nome}

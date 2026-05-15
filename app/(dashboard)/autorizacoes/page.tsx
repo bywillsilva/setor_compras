@@ -22,6 +22,8 @@ import { hasFeatureAccess } from "@/lib/auth/permissions"
 import {
   ETAPA_FLUXO_BADGE_CLASSES,
   ETAPA_FLUXO_LABELS,
+  getEtapaFluxoLabel,
+  shouldShowCompraStatusBadge,
   STATUS_BADGE_CLASSES,
   STATUS_LABELS,
 } from "@/lib/domain"
@@ -61,7 +63,7 @@ export default function AutorizacoesPage() {
       if (!silent) {
         setLoading(true)
       }
-      const response = await fetch("/api/compras", { cache: "no-store" })
+      const response = await fetch("/api/compras?exclude_status=pedido_autorizado", { cache: "no-store" })
       if (!response.ok) {
         throw new Error("Erro ao carregar fila de autorizacoes.")
       }
@@ -333,9 +335,11 @@ export default function AutorizacoesPage() {
                           <div className="space-y-2">
                             <div className="flex flex-wrap items-center gap-2.5">
                               <Badge className={ETAPA_FLUXO_BADGE_CLASSES[compra.etapa_fluxo]}>
-                                {ETAPA_FLUXO_LABELS[compra.etapa_fluxo]}
+                                {getEtapaFluxoLabel(compra)}
                               </Badge>
-                              <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
+                              {shouldShowCompraStatusBadge(compra) ? (
+                                <Badge className={STATUS_BADGE_CLASSES[compra.status]}>{STATUS_LABELS[compra.status]}</Badge>
+                              ) : null}
                             </div>
                           </div>
                         </TableCell>
