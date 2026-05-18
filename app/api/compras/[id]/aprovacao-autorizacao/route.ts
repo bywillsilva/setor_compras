@@ -19,6 +19,7 @@ export async function POST(
       guard.session.nome,
       String(body.numero_pedido ?? "").trim(),
       Number(body.valor_total ?? 0),
+      guard.session.userId,
     )
 
     return NextResponse.json({ message: "Solicitacao aprovada com sucesso." })

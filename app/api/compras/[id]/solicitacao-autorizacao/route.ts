@@ -13,7 +13,7 @@ export async function POST(
     }
 
     const { id } = await params
-    await requestCompraAuthorization(Number(id), guard.session.nome)
+    await requestCompraAuthorization(Number(id), guard.session.nome, guard.session.userId)
 
     return NextResponse.json({ message: "Solicitacao enviada ao administrador." })
   } catch (error) {

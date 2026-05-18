@@ -31,7 +31,7 @@ export async function POST(
     }
 
     const body = await request.json()
-    await requestCompraRetification(Number(id), guard.session.nome, String(body.motivo ?? ""))
+    await requestCompraRetification(Number(id), guard.session.nome, String(body.motivo ?? ""), guard.session.userId)
 
     return NextResponse.json({ message: "Retificacao enviada com sucesso." })
   } catch (error) {

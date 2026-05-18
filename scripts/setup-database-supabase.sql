@@ -104,6 +104,22 @@ CREATE TABLE IF NOT EXISTS anexos (
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS notificacoes (
+  id BIGSERIAL PRIMARY KEY,
+  usuario_id BIGINT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  tipo TEXT NOT NULL,
+  titulo VARCHAR(255) NOT NULL,
+  mensagem TEXT NOT NULL,
+  link VARCHAR(500) NULL,
+  lida BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  read_at TIMESTAMPTZ NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_notificacoes_usuario_lida
+  ON notificacoes (usuario_id, lida, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS solicitacoes_sensiveis (
   id BIGSERIAL PRIMARY KEY,
   entidade TEXT NOT NULL CHECK (entidade IN ('cliente', 'proposta', 'compra')),
@@ -156,6 +172,11 @@ ALTER TABLE compras ADD COLUMN IF NOT EXISTS valor_categoria_outros NUMERIC(15, 
 ALTER TABLE compras ADD COLUMN IF NOT EXISTS etapa_autorizacao TEXT DEFAULT 'nenhuma';
 ALTER TABLE anexos ADD COLUMN IF NOT EXISTS nome_arquivo VARCHAR(255);
 ALTER TABLE anexos ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS link VARCHAR(500);
+ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS lida BOOLEAN DEFAULT FALSE;
+ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;
 ALTER TABLE solicitacoes_sensiveis ADD COLUMN IF NOT EXISTS motivo TEXT;
 ALTER TABLE solicitacoes_sensiveis ADD COLUMN IF NOT EXISTS payload JSONB;
 ALTER TABLE solicitacoes_sensiveis ADD COLUMN IF NOT EXISTS aprovado_por TEXT;
@@ -306,6 +327,12 @@ EXECUTE FUNCTION update_updated_at_column();
 DROP TRIGGER IF EXISTS update_solicitacoes_sensiveis_updated_at ON solicitacoes_sensiveis;
 CREATE TRIGGER update_solicitacoes_sensiveis_updated_at
 BEFORE UPDATE ON solicitacoes_sensiveis
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_notificacoes_updated_at ON notificacoes;
+CREATE TRIGGER update_notificacoes_updated_at
+BEFORE UPDATE ON notificacoes
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_at_column();
 -- Upgrade do fluxo por etapas e assinaturas (2026-05-07)

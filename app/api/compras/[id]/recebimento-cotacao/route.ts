@@ -13,7 +13,7 @@ export async function POST(
     }
 
     const { id } = await params
-    const result = await markCompraQuotationReceived(Number(id), guard.session.nome)
+    const result = await markCompraQuotationReceived(Number(id), guard.session.nome, guard.session.userId)
 
     return NextResponse.json({
       message: result.skippedRequesterApproval

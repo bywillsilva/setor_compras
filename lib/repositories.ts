@@ -15,6 +15,7 @@ import {
   buildFeatureMatrix,
   getDefaultFeatureMatrix,
   getDefaultFeaturesForPerfil,
+  hasFeatureAccess,
   normalizeFeatureList,
   PERFIL_LABELS,
 } from '@/lib/auth/permissions'
@@ -48,6 +49,8 @@ import type {
   FinanceiroReportItem,
   HistoricoCompra,
   HistoricoReportItem,
+  Notificacao,
+  NotificacaoTipo,
   PerfilPermissao,
   PerfilUsuario,
   Proposta,
@@ -96,6 +99,7 @@ const REQUIRED_TABLES = [
   'compras',
   'historico_compras',
   'anexos',
+  'notificacoes',
   'solicitacoes_sensiveis',
   'resumos_contratos',
   'resumo_contrato_itens',
@@ -161,6 +165,7 @@ const REQUIRED_SCHEMA_COLUMNS: Record<(typeof REQUIRED_TABLES)[number], string[]
   ],
   historico_compras: ['id', 'compra_id', 'evento', 'data', 'usuario'],
   anexos: ['id', 'compra_id', 'tipo', 'arquivo_url', 'nome_arquivo', 'created_at'],
+  notificacoes: ['id', 'usuario_id', 'tipo', 'titulo', 'mensagem', 'link', 'lida', 'created_at', 'updated_at', 'read_at'],
   solicitacoes_sensiveis: [
     'id',
     'entidade',
@@ -726,6 +731,262 @@ async function listUsuarioFeaturesInternal(userId: number): Promise<AppFeature[]
   }
 }
 
+async function listUsuariosAtivosComAcessos() {
+  const usuarios = (await listUsuarios()).filter((usuario) => usuario.ativo)
+
+  return Promise.all(
+    usuarios.map(async (usuario) => ({
+      ...usuario,
+      features: await listFeaturesByUsuario(usuario.id, usuario.perfil),
+    })),
+  )
+}
+
+async function listUsuariosByFeature(feature: AppFeature, options: { excludeUserIds?: number[] } = {}) {
+  const excludedIds = new Set(options.excludeUserIds ?? [])
+  const usuarios = await listUsuariosAtivosComAcessos()
+
+  return usuarios.filter(
+    (usuario) =>
+      !excludedIds.has(usuario.id) && hasFeatureAccess(usuario.perfil, feature, usuario.features),
+  )
+}
+
+async function listUsuariosByFeatures(features: AppFeature[], options: { excludeUserIds?: number[] } = {}) {
+  const excludedIds = new Set(options.excludeUserIds ?? [])
+  const usuarios = await listUsuariosAtivosComAcessos()
+
+  return usuarios.filter(
+    (usuario) =>
+      !excludedIds.has(usuario.id) &&
+      features.some((feature) => hasFeatureAccess(usuario.perfil, feature, usuario.features)),
+  )
+}
+
+export async function listNotificacoesByUsuario(
+  userId: number,
+  options: { unreadOnly?: boolean; limit?: number } = {},
+): Promise<Notificacao[]> {
+  try {
+    const limit = Math.min(Math.max(options.limit ?? 20, 1), 100)
+
+    if (getDatabaseType() === 'mysql') {
+      const params: unknown[] = [userId]
+      let sql = 'SELECT * FROM notificacoes WHERE usuario_id = ?'
+
+      if (options.unreadOnly) {
+        sql += ' AND lida = 0'
+      }
+
+      sql += ' ORDER BY created_at DESC LIMIT ?'
+      params.push(limit)
+      const rows = await mysqlSelect(sql, params)
+      return rows.map(normalizeNotificacao)
+    }
+
+    const client = getSupabaseOrThrow()
+    let query = client
+      .from('notificacoes')
+      .select('*')
+      .eq('usuario_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    if (options.unreadOnly) {
+      query = query.eq('lida', false)
+    }
+
+    const { data, error } = await query
+    throwIfSupabaseError(error)
+    return (data ?? []).map((row: Row) => normalizeNotificacao(row))
+  } catch (error) {
+    if (isMissingDatabaseObjectError(error, 'notificacoes')) {
+      return []
+    }
+
+    throw error
+  }
+}
+
+export async function countUnreadNotificacoes(userId: number) {
+  try {
+    if (getDatabaseType() === 'mysql') {
+      const rows = await mysqlSelect('SELECT COUNT(*) AS total FROM notificacoes WHERE usuario_id = ? AND lida = 0', [userId])
+      return toNumber(rows[0]?.total)
+    }
+
+    const client = getSupabaseOrThrow()
+    const { count, error } = await client
+      .from('notificacoes')
+      .select('*', { count: 'exact', head: true })
+      .eq('usuario_id', userId)
+      .eq('lida', false)
+    throwIfSupabaseError(error)
+    return Number(count ?? 0)
+  } catch (error) {
+    if (isMissingDatabaseObjectError(error, 'notificacoes')) {
+      return 0
+    }
+
+    throw error
+  }
+}
+
+export async function markNotificacaoAsLida(id: number, userId: number) {
+  const readAt = format(new Date(), 'yyyy-MM-dd HH:mm:ss')
+
+  try {
+    if (getDatabaseType() === 'mysql') {
+      await mysqlExecute('UPDATE notificacoes SET lida = 1, read_at = ? WHERE id = ? AND usuario_id = ?', [readAt, id, userId])
+      return { read: true }
+    }
+
+    const client = getSupabaseOrThrow()
+    const { error } = await client
+      .from('notificacoes')
+      .update({ lida: true, read_at: readAt })
+      .eq('id', id)
+      .eq('usuario_id', userId)
+    throwIfSupabaseError(error)
+    return { read: true }
+  } catch (error) {
+    if (isMissingDatabaseObjectError(error, 'notificacoes')) {
+      return { read: false }
+    }
+
+    throw error
+  }
+}
+
+export async function markAllNotificacoesAsLidas(userId: number) {
+  const readAt = format(new Date(), 'yyyy-MM-dd HH:mm:ss')
+
+  try {
+    if (getDatabaseType() === 'mysql') {
+      await mysqlExecute('UPDATE notificacoes SET lida = 1, read_at = ? WHERE usuario_id = ? AND lida = 0', [readAt, userId])
+      return { read: true }
+    }
+
+    const client = getSupabaseOrThrow()
+    const { error } = await client
+      .from('notificacoes')
+      .update({ lida: true, read_at: readAt })
+      .eq('usuario_id', userId)
+      .eq('lida', false)
+    throwIfSupabaseError(error)
+    return { read: true }
+  } catch (error) {
+    if (isMissingDatabaseObjectError(error, 'notificacoes')) {
+      return { read: false }
+    }
+
+    throw error
+  }
+}
+
+export async function createNotificacao(input: {
+  usuario_id: number
+  tipo: NotificacaoTipo
+  titulo: string
+  mensagem: string
+  link?: string | null
+}) {
+  try {
+    if (getDatabaseType() === 'mysql') {
+      const result = await mysqlExecute(
+        'INSERT INTO notificacoes (usuario_id, tipo, titulo, mensagem, link, lida, read_at) VALUES (?, ?, ?, ?, ?, 0, NULL)',
+        [input.usuario_id, input.tipo, input.titulo, input.mensagem, nullableString(input.link)],
+      )
+      return result.insertId
+    }
+
+    const client = getSupabaseOrThrow()
+    const { data, error } = await client
+      .from('notificacoes')
+      .insert({
+        usuario_id: input.usuario_id,
+        tipo: input.tipo,
+        titulo: input.titulo,
+        mensagem: input.mensagem,
+        link: nullableString(input.link),
+        lida: false,
+        read_at: null,
+      })
+      .select('id')
+      .single()
+    throwIfSupabaseError(error)
+    return Number(data.id)
+  } catch (error) {
+    if (isMissingDatabaseObjectError(error, 'notificacoes')) {
+      return 0
+    }
+
+    throw error
+  }
+}
+
+async function createNotificacoesForUsers(
+  userIds: number[],
+  input: {
+    tipo: NotificacaoTipo
+    titulo: string
+    mensagem: string
+    link?: string | null
+  },
+) {
+  const uniqueIds = [...new Set(userIds.filter((userId) => Number.isFinite(userId) && userId > 0))]
+
+  if (uniqueIds.length === 0) {
+    return
+  }
+
+  await Promise.all(
+    uniqueIds.map((usuarioId) =>
+      createNotificacao({
+        usuario_id: usuarioId,
+        tipo: input.tipo,
+        titulo: input.titulo,
+        mensagem: input.mensagem,
+        link: input.link,
+      }),
+    ),
+  )
+}
+
+async function notifyUsersByFeature(
+  feature: AppFeature,
+  input: {
+    tipo: NotificacaoTipo
+    titulo: string
+    mensagem: string
+    link?: string | null
+  },
+  options: { excludeUserIds?: number[] } = {},
+) {
+  const usuarios = await listUsuariosByFeature(feature, options)
+  await createNotificacoesForUsers(
+    usuarios.map((usuario) => usuario.id),
+    input,
+  )
+}
+
+async function notifyUsersByFeatures(
+  features: AppFeature[],
+  input: {
+    tipo: NotificacaoTipo
+    titulo: string
+    mensagem: string
+    link?: string | null
+  },
+  options: { excludeUserIds?: number[] } = {},
+) {
+  const usuarios = await listUsuariosByFeatures(features, options)
+  await createNotificacoesForUsers(
+    usuarios.map((usuario) => usuario.id),
+    input,
+  )
+}
+
 export async function listClientes(filters: { includeArchived?: boolean; onlyArchived?: boolean } = {}): Promise<Cliente[]> {
   if (getDatabaseType() === 'mysql') {
     let sql = 'SELECT * FROM clientes WHERE 1 = 1'
@@ -1071,6 +1332,7 @@ export async function createSensitiveChangeRequest(input: {
 }) {
   const motivo = nullableString(input.motivo)
   const payload = input.payload && Object.keys(input.payload).length > 0 ? input.payload : null
+  let requestId = 0
 
   if (getDatabaseType() === 'mysql') {
     const result = await mysqlExecute(
@@ -1088,27 +1350,40 @@ export async function createSensitiveChangeRequest(input: {
         input.solicitante_perfil,
       ],
     )
-    return result.insertId
+    requestId = result.insertId
+  } else {
+    const client = getSupabaseOrThrow()
+    const { data, error } = await client
+      .from('solicitacoes_sensiveis')
+      .insert({
+        entidade: input.entidade,
+        entidade_id: input.entidade_id,
+        acao: input.acao,
+        status: 'pendente',
+        motivo,
+        payload,
+        solicitante_id: input.solicitante_id,
+        solicitante_nome: input.solicitante_nome,
+        solicitante_perfil: input.solicitante_perfil,
+      })
+      .select('id')
+      .single()
+    throwIfSupabaseError(error)
+    requestId = Number(data.id)
   }
 
-  const client = getSupabaseOrThrow()
-  const { data, error } = await client
-    .from('solicitacoes_sensiveis')
-    .insert({
-      entidade: input.entidade,
-      entidade_id: input.entidade_id,
-      acao: input.acao,
-      status: 'pendente',
-      motivo,
-      payload,
-      solicitante_id: input.solicitante_id,
-      solicitante_nome: input.solicitante_nome,
-      solicitante_perfil: input.solicitante_perfil,
-    })
-    .select('id')
-    .single()
-  throwIfSupabaseError(error)
-  return Number(data.id)
+  await notifyUsersByFeatures(
+    ['configuracoes', 'usuarios'],
+    {
+      tipo: 'solicitacao_sensivel',
+      titulo: 'Nova solicitacao administrativa pendente',
+      mensagem: `${input.solicitante_nome} pediu ${input.acao} em ${input.entidade}.`,
+      link: '/configuracoes/solicitacoes-sensiveis',
+    },
+    { excludeUserIds: [input.solicitante_id] },
+  )
+
+  return requestId
 }
 
 export async function listSensitiveChangeRequests(filters: {
@@ -1189,6 +1464,13 @@ export async function approveSensitiveChangeRequest(id: number, usuario: string,
     throwIfSupabaseError(error)
   }
 
+  await createNotificacoesForUsers([request.solicitante_id], {
+    tipo: 'solicitacao_sensivel',
+    titulo: 'Solicitacao administrativa aprovada',
+    mensagem: `Sua solicitacao de ${request.acao} em ${request.entidade} foi aprovada por ${usuario}.`,
+    link: '/configuracoes/solicitacoes-sensiveis',
+  })
+
   return { approved: true }
 }
 
@@ -1228,6 +1510,15 @@ export async function rejectSensitiveChangeRequest(id: number, usuario: string, 
       .eq('id', id)
     throwIfSupabaseError(error)
   }
+
+  await createNotificacoesForUsers([request.solicitante_id], {
+    tipo: 'solicitacao_sensivel',
+    titulo: 'Solicitacao administrativa recusada',
+    mensagem: observacao
+      ? `Sua solicitacao de ${request.acao} em ${request.entidade} foi recusada: ${observacao}.`
+      : `Sua solicitacao de ${request.acao} em ${request.entidade} foi recusada por ${usuario}.`,
+    link: '/configuracoes/solicitacoes-sensiveis',
+  })
 
   return { rejected: true }
 }
@@ -1287,6 +1578,42 @@ export async function getCompraById(id: number): Promise<Compra | null> {
     possui_nf: anexosByCompraId.get(compra.id)?.possui_nf ?? false,
     possui_boleto: anexosByCompraId.get(compra.id)?.possui_boleto ?? false,
   }
+}
+
+async function notifyCompraRequesterApproval(compra: Compra) {
+  if (!compra.solicitante_id) {
+    return
+  }
+
+  await createNotificacoesForUsers([compra.solicitante_id], {
+    tipo: 'cotacao_aprovacao',
+    titulo: 'Cotacao aguardando sua aprovacao',
+    mensagem: `${compra.cliente_nome ?? 'Cliente'} - ${compra.proposta_nome ?? 'Proposta'} recebeu cotacao e precisa da sua validacao.`,
+    link: `/solicitacoes/${compra.id}`,
+  })
+}
+
+export async function notifyCompraFinanceDocumentsReady(compraId: number, options: { excludeUserIds?: number[] } = {}) {
+  const compra = await getCompraById(compraId)
+
+  if (!compra || compra.status !== 'pedido_autorizado' || !compra.possui_nf || !compra.possui_boleto) {
+    return
+  }
+
+  if (compra.documentos_financeiro_confirmados_em) {
+    return
+  }
+
+  await notifyUsersByFeature(
+    'confirmar_documentos_financeiro',
+    {
+      tipo: 'documentos_financeiro',
+      titulo: 'Nota fiscal e boleto prontos para baixa',
+      mensagem: `${compra.fornecedor} - ${compra.cliente_nome ?? 'Cliente'} possui NF e boleto liberados para registro no financeiro.`,
+      link: '/financeiro',
+    },
+    options,
+  )
 }
 
 export async function getCompraDetail(id: number) {
@@ -1417,6 +1744,24 @@ export async function createCompra(input: CompraFormData) {
   if (solicitadoPor) {
     await addHistoricoEvento(compraId, `Solicitacao registrada por ${solicitadoPor}`, solicitadoPor)
   }
+
+  if (solicitanteId) {
+    const compra = await getCompraById(compraId)
+
+    if (compra) {
+      await notifyUsersByFeature(
+        'compras',
+        {
+          tipo: 'solicitacao_nova',
+          titulo: 'Nova solicitacao recebida pelo compras',
+          mensagem: `${compra.cliente_nome ?? 'Cliente'} - ${compra.proposta_nome ?? 'Proposta'} foi enviada para cotacao.`,
+          link: `/compras/${compra.id}`,
+        },
+        { excludeUserIds: [solicitanteId] },
+      )
+    }
+  }
+
   return compraId
 }
 
@@ -1718,7 +2063,7 @@ export async function setCompraArchivedState(id: number, arquivado: boolean) {
   return { archived: arquivado }
 }
 
-export async function requestCompraAuthorization(id: number, usuario: string) {
+export async function requestCompraAuthorization(id: number, usuario: string, actorUserId?: number | null) {
   const compra = await getCompraById(id)
 
   if (!compra) {
@@ -1747,10 +2092,28 @@ export async function requestCompraAuthorization(id: number, usuario: string) {
     etapa_fluxo: 'aguardando_admin',
   })
   await addHistoricoEvento(id, 'Solicitacao de autorizacao enviada ao administrador', usuario)
+
+  await notifyUsersByFeature(
+    'aprovar_compra_admin',
+    {
+      tipo: 'autorizacao_admin',
+      titulo: 'Compra aguardando aprovacao do ADM',
+      mensagem: `${compra.cliente_nome ?? 'Cliente'} - ${compra.proposta_nome ?? 'Proposta'} foi enviada para autorizacao administrativa.`,
+      link: `/solicitacoes-autorizacao/${id}`,
+    },
+    { excludeUserIds: actorUserId ? [actorUserId] : [] },
+  )
+
   return { requested: true }
 }
 
-export async function approveCompraAuthorizationRequest(id: number, usuario: string, numeroPedido: string, valorTotal: number) {
+export async function approveCompraAuthorizationRequest(
+  id: number,
+  usuario: string,
+  numeroPedido: string,
+  valorTotal: number,
+  actorUserId?: number | null,
+) {
   const compra = await getCompraById(id)
 
   if (!compra) {
@@ -1783,10 +2146,27 @@ export async function approveCompraAuthorizationRequest(id: number, usuario: str
   await addHistoricoEvento(id, 'Solicitacao de autorizacao aprovada pelo administrador', usuario)
   await addHistoricoEvento(id, `Numero do pedido definido: ${numeroPedido.trim()}`, usuario)
   await addHistoricoEvento(id, `Valor autorizado registrado em ${formatCurrency(valorTotal)}`, usuario)
+
+  await notifyUsersByFeatures(
+    ['solicitar_autorizacao', 'confirmar_fornecedor', 'compras'],
+    {
+      tipo: 'autorizacao_financeira',
+      titulo: 'Compra aprovada pelo ADM',
+      mensagem: `${compra.cliente_nome ?? 'Cliente'} - ${compra.proposta_nome ?? 'Proposta'} ja pode seguir para autorizacao financeira.`,
+      link: `/autorizacoes`,
+    },
+    { excludeUserIds: actorUserId ? [actorUserId] : [] },
+  )
+
   return { approved: true }
 }
 
-export async function rejectCompraAuthorizationRequest(id: number, usuario: string, motivo?: string | null) {
+export async function rejectCompraAuthorizationRequest(
+  id: number,
+  usuario: string,
+  motivo?: string | null,
+  actorUserId?: number | null,
+) {
   const compra = await getCompraById(id)
 
   if (!compra) {
@@ -1815,10 +2195,23 @@ export async function rejectCompraAuthorizationRequest(id: number, usuario: stri
     usuario,
   )
 
+  await notifyUsersByFeatures(
+    ['solicitar_autorizacao', 'compras'],
+    {
+      tipo: 'retificacao',
+      titulo: 'Compra devolvida pelo ADM',
+      mensagem: motivoNormalizado
+        ? `${compra.cliente_nome ?? 'Cliente'} - ${compra.proposta_nome ?? 'Proposta'} retornou ao compras: ${motivoNormalizado}.`
+        : `${compra.cliente_nome ?? 'Cliente'} - ${compra.proposta_nome ?? 'Proposta'} retornou ao compras para ajuste.`,
+      link: `/compras/${id}`,
+    },
+    { excludeUserIds: actorUserId ? [actorUserId] : [] },
+  )
+
   return { rejected: true }
 }
 
-export async function requestCompraFinanceApproval(id: number, usuario: string) {
+export async function requestCompraFinanceApproval(id: number, usuario: string, actorUserId?: number | null) {
   const compra = await getCompraById(id)
 
   if (!compra) {
@@ -1843,6 +2236,18 @@ export async function requestCompraFinanceApproval(id: number, usuario: string) 
   })
 
   await addHistoricoEvento(id, 'Solicitacao de aprovacao financeira enviada pelo comprador', usuario)
+
+  await notifyUsersByFeature(
+    'aprovar_compra_financeiro',
+    {
+      tipo: 'autorizacao_financeira',
+      titulo: 'Compra aguardando aprovacao financeira',
+      mensagem: `${compra.cliente_nome ?? 'Cliente'} - ${compra.proposta_nome ?? 'Proposta'} foi enviada para validacao do financeiro.`,
+      link: '/financeiro',
+    },
+    { excludeUserIds: actorUserId ? [actorUserId] : [] },
+  )
+
   return { requested: true }
 }
 
@@ -1878,7 +2283,7 @@ export async function markCompraQuotationSent(
   return { sent: true }
 }
 
-export async function markCompraQuotationReceived(id: number, usuario: string) {
+export async function markCompraQuotationReceived(id: number, usuario: string, actorUserId?: number | null) {
   const compra = await getCompraById(id)
 
   if (!compra) {
@@ -1918,14 +2323,27 @@ export async function markCompraQuotationReceived(id: number, usuario: string) {
       usuario,
     )
     await addHistoricoEvento(id, 'Solicitacao de autorizacao enviada ao administrador', usuario)
+
+    await notifyUsersByFeature(
+      'aprovar_compra_admin',
+      {
+        tipo: 'autorizacao_admin',
+        titulo: 'Compra direta pronta para aprovacao do ADM',
+        mensagem: `${compra.cliente_nome ?? 'Cliente'} - ${compra.proposta_nome ?? 'Proposta'} recebeu cotacao e seguiu direto para o ADM.`,
+        link: `/solicitacoes-autorizacao/${id}`,
+      },
+      { excludeUserIds: actorUserId ? [actorUserId] : [] },
+    )
+
     return { received: true, skippedRequesterApproval: true, requestedAdminApproval: true }
   }
 
   await addHistoricoEvento(id, 'Cotacao recebida e encaminhada para aprovacao do solicitante', usuario)
+  await notifyCompraRequesterApproval(compra)
   return { received: true, skippedRequesterApproval: false, requestedAdminApproval: false }
 }
 
-export async function approveCompraByRequester(id: number, usuario: string) {
+export async function approveCompraByRequester(id: number, usuario: string, actorUserId?: number | null) {
   const compra = await getCompraById(id)
 
   if (!compra) {
@@ -1946,10 +2364,22 @@ export async function approveCompraByRequester(id: number, usuario: string) {
   })
 
   await addHistoricoEvento(id, 'Solicitante aprovou a cotacao para seguir com a autorizacao', usuario)
+
+  await notifyUsersByFeatures(
+    ['solicitar_autorizacao', 'compras'],
+    {
+      tipo: 'cotacao_aprovacao',
+      titulo: 'Cotacao aprovada pelo solicitante',
+      mensagem: `${compra.cliente_nome ?? 'Cliente'} - ${compra.proposta_nome ?? 'Proposta'} esta pronta para seguir ao ADM.`,
+      link: `/compras/${id}`,
+    },
+    { excludeUserIds: actorUserId ? [actorUserId] : [] },
+  )
+
   return { approved: true }
 }
 
-export async function requestCompraRetification(id: number, usuario: string, motivo: string) {
+export async function requestCompraRetification(id: number, usuario: string, motivo: string, actorUserId?: number | null) {
   const compra = await getCompraById(id)
 
   if (!compra) {
@@ -1973,10 +2403,22 @@ export async function requestCompraRetification(id: number, usuario: string, mot
   })
 
   await addHistoricoEvento(id, `Solicitante pediu retificacao: ${motivoNormalizado}`, usuario)
+
+  await notifyUsersByFeature(
+    'compras',
+    {
+      tipo: 'retificacao',
+      titulo: 'Solicitacao devolvida para retificacao',
+      mensagem: `${compra.cliente_nome ?? 'Cliente'} - ${compra.proposta_nome ?? 'Proposta'} precisa de ajuste: ${motivoNormalizado}.`,
+      link: `/compras/${id}`,
+    },
+    { excludeUserIds: actorUserId ? [actorUserId] : [] },
+  )
+
   return { retified: true }
 }
 
-export async function rejectCompraFinanceiro(id: number, usuario: string, motivo?: string | null) {
+export async function rejectCompraFinanceiro(id: number, usuario: string, motivo?: string | null, actorUserId?: number | null) {
   const compra = await getCompraById(id)
 
   if (!compra) {
@@ -2005,10 +2447,23 @@ export async function rejectCompraFinanceiro(id: number, usuario: string, motivo
     usuario,
   )
 
+  await notifyUsersByFeatures(
+    ['confirmar_fornecedor', 'solicitar_autorizacao', 'compras'],
+    {
+      tipo: 'retificacao',
+      titulo: 'Financeiro devolveu a compra',
+      mensagem: motivoNormalizado
+        ? `${compra.cliente_nome ?? 'Cliente'} - ${compra.proposta_nome ?? 'Proposta'} voltou ao compras: ${motivoNormalizado}.`
+        : `${compra.cliente_nome ?? 'Cliente'} - ${compra.proposta_nome ?? 'Proposta'} voltou ao compras para ajuste do financeiro.`,
+      link: `/autorizacoes`,
+    },
+    { excludeUserIds: actorUserId ? [actorUserId] : [] },
+  )
+
   return { rejected: true }
 }
 
-export async function approveCompraFinanceiro(id: number, usuario: string) {
+export async function approveCompraFinanceiro(id: number, usuario: string, actorUserId?: number | null) {
   const compra = await getCompraById(id)
 
   if (!compra) {
@@ -2030,6 +2485,18 @@ export async function approveCompraFinanceiro(id: number, usuario: string) {
   })
 
   await addHistoricoEvento(id, 'Financeiro registrou ciencia e liberou o pedido para fechamento com fornecedor', usuario)
+
+  await notifyUsersByFeature(
+    'confirmar_fornecedor',
+    {
+      tipo: 'autorizacao_financeira',
+      titulo: 'Compra liberada para fechamento com fornecedor',
+      mensagem: `${compra.cliente_nome ?? 'Cliente'} - ${compra.proposta_nome ?? 'Proposta'} foi liberada pelo financeiro.`,
+      link: `/autorizacoes/${id}`,
+    },
+    { excludeUserIds: actorUserId ? [actorUserId] : [] },
+  )
+
   return { approved: true }
 }
 
@@ -4158,6 +4625,20 @@ function throwIfSupabaseError(error: { message: string } | null) {
   }
 }
 
+function isMissingDatabaseObjectError(error: unknown, objectName: string) {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error ?? '').toLowerCase()
+
+  return (
+    message.includes(objectName.toLowerCase()) &&
+    (message.includes('does not exist') ||
+      message.includes("doesn't exist") ||
+      message.includes('could not find the table') ||
+      message.includes('schema cache') ||
+      message.includes('unknown table') ||
+      message.includes('no such table'))
+  )
+}
+
 function normalizeCliente(row: Row): Cliente {
   return {
     id: toNumber(row.id),
@@ -4581,6 +5062,20 @@ function normalizeAnexo(row: Row): Anexo {
   }
 }
 
+function normalizeNotificacao(row: Row): Notificacao {
+  return {
+    id: toNumber(row.id),
+    usuario_id: toNumber(row.usuario_id),
+    tipo: normalizeNotificacaoTipo(row.tipo),
+    titulo: String(row.titulo ?? ''),
+    mensagem: String(row.mensagem ?? ''),
+    link: nullableString(row.link),
+    lida: normalizeBoolean(row.lida),
+    created_at: toDateTimeString(row.created_at),
+    read_at: toDateTimeStringOrNull(row.read_at),
+  }
+}
+
 async function annotateAnexoAvailability(anexos: Anexo[]) {
   return Promise.all(
     anexos.map(async (anexo) => ({
@@ -4648,6 +5143,24 @@ function normalizeTipoAnexo(value: unknown): TipoAnexo {
   }
 
   return 'outro'
+}
+
+function normalizeNotificacaoTipo(value: unknown): NotificacaoTipo {
+  const tipo = String(value ?? '').toLowerCase()
+
+  if (
+    tipo === 'solicitacao_nova' ||
+    tipo === 'cotacao_aprovacao' ||
+    tipo === 'autorizacao_admin' ||
+    tipo === 'autorizacao_financeira' ||
+    tipo === 'documentos_financeiro' ||
+    tipo === 'retificacao' ||
+    tipo === 'solicitacao_sensivel'
+  ) {
+    return tipo
+  }
+
+  return 'informativa'
 }
 
 function normalizePerfilUsuario(value: unknown): PerfilUsuario {
@@ -4723,6 +5236,10 @@ function toDateTimeString(value: unknown) {
 
   const current = String(value)
   return current.includes('T') ? current : current.replace(' ', 'T')
+}
+
+function toDateTimeStringOrNull(value: unknown) {
+  return value ? toDateTimeString(value) : null
 }
 
 function toDateOnlyString(value: unknown) {

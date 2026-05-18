@@ -6,7 +6,7 @@ import { hasFeatureAccess } from '@/lib/auth/permissions'
 import { deleteSupabaseAttachmentObject, ensureSupabaseAttachmentBucket, uploadBufferToSupabaseAttachmentStorage } from '@/lib/attachment-storage'
 import { SUPABASE_ATTACHMENT_BUCKET } from '@/lib/attachments'
 import { getDatabaseType } from '@/lib/db'
-import { createAnexo, deleteAnexo, getCompraById, listAnexosByCompraId } from '@/lib/repositories'
+import { createAnexo, deleteAnexo, getCompraById, listAnexosByCompraId, notifyCompraFinanceDocumentsReady } from '@/lib/repositories'
 
 export const runtime = 'nodejs'
 
@@ -38,6 +38,7 @@ export async function POST(
   try {
     const { id } = await params
     const compraId = Number(id)
+    const session = await getRequestSession(request)
     const accessError = await validateAttachmentAccess(request, compraId)
     if (accessError) {
       return accessError
@@ -56,6 +57,9 @@ export async function POST(
     const anexoIdsCriados: number[] = []
     const storageObjectsCriados: string[] = []
     const useSupabaseStorage = getDatabaseType() === 'supabase'
+    const anexosAntes = await listAnexosByCompraId(compraId)
+    const possuiaNotaFiscal = anexosAntes.some((anexo) => anexo.tipo === 'nf')
+    const possuiaBoleto = anexosAntes.some((anexo) => anexo.tipo === 'boleto')
 
     if (!useSupabaseStorage) {
       const uploadDirectory = path.join(process.cwd(), 'public', 'uploads', 'compras', String(compraId))
@@ -105,6 +109,17 @@ export async function POST(
       await Promise.all(arquivosCriados.map((filePath) => rm(filePath, { force: true }).catch(() => undefined)))
       await deleteSupabaseObjects(storageObjectsCriados)
       throw error
+    }
+
+    const possuiNotaFiscalAgora = possuiaNotaFiscal || tipo === 'nf'
+    const possuiBoletoAgora = possuiaBoleto || tipo === 'boleto'
+    const ganhouKitFinanceiro =
+      !(possuiaNotaFiscal && possuiaBoleto) &&
+      possuiNotaFiscalAgora &&
+      possuiBoletoAgora
+
+    if (ganhouKitFinanceiro) {
+      await notifyCompraFinanceDocumentsReady(compraId, { excludeUserIds: session ? [session.userId] : [] })
     }
 
     return NextResponse.json({

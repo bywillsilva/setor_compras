@@ -4,6 +4,7 @@ import { cookies } from 'next/headers'
 import { Inter, Roboto_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { ThemeProvider } from '@/components/theme-provider'
+import { Toaster } from '@/components/ui/sonner'
 import { normalizeThemePreference, THEME_COOKIE_NAME, themePreferenceToNextTheme } from '@/lib/theme'
 import './globals.css'
 
@@ -94,6 +95,7 @@ export default async function RootLayout({
           disableTransitionOnChange
         >
           {children}
+          <Toaster richColors position="top-right" />
           {process.env.NODE_ENV === 'production' && <Analytics />}
         </ThemeProvider>
       </body>

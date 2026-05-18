@@ -15,7 +15,7 @@ export async function POST(
     const { id } = await params
     const body = await request.json().catch(() => ({}))
 
-    await rejectCompraAuthorizationRequest(Number(id), guard.session.nome, String(body.motivo ?? ""))
+    await rejectCompraAuthorizationRequest(Number(id), guard.session.nome, String(body.motivo ?? ""), guard.session.userId)
 
     return NextResponse.json({ message: "Solicitacao devolvida ao comprador." })
   } catch (error) {

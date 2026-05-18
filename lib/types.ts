@@ -10,6 +10,15 @@ export type TemaPreferido = 'claro' | 'escuro'
 export type SolicitacaoSensivelEntidade = 'cliente' | 'proposta' | 'compra'
 export type SolicitacaoSensivelAcao = 'editar' | 'excluir'
 export type SolicitacaoSensivelStatus = 'pendente' | 'aprovada' | 'recusada'
+export type NotificacaoTipo =
+  | 'solicitacao_nova'
+  | 'cotacao_aprovacao'
+  | 'autorizacao_admin'
+  | 'autorizacao_financeira'
+  | 'documentos_financeiro'
+  | 'retificacao'
+  | 'solicitacao_sensivel'
+  | 'informativa'
 export type AppFeature =
   | 'dashboard'
   | 'solicitacoes'
@@ -166,6 +175,18 @@ export interface Usuario {
   ativo: boolean
   created_at: string
   updated_at: string
+}
+
+export interface Notificacao {
+  id: number
+  usuario_id: number
+  tipo: NotificacaoTipo
+  titulo: string
+  mensagem: string
+  link: string | null
+  lida: boolean
+  created_at: string
+  read_at: string | null
 }
 
 export interface PerfilPermissao {

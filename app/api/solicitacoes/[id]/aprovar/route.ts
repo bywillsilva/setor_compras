@@ -31,7 +31,7 @@ export async function POST(
       return NextResponse.json({ error: "Voce nao pode aprovar esta solicitacao." }, { status: 403 })
     }
 
-    await approveCompraByRequester(Number(id), guard.session.nome)
+    await approveCompraByRequester(Number(id), guard.session.nome, guard.session.userId)
 
     return NextResponse.json({ message: "Solicitacao aprovada com sucesso." })
   } catch (error) {

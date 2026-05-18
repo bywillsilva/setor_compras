@@ -15,7 +15,7 @@ export async function POST(
     const { id } = await params
     const body = await request.json().catch(() => ({}))
 
-    await rejectCompraFinanceiro(Number(id), guard.session.nome, String(body.motivo ?? ""))
+    await rejectCompraFinanceiro(Number(id), guard.session.nome, String(body.motivo ?? ""), guard.session.userId)
 
     return NextResponse.json({ message: "Pedido devolvido ao comprador." })
   } catch (error) {

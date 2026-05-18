@@ -13,7 +13,7 @@ export async function POST(
     }
 
     const { id } = await params
-    await approveCompraFinanceiro(Number(id), guard.session.nome)
+    await approveCompraFinanceiro(Number(id), guard.session.nome, guard.session.userId)
 
     return NextResponse.json({ message: "Ciencia financeira registrada com sucesso." })
   } catch (error) {

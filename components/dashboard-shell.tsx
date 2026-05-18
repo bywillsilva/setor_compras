@@ -7,6 +7,7 @@ import type { SessionPayload } from "@/lib/auth/session"
 import { cn } from "@/lib/utils"
 import { AuthProvider } from "@/components/auth-provider"
 import { AppSidebar } from "@/components/app-sidebar"
+import { NotificationCenter } from "@/components/notification-center"
 
 const SIDEBAR_STORAGE_KEY = "setor-compras-sidebar-collapsed"
 
@@ -57,7 +58,14 @@ export function DashboardShell({
             collapsed ? "md:ml-20" : "md:ml-64",
           )}
         >
-          {isCurrentPathAllowed ? <div className="mx-auto w-full max-w-[1680px]">{children}</div> : null}
+          {isCurrentPathAllowed ? (
+            <div className="mx-auto w-full max-w-[1680px]">
+              <div className="flex justify-end px-4 pb-1 pt-4 md:px-6">
+                <NotificationCenter />
+              </div>
+              {children}
+            </div>
+          ) : null}
         </main>
       </div>
     </AuthProvider>
