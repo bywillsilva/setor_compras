@@ -87,25 +87,6 @@ export default function AutorizacoesPage() {
     intervalMs: 12000,
   })
 
-  async function handleRequestAuthorization(compraId: number) {
-    setProcessingId(compraId)
-
-    try {
-      const response = await fetch(`/api/compras/${compraId}/solicitacao-autorizacao`, { method: "POST" })
-      const payload = await response.json().catch(() => null)
-
-      if (!response.ok) {
-        throw new Error(payload?.error || "Erro ao solicitar autorizacao.")
-      }
-
-      await fetchData()
-    } catch (error) {
-      alert(error instanceof Error ? error.message : "Erro ao solicitar autorizacao.")
-    } finally {
-      setProcessingId(null)
-    }
-  }
-
   async function handleRequestFinance(compraId: number) {
     setProcessingId(compraId)
 
@@ -153,9 +134,10 @@ export default function AutorizacoesPage() {
   })
 
   const resumo = useMemo(
-    () => ({
-      aguardandoSolicitante: filteredCompras.filter((compra) => compra.etapa_fluxo === "analise_solicitante").length,
-      prontasParaSolicitarAdm: filteredCompras.filter((compra) => compra.etapa_fluxo === "aprovada_solicitante").length,
+      () => ({
+      emCotacao: filteredCompras.filter((compra) =>
+        ["solicitacao_registrada", "cotacao_em_andamento", "retificacao"].includes(compra.etapa_fluxo),
+      ).length,
       aguardandoAdm: filteredCompras.filter((compra) => compra.etapa_fluxo === "aguardando_admin").length,
       prontasParaSolicitarFinanceiro: filteredCompras.filter((compra) => compra.etapa_fluxo === "aprovada_admin").length,
       aguardandoFinanceiro: filteredCompras.filter((compra) => compra.etapa_fluxo === "aguardando_financeiro").length,
@@ -183,12 +165,11 @@ export default function AutorizacoesPage() {
     <div className="space-y-6 p-4 sm:p-6">
       <PageHeader
         title="Autorizacoes"
-        description="Acompanhe toda a fila ligada a autorizacao, da analise do solicitante ate a liberacao para o fornecedor."
+        description="Acompanhe a fila de autorizacoes internas, da cotacao pronta para o ADM ate a liberacao para o fornecedor."
       />
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <SummaryMetricCard title="Em analise" value={resumo.aguardandoSolicitante} description="Esperando assinatura do solicitante" />
-        <SummaryMetricCard title="Para ADM" value={resumo.prontasParaSolicitarAdm} description="Prontos para enviar ao ADM" />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <SummaryMetricCard title="Em cotacao" value={resumo.emCotacao} description="Pedidos ainda sendo cotados ou ajustados." />
         <SummaryMetricCard title="Aguardando ADM" value={resumo.aguardandoAdm} description="Pendentes de aprovacao administrativa" />
         <SummaryMetricCard title="Para financeiro" value={resumo.prontasParaSolicitarFinanceiro} description="ADM aprovou, falta envio ao financeiro" />
         <SummaryMetricCard title="Aguardando financeiro" value={resumo.aguardandoFinanceiro} description="Pendentes de ciencia financeira" />
@@ -241,8 +222,9 @@ export default function AutorizacoesPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="todos">Todas</SelectItem>
-                  <SelectItem value="analise_solicitante">Em analise</SelectItem>
-                  <SelectItem value="aprovada_solicitante">Para ADM</SelectItem>
+                  <SelectItem value="solicitacao_registrada">Solicitacao registrada</SelectItem>
+                  <SelectItem value="cotacao_em_andamento">Cotacao em andamento</SelectItem>
+                  <SelectItem value="retificacao">Retificacao</SelectItem>
                   <SelectItem value="aguardando_admin">Aguardando ADM</SelectItem>
                   <SelectItem value="aprovada_admin">Para financeiro</SelectItem>
                   <SelectItem value="aguardando_financeiro">Aguardando financeiro</SelectItem>
@@ -308,7 +290,6 @@ export default function AutorizacoesPage() {
                 <TableBody>
                   {pagination.items.map((compra) => {
                     const isProcessing = processingId === compra.id
-                    const canRequestAuthorization = compra.etapa_fluxo === "aprovada_solicitante"
                     const canRequestFinance = compra.etapa_fluxo === "aprovada_admin"
                     const canFinalize = compra.etapa_fluxo === "liberada_para_fornecedor"
 
@@ -369,11 +350,6 @@ export default function AutorizacoesPage() {
                               <DropdownMenuItem onClick={() => handleRequestFinance(compra.id)} disabled={isProcessing}>
                                 {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                                 {isProcessing ? "Solicitando..." : "Solicitar assinatura do financeiro"}
-                              </DropdownMenuItem>
-                            ) : canRequestAuthorization && canRequestApproval ? (
-                              <DropdownMenuItem onClick={() => handleRequestAuthorization(compra.id)} disabled={isProcessing}>
-                                {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                                {isProcessing ? "Solicitando..." : "Solicitar assinatura do ADM"}
                               </DropdownMenuItem>
                             ) : compra.etapa_fluxo === "aguardando_admin" && canRequestApproval ? (
                               <DropdownMenuItem disabled>

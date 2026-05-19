@@ -304,11 +304,11 @@ function resolvePendingApprovalLabel(etapaFluxo: EtapaFluxoCompra) {
     case "cotacao_em_andamento":
       return "Cotacao em andamento com o fornecedor"
     case "analise_solicitante":
-      return "Aguardando aprovacao do solicitante"
+      return "Aguardando aprovacao do ADM"
     case "retificacao":
       return "Em retificacao"
     case "aprovada_solicitante":
-      return "Aprovada pelo solicitante e pronta para envio ao ADM"
+      return "Aguardando aprovacao do ADM"
     case "aguardando_admin":
       return "Aguardando aprovacao do ADM"
     case "aprovada_admin":
@@ -330,9 +330,11 @@ function buildObservations(compras: Compra[]) {
   for (const compra of compras) {
     const heading = formatCompraHeading(compra)
 
-    if (compra.etapa_fluxo === "analise_solicitante") {
-      notes.push(`${heading} aguardando assinatura do solicitante para seguir ao ADM.`)
-    } else if (compra.etapa_fluxo === "aguardando_admin") {
+    if (
+      compra.etapa_fluxo === "analise_solicitante" ||
+      compra.etapa_fluxo === "aprovada_solicitante" ||
+      compra.etapa_fluxo === "aguardando_admin"
+    ) {
       notes.push(`${heading} aguardando aprovacao do ADM.`)
     } else if (compra.etapa_fluxo === "aguardando_financeiro") {
       notes.push(`${heading} aguardando aprovacao do financeiro.`)

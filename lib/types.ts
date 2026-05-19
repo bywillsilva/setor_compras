@@ -50,8 +50,6 @@ export type AppFeature =
   | 'editar_solicitacao'
   | 'arquivar_solicitacao'
   | 'excluir_solicitacao'
-  | 'aprovar_solicitacao'
-  | 'retificar_solicitacao'
   | 'editar_solicitacao_pos_aprovacao_admin'
   | 'arquivar_solicitacao_pos_aprovacao_admin'
   | 'excluir_solicitacao_pos_aprovacao_admin'

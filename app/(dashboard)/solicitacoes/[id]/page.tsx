@@ -2,7 +2,7 @@
 
 import { use, useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { ArrowLeft, CheckCircle2, Loader2, MoreHorizontal, Paperclip, RefreshCcw, Save, Trash2, X } from "lucide-react"
+import { ArrowLeft, Loader2, MoreHorizontal, Paperclip, Save, Trash2, X } from "lucide-react"
 import { useCurrentSession } from "@/components/auth-provider"
 import { CompraRateioFields, type CompraRateioFormState } from "@/components/compras/compra-rateio-fields"
 import { PageHeader, SectionCard, SummaryMetricCard } from "@/components/shared/page-layout"
@@ -57,12 +57,10 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
   const [compra, setCompra] = useState<CompraDetalhe | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [processing, setProcessing] = useState(false)
   const [attachmentType, setAttachmentType] = useState<TipoAnexo>("cotacao")
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([])
   const [uploadingAttachments, setUploadingAttachments] = useState(false)
   const [deletingAttachmentId, setDeletingAttachmentId] = useState<number | null>(null)
-  const [motivoRetificacao, setMotivoRetificacao] = useState("")
   const [savingQuoteData, setSavingQuoteData] = useState(false)
   const [quoteDataDirty, setQuoteDataDirty] = useState(false)
   const [savingRequesterData, setSavingRequesterData] = useState(false)
@@ -85,8 +83,6 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
   const canEditSolicitacaoFeature = Boolean(session && hasFeatureAccess(session.perfil, "editar_solicitacao", session.features))
   const canArchiveSolicitacaoFeature = Boolean(session && hasFeatureAccess(session.perfil, "arquivar_solicitacao", session.features))
   const canDeleteSolicitacaoFeature = Boolean(session && hasFeatureAccess(session.perfil, "excluir_solicitacao", session.features))
-  const canApproveSolicitacaoFeature = Boolean(session && hasFeatureAccess(session.perfil, "aprovar_solicitacao", session.features))
-  const canRetifySolicitacaoFeature = Boolean(session && hasFeatureAccess(session.perfil, "retificar_solicitacao", session.features))
   const canDeleteAttachment = Boolean(
     session && hasFeatureAccess(session.perfil, "excluir_anexo_compra", session.features),
   )
@@ -127,7 +123,6 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
   useLiveRefresh(() => fetchSolicitacao({ silent: true }), {
     enabled:
       !loadError &&
-      !processing &&
       !savingQuoteData &&
       !savingRequesterData &&
       !uploadingAttachments &&
@@ -183,35 +178,6 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
       if (!silent) {
         setLoading(false)
       }
-    }
-  }
-
-  async function runAction(
-    path: string,
-    body: Record<string, unknown> | null,
-    successMessage: string,
-  ) {
-    setProcessing(true)
-
-    try {
-      const response = await fetch(path, {
-        method: "POST",
-        headers: body ? { "Content-Type": "application/json" } : undefined,
-        body: body ? JSON.stringify(body) : undefined,
-      })
-      const payload = await response.json().catch(() => null)
-
-      if (!response.ok) {
-        throw new Error(payload?.error || "Erro ao atualizar solicitacao.")
-      }
-
-      alert(successMessage)
-      await fetchSolicitacao()
-      setMotivoRetificacao("")
-    } catch (error) {
-      alert(error instanceof Error ? error.message : "Erro ao atualizar solicitacao.")
-    } finally {
-      setProcessing(false)
     }
   }
 
@@ -622,12 +588,6 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
   }
 
   const canAdminManageSolicitacao = session?.perfil === "admin"
-  const canApproveAsRequester =
-    compra.etapa_fluxo === "analise_solicitante" &&
-    canApproveSolicitacaoFeature &&
-    (session?.perfil === "admin" ||
-      session?.userId === compra.solicitante_id ||
-      (!compra.solicitante_id && compra.solicitado_por?.trim() === session?.nome?.trim()))
   const requesterOwnsSolicitacao = Boolean(
     session?.userId === compra.solicitante_id || (!compra.solicitante_id && compra.solicitado_por?.trim() === session?.nome?.trim()),
   )
@@ -775,7 +735,7 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
         <Tabs defaultValue="resumo" className="space-y-4">
           <TabsList className="h-auto flex-wrap justify-start">
             <TabsTrigger value="resumo">Resumo</TabsTrigger>
-            <TabsTrigger value="cotacao">Cotacao e aprovacao</TabsTrigger>
+            <TabsTrigger value="cotacao">Cotacao</TabsTrigger>
             <TabsTrigger value="anexos">Anexos</TabsTrigger>
           </TabsList>
 
@@ -851,12 +811,12 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
               ) : null}
 
               {shouldShowOperationalContext ? (
-                <Field label="Assinaturas e registros do fluxo">
+                <Field label="Registros do fluxo">
                   <div className="grid gap-3 md:grid-cols-2">
-                    <SignatureTag label="Solicitante" value={compra.aprovado_solicitante_por} date={compra.aprovado_solicitante_em} />
+                    <SignatureTag label="Solicitante" value={compra.solicitado_por} date={compra.data_criacao} />
                     <SignatureTag label="Administrador" value={compra.aprovado_admin_por} date={compra.aprovado_admin_em} />
                     <SignatureTag label="Financeiro" value={compra.aprovado_financeiro_por} date={compra.aprovado_financeiro_em} />
-                    <SignatureTag label="Comprador" value={compra.confirmado_fornecedor_por} date={compra.confirmado_fornecedor_em} />
+                    <SignatureTag label="Comprador" value={compra.cotacao_recebida_por} date={compra.cotacao_recebida_em} />
                   </div>
                 </Field>
               ) : null}
@@ -868,14 +828,14 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
           <div className="space-y-4">
             <SectionCard
               title="Cotacao desta solicitacao"
-              description={
-                canViewAsCompras
-                  ? "O setor de compras registra a distribuicao da cotacao e devolve este pedido para aprovacao quando necessario."
-                  : hasQuoteResumo
-                    ? "Confira os valores informados pelo setor de compras antes de aprovar ou pedir retificacao."
-                    : "Assim que o setor de compras concluir a cotacao, os valores aparecerao aqui para sua analise."
-              }
-            >
+                description={
+                  canViewAsCompras
+                    ? "O setor de compras registra a distribuicao da cotacao e encaminha o pedido diretamente para aprovacao administrativa."
+                    : hasQuoteResumo
+                      ? "Confira os valores informados pelo setor de compras e acompanhe a atualizacao desta solicitacao."
+                      : "Assim que o setor de compras concluir a cotacao, os valores aparecerao aqui para sua consulta."
+                }
+              >
               {hasQuoteResumo ? (
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                   {quoteResumo.map((item) => (
@@ -920,60 +880,12 @@ export default function SolicitacaoDetailPage({ params }: { params: Promise<{ id
               </SectionCard>
             ) : null}
 
-            <SectionCard title="Acoes desta etapa" description="As transicoes do pedido acontecem por acoes diretas, sem troca manual de status.">
-              {canApproveAsRequester || (canRetifySolicitacaoFeature && (requesterOwnsSolicitacao || canAdminManageSolicitacao)) ? (
-                <div className="space-y-4">
-                  {canApproveAsRequester ? (
-                    <Button
-                      className="w-full justify-start"
-                      disabled={processing}
-                      onClick={() =>
-                        runAction(
-                          `/api/solicitacoes/${compra.id}/aprovar`,
-                          null,
-                          canAdminManageSolicitacao
-                            ? "Solicitacao aprovada pelo administrador para seguir ao proximo fluxo."
-                            : "Solicitacao assinada e aprovada para seguir a autorizacao.",
-                        )
-                      }
-                    >
-                      {processing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-                      {canAdminManageSolicitacao ? "Aprovar solicitacao" : "Assinar e aprovar cotacao"}
-                    </Button>
-                  ) : null}
-
-                  {canRetifySolicitacaoFeature ? (
-                    <div className="space-y-2 rounded-lg border p-4">
-                      <Label htmlFor="motivo-retificacao">Motivo da retificacao</Label>
-                      <Textarea
-                        id="motivo-retificacao"
-                        value={motivoRetificacao}
-                        onChange={(event) => setMotivoRetificacao(event.target.value)}
-                        placeholder="Explique o que precisa ser ajustado antes de seguir."
-                      />
-                      <Button
-                        variant="outline"
-                        className="w-full justify-start"
-                        disabled={processing || !motivoRetificacao.trim()}
-                        onClick={() =>
-                          runAction(
-                            `/api/solicitacoes/${compra.id}/retificacao`,
-                            { motivo: motivoRetificacao.trim() },
-                            "Retificacao enviada ao setor de compras.",
-                          )
-                        }
-                      >
-                        {processing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCcw className="mr-2 h-4 w-4" />}
-                        Solicitar retificacao
-                      </Button>
-                    </div>
-                  ) : null}
-                </div>
-              ) : (
-                <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                  Nenhuma acao imediata disponivel nesta etapa para o seu perfil.
-                </div>
-              )}
+            <SectionCard title="Andamento da solicitacao" description="Esta area mostra apenas o acompanhamento da cotacao e das autorizacoes internas.">
+              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                {hasQuoteResumo
+                  ? "A cotacao ja foi registrada pelo setor de compras e esta seguindo para as autorizacoes internas."
+                  : "Aguardando o setor de compras concluir a cotacao para atualizar esta solicitacao."}
+              </div>
             </SectionCard>
           </div>
         </TabsContent>
@@ -1129,7 +1041,7 @@ function SignatureTag({
   return (
     <div className="rounded-lg border bg-muted/15 p-3">
       <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="mt-2 font-medium">{value || "Pendente"}</div>
+      <div className="mt-2 font-medium">{value || "Sem registro"}</div>
       <div className="text-xs text-muted-foreground">{date || "Sem registro"}</div>
     </div>
   )

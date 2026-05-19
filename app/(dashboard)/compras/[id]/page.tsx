@@ -680,25 +680,14 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
               onClick={() =>
                 runWorkflowAction(
                   `/api/compras/${compra.id}/recebimento-cotacao`,
-                  !compra.solicitante_id
-                    ? "Cotacao registrada e enviada diretamente para aprovacao do ADM."
-                    : "Cotacao enviada para aprovacao do solicitante.",
-                  "solicitante",
+                  "Cotacao registrada e enviada para aprovacao do ADM.",
+                  "adm",
                 )
               }
-              disabled={workflowProcessing === "solicitante"}
+              disabled={workflowProcessing === "adm"}
             >
               <Send className="mr-2 h-4 w-4" />
-              {workflowProcessing === "solicitante"
-                ? "Solicitando..."
-                : !compra.solicitante_id
-                  ? "Enviar cotacao para aprovacao do ADM"
-                  : "Solicitar aprovacao do solicitante"}
-            </Button>
-          ) : compra.status !== "pedido_autorizado" && compra.etapa_fluxo === "analise_solicitante" ? (
-            <Button variant="outline" disabled>
-              <Loader2 className="mr-2 h-4 w-4" />
-              Aguardando solicitante
+              {workflowProcessing === "adm" ? "Enviando..." : "Registrar cotacao e enviar ao ADM"}
             </Button>
           ) : compra.status !== "pedido_autorizado" && canFinalizeFornecedor && compra.etapa_fluxo === "liberada_para_fornecedor" ? (
             <Link href={`/autorizacoes/${compra.id}`}>
@@ -721,11 +710,6 @@ export default function CompraDetailPage({ params }: { params: Promise<{ id: str
             <Button variant="outline" disabled>
               <CheckCircle2 className="mr-2 h-4 w-4" />
               Aguardando financeiro
-            </Button>
-          ) : compra.status !== "pedido_autorizado" && canRequestApproval && compra.etapa_fluxo === "aprovada_solicitante" ? (
-            <Button variant="outline" onClick={handleRequestAuthorization} disabled={requestingAuthorization}>
-              <CheckCircle2 className="mr-2 h-4 w-4" />
-              {requestingAuthorization ? "Solicitando..." : "Solicitar assinatura do ADM"}
             </Button>
           ) : compra.status !== "pedido_autorizado" && canManageAdmApproval && compra.etapa_fluxo === "aguardando_admin" ? (
             <Link href={`/solicitacoes-autorizacao/${compra.id}`}>

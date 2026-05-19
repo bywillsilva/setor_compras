@@ -13,12 +13,10 @@ export async function POST(
     }
 
     const { id } = await params
-    const result = await markCompraQuotationReceived(Number(id), guard.session.nome, guard.session.userId)
+    await markCompraQuotationReceived(Number(id), guard.session.nome, guard.session.userId)
 
     return NextResponse.json({
-      message: result.skippedRequesterApproval
-        ? "Cotacao registrada e enviada diretamente para aprovacao do ADM."
-        : "Cotacao registrada e enviada para analise do solicitante.",
+      message: "Cotacao registrada e enviada para aprovacao do ADM.",
     })
   } catch (error) {
     return NextResponse.json(

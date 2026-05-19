@@ -1580,15 +1580,15 @@ export async function getCompraById(id: number): Promise<Compra | null> {
   }
 }
 
-async function notifyCompraRequesterApproval(compra: Compra) {
+async function notifyCompraRequesterStatusUpdated(compra: Compra) {
   if (!compra.solicitante_id) {
     return
   }
 
   await createNotificacoesForUsers([compra.solicitante_id], {
-    tipo: 'cotacao_aprovacao',
-    titulo: 'Cotacao aguardando sua aprovacao',
-    mensagem: `${compra.cliente_nome ?? 'Cliente'} - ${compra.proposta_nome ?? 'Proposta'} recebeu cotacao e precisa da sua validacao.`,
+    tipo: 'informativa',
+    titulo: 'Sua solicitacao recebeu uma atualizacao',
+    mensagem: `${compra.cliente_nome ?? 'Cliente'} - ${compra.proposta_nome ?? 'Proposta'} recebeu cotacao e seguiu para autorizacao administrativa.`,
     link: `/solicitacoes/${compra.id}`,
   })
 }
@@ -2074,16 +2074,18 @@ export async function requestCompraAuthorization(id: number, usuario: string, ac
     throw new Error('Este pedido ja foi autorizado.')
   }
 
-  if (compra.etapa_fluxo !== 'aprovada_solicitante') {
-    throw new Error('Este pedido ainda nao foi aprovado pelo solicitante para seguir para autorizacao administrativa.')
-  }
-
   if (compra.etapa_autorizacao === 'solicitada') {
     throw new Error('Este pedido ja possui uma solicitacao de autorizacao em andamento.')
   }
 
   if (compra.etapa_autorizacao === 'liberada') {
     throw new Error('Este pedido ja foi liberado pelo administrador para conclusao da autorizacao.')
+  }
+
+  if (compra.etapa_fluxo !== 'aprovada_solicitante') {
+    throw new Error(
+      'Este pedido nao exige envio manual ao ADM. Depois do recebimento da cotacao, a autorizacao administrativa e aberta automaticamente.',
+    )
   }
 
   await updateCompraWorkflowFields(id, {
@@ -2180,9 +2182,9 @@ export async function rejectCompraAuthorizationRequest(
   const motivoNormalizado = nullableString(motivo)
 
   await updateCompraWorkflowFields(id, {
-    status: 'em_analise',
+    status: 'retificacao',
     etapa_autorizacao: 'nenhuma',
-    etapa_fluxo: 'aprovada_solicitante',
+    etapa_fluxo: 'retificacao',
     aprovado_admin_em: null,
     aprovado_admin_por: null,
   })
@@ -2251,10 +2253,6 @@ export async function requestCompraFinanceApproval(id: number, usuario: string, 
   return { requested: true }
 }
 
-function shouldSkipRequesterApproval(compra: Pick<Compra, 'solicitante_id'>) {
-  return !compra.solicitante_id
-}
-
 export async function markCompraQuotationSent(
   id: number,
   usuario: string,
@@ -2302,120 +2300,59 @@ export async function markCompraQuotationReceived(id: number, usuario: string, a
   const possuiCotacao = anexos.some((anexo) => anexo.tipo === 'cotacao')
 
   if (!possuiCotacao) {
-    throw new Error('Anexe ao menos um arquivo de cotacao antes de solicitar a aprovacao do solicitante.')
+    throw new Error('Anexe ao menos um arquivo de cotacao antes de enviar o pedido para aprovacao do ADM.')
   }
 
   const receivedAt = format(new Date(), 'yyyy-MM-dd')
-  const skipRequesterApproval = shouldSkipRequesterApproval(compra)
 
   await updateCompraWorkflowFields(id, {
     status: 'em_analise',
-    etapa_autorizacao: skipRequesterApproval ? 'solicitada' : compra.etapa_autorizacao,
-    etapa_fluxo: skipRequesterApproval ? 'aguardando_admin' : 'analise_solicitante',
+    etapa_autorizacao: 'solicitada',
+    etapa_fluxo: 'aguardando_admin',
     cotacao_recebida_em: receivedAt,
     cotacao_recebida_por: usuario,
   })
 
-  if (skipRequesterApproval) {
-    await addHistoricoEvento(
-      id,
-      'Cotacao recebida e enviada diretamente para aprovacao do ADM, sem etapa do solicitante por se tratar de compra direta',
-      usuario,
-    )
-    await addHistoricoEvento(id, 'Solicitacao de autorizacao enviada ao administrador', usuario)
+  await addHistoricoEvento(
+    id,
+    compra.solicitante_id
+      ? 'Cotacao recebida e encaminhada diretamente para aprovacao do ADM. O solicitante foi apenas notificado da atualizacao.'
+      : 'Cotacao recebida e enviada diretamente para aprovacao do ADM, sem etapa de solicitante por se tratar de compra direta',
+    usuario,
+  )
+  await addHistoricoEvento(id, 'Solicitacao de autorizacao enviada ao administrador', usuario)
 
-    await notifyUsersByFeature(
-      'aprovar_compra_admin',
-      {
-        tipo: 'autorizacao_admin',
-        titulo: 'Compra direta pronta para aprovacao do ADM',
-        mensagem: `${compra.cliente_nome ?? 'Cliente'} - ${compra.proposta_nome ?? 'Proposta'} recebeu cotacao e seguiu direto para o ADM.`,
-        link: `/solicitacoes-autorizacao/${id}`,
-      },
-      { excludeUserIds: actorUserId ? [actorUserId] : [] },
-    )
+  await notifyUsersByFeature(
+    'aprovar_compra_admin',
+    {
+      tipo: 'autorizacao_admin',
+      titulo: 'Compra pronta para aprovacao do ADM',
+      mensagem: `${compra.cliente_nome ?? 'Cliente'} - ${compra.proposta_nome ?? 'Proposta'} recebeu cotacao e seguiu para autorizacao administrativa.`,
+      link: `/solicitacoes-autorizacao/${id}`,
+    },
+    { excludeUserIds: actorUserId ? [actorUserId] : [] },
+  )
 
-    return { received: true, skippedRequesterApproval: true, requestedAdminApproval: true }
+  if (compra.solicitante_id) {
+    await notifyCompraRequesterStatusUpdated(compra)
   }
 
-  await addHistoricoEvento(id, 'Cotacao recebida e encaminhada para aprovacao do solicitante', usuario)
-  await notifyCompraRequesterApproval(compra)
-  return { received: true, skippedRequesterApproval: false, requestedAdminApproval: false }
+  return { received: true, skippedRequesterApproval: true, requestedAdminApproval: true }
 }
 
 export async function approveCompraByRequester(id: number, usuario: string, actorUserId?: number | null) {
-  const compra = await getCompraById(id)
-
-  if (!compra) {
-    throw new Error('Compra nao encontrada.')
-  }
-
-  if (compra.etapa_fluxo !== 'analise_solicitante') {
-    throw new Error('Este pedido nao esta aguardando aprovacao do solicitante.')
-  }
-
-  const approvedAt = format(new Date(), 'yyyy-MM-dd')
-
-  await updateCompraWorkflowFields(id, {
-    status: 'em_analise',
-    etapa_fluxo: 'aprovada_solicitante',
-    aprovado_solicitante_em: approvedAt,
-    aprovado_solicitante_por: usuario,
-  })
-
-  await addHistoricoEvento(id, 'Solicitante aprovou a cotacao para seguir com a autorizacao', usuario)
-
-  await notifyUsersByFeatures(
-    ['solicitar_autorizacao', 'compras'],
-    {
-      tipo: 'cotacao_aprovacao',
-      titulo: 'Cotacao aprovada pelo solicitante',
-      mensagem: `${compra.cliente_nome ?? 'Cliente'} - ${compra.proposta_nome ?? 'Proposta'} esta pronta para seguir ao ADM.`,
-      link: `/compras/${id}`,
-    },
-    { excludeUserIds: actorUserId ? [actorUserId] : [] },
-  )
-
-  return { approved: true }
+  void id
+  void usuario
+  void actorUserId
+  throw new Error('A aprovacao do solicitante foi removida deste fluxo.')
 }
 
 export async function requestCompraRetification(id: number, usuario: string, motivo: string, actorUserId?: number | null) {
-  const compra = await getCompraById(id)
-
-  if (!compra) {
-    throw new Error('Compra nao encontrada.')
-  }
-
-  const motivoNormalizado = nullableString(motivo)
-
-  if (!motivoNormalizado) {
-    throw new Error('Informe o motivo da retificacao.')
-  }
-
-  if (compra.etapa_fluxo !== 'analise_solicitante' && compra.etapa_fluxo !== 'aprovada_solicitante') {
-    throw new Error('Este pedido nao esta em etapa de analise para retificacao.')
-  }
-
-  await updateCompraWorkflowFields(id, {
-    status: 'retificacao',
-    etapa_autorizacao: 'nenhuma',
-    etapa_fluxo: 'retificacao',
-  })
-
-  await addHistoricoEvento(id, `Solicitante pediu retificacao: ${motivoNormalizado}`, usuario)
-
-  await notifyUsersByFeature(
-    'compras',
-    {
-      tipo: 'retificacao',
-      titulo: 'Solicitacao devolvida para retificacao',
-      mensagem: `${compra.cliente_nome ?? 'Cliente'} - ${compra.proposta_nome ?? 'Proposta'} precisa de ajuste: ${motivoNormalizado}.`,
-      link: `/compras/${id}`,
-    },
-    { excludeUserIds: actorUserId ? [actorUserId] : [] },
-  )
-
-  return { retified: true }
+  void id
+  void usuario
+  void motivo
+  void actorUserId
+  throw new Error('A retificacao pelo solicitante foi removida deste fluxo.')
 }
 
 export async function rejectCompraFinanceiro(id: number, usuario: string, motivo?: string | null, actorUserId?: number | null) {
@@ -4898,7 +4835,6 @@ function resolveCompraEtapaFluxo(
   rawEtapaAutorizacao: EtapaAutorizacao,
   rawEtapaFluxo: EtapaFluxoCompra,
 ): EtapaFluxoCompra {
-  const hasRequester = nullableNumber(row.solicitante_id) !== null
   const hasQuoteSent = Boolean(nullableString(row.cotacao_enviada_por) || toDateOnlyString(row.data_envio_fornecedor))
   const hasQuoteReceived = Boolean(nullableString(row.cotacao_recebida_por) || toDateOnlyString(row.cotacao_recebida_em))
   const hasRequesterApproval = Boolean(
@@ -4940,16 +4876,16 @@ function resolveCompraEtapaFluxo(
     return 'retificacao'
   }
 
-  if (!hasRequester && (rawEtapaFluxo === 'analise_solicitante' || rawEtapaFluxo === 'aprovada_solicitante' || hasQuoteReceived)) {
+  if (
+    rawEtapaFluxo === 'analise_solicitante' ||
+    rawEtapaFluxo === 'aprovada_solicitante' ||
+    hasRequesterApproval
+  ) {
     return 'aguardando_admin'
   }
 
-  if (hasRequesterApproval || rawEtapaFluxo === 'aprovada_solicitante') {
-    return 'aprovada_solicitante'
-  }
-
-  if (rawEtapaFluxo === 'analise_solicitante' || hasQuoteReceived) {
-    return 'analise_solicitante'
+  if (hasQuoteReceived) {
+    return 'aguardando_admin'
   }
 
   if (rawEtapaFluxo === 'cotacao_em_andamento' || hasQuoteSent) {

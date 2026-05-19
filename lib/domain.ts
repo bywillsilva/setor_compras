@@ -53,9 +53,9 @@ export const ETAPA_AUTORIZACAO_BADGE_CLASSES: Record<EtapaAutorizacao, string> =
 export const ETAPA_FLUXO_LABELS: Record<EtapaFluxoCompra, string> = {
   solicitacao_registrada: "Solicitacao registrada",
   cotacao_em_andamento: "Cotacao em andamento",
-  analise_solicitante: "Em analise do solicitante",
+  analise_solicitante: "Aguardando aprovacao ADM",
   retificacao: "Em retificacao",
-  aprovada_solicitante: "Aprovada pelo solicitante",
+  aprovada_solicitante: "Aguardando aprovacao ADM",
   aguardando_admin: "Aguardando aprovacao ADM",
   aprovada_admin: "Aprovada pelo ADM",
   aguardando_financeiro: "Aguardando ciencia financeira",
@@ -64,19 +64,32 @@ export const ETAPA_FLUXO_LABELS: Record<EtapaFluxoCompra, string> = {
 }
 
 export function getEtapaFluxoLabel(compra: Pick<Compra, "etapa_fluxo" | "solicitante_id">) {
-  if (compra.etapa_fluxo === "aprovada_solicitante" && !compra.solicitante_id) {
-    return "Pronta para ADM"
+  if (compra.etapa_fluxo === "analise_solicitante" || compra.etapa_fluxo === "aprovada_solicitante") {
+    return "Aguardando aprovacao ADM"
   }
 
   return ETAPA_FLUXO_LABELS[compra.etapa_fluxo]
 }
 
 export function shouldShowCompraStatusBadge(compra: Pick<Compra, "status" | "etapa_fluxo">) {
-  if (compra.etapa_fluxo === "cotacao_em_andamento" && compra.status === "cotacao") {
+  if (
+    (compra.etapa_fluxo === "solicitacao_registrada" || compra.etapa_fluxo === "cotacao_em_andamento") &&
+    compra.status === "cotacao"
+  ) {
     return false
   }
 
-  if (compra.etapa_fluxo === "analise_solicitante" && compra.status === "em_analise") {
+  if (
+    [
+      "analise_solicitante",
+      "aprovada_solicitante",
+      "aguardando_admin",
+      "aprovada_admin",
+      "aguardando_financeiro",
+      "liberada_para_fornecedor",
+    ].includes(compra.etapa_fluxo) &&
+    compra.status === "em_analise"
+  ) {
     return false
   }
 

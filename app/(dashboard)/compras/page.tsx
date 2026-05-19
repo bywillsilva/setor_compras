@@ -265,9 +265,7 @@ export default function ComprasPage() {
                   <SelectItem value="todos">Todas</SelectItem>
                   <SelectItem value="solicitacao_registrada">Registrada</SelectItem>
                   <SelectItem value="cotacao_em_andamento">Em cotacao</SelectItem>
-                  <SelectItem value="analise_solicitante">Em analise</SelectItem>
                   <SelectItem value="retificacao">Retificacao</SelectItem>
-                  <SelectItem value="aprovada_solicitante">Aprovada solicitante</SelectItem>
                   <SelectItem value="aguardando_admin">Aguardando ADM</SelectItem>
                   <SelectItem value="aprovada_admin">Aprovada ADM</SelectItem>
                   <SelectItem value="aguardando_financeiro">Aguardando financeiro</SelectItem>
@@ -376,7 +374,6 @@ export default function ComprasPage() {
                 <TableBody>
                   {pagination.items.map((compra) => {
                     const isProcessing = processingId === compra.id
-                    const skipRequesterApproval = !compra.solicitante_id
                     const documentosPendentes = [!compra.possui_nf ? "NF" : null, !compra.possui_boleto ? "boleto" : null].filter(Boolean)
                     const aguardandoRegistroFinanceiro =
                       compra.status === "pedido_autorizado" &&
@@ -484,37 +481,17 @@ export default function ComprasPage() {
                                       runWorkflowAction(
                                         compra.id,
                                         `/api/compras/${compra.id}/recebimento-cotacao`,
-                                        skipRequesterApproval
-                                          ? "Cotacao registrada e enviada diretamente para aprovacao do ADM."
-                                          : "Cotacao enviada para aprovacao do solicitante.",
+                                        "Cotacao registrada e enviada para aprovacao do ADM.",
                                       )
                                     }
                                   >
                                     {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                                    {isProcessing
-                                      ? "Solicitando..."
-                                      : skipRequesterApproval
-                                        ? "Enviar cotacao para aprovacao do ADM"
-                                        : "Solicitar aprovacao do solicitante"}
+                                    {isProcessing ? "Enviando..." : "Registrar cotacao e enviar ao ADM"}
                                   </DropdownMenuItem>
                                 ) : compra.etapa_fluxo === "analise_solicitante" ? (
                                   <DropdownMenuItem disabled>
                                     <Loader2 className="h-4 w-4" />
-                                    Aguardando solicitante
-                                  </DropdownMenuItem>
-                                ) : canRequestApproval && compra.etapa_fluxo === "aprovada_solicitante" ? (
-                                  <DropdownMenuItem
-                                    disabled={isProcessing}
-                                    onClick={() =>
-                                      runWorkflowAction(
-                                        compra.id,
-                                        `/api/compras/${compra.id}/solicitacao-autorizacao`,
-                                        "Solicitacao enviada ao administrador.",
-                                      )
-                                    }
-                                  >
-                                    {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                                    {isProcessing ? "Solicitando..." : "Solicitar aprovacao do ADM"}
+                                    Aguardando ADM
                                   </DropdownMenuItem>
                                 ) : compra.etapa_fluxo === "aguardando_admin" ? (
                                   <DropdownMenuItem disabled>
@@ -614,14 +591,11 @@ function getCompraFlowNote(compra: Compra) {
       return compra.data_envio_fornecedor
         ? `Cotacao enviada ao fornecedor em ${format(parseISO(compra.data_envio_fornecedor), "dd/MM/yyyy", { locale: ptBR })}.`
         : "Cotacao em andamento com o fornecedor."
-    case "analise_solicitante":
-      return "Comprador ja anexou a cotacao e aguarda a aprovacao do solicitante."
     case "retificacao":
-      return "Solicitante pediu ajuste antes do envio para a aprovacao administrativa."
+      return "A cotacao retornou para ajuste antes de seguir para a aprovacao administrativa."
+    case "analise_solicitante":
     case "aprovada_solicitante":
-      return compra.solicitante_id
-        ? "Solicitante aprovou a cotacao; o proximo passo e enviar para o ADM."
-        : "Compra direta do comprador pronta para envio ao ADM."
+      return "Cotacao registrada e em transicao para a aprovacao administrativa."
     case "aguardando_admin":
       return "Aguardando a assinatura administrativa para seguir com a compra."
     case "aprovada_admin":

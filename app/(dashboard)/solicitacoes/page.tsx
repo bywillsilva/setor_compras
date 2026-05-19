@@ -4,7 +4,7 @@ import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
-import { CheckCircle2, ClipboardList, Eye, Loader2, Plus } from "lucide-react"
+import { Eye, Plus } from "lucide-react"
 import { useCurrentSession } from "@/components/auth-provider"
 import { DateRangeFilter } from "@/components/shared/date-range-filter"
 import { ListPaginationBar, useListPagination } from "@/components/shared/list-pagination"
@@ -16,7 +16,7 @@ import { SortableTableHead, TableFilterInput, type SortDirection } from "@/compo
 import { useLiveRefresh } from "@/components/shared/use-live-refresh"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import {
   Select,
   SelectContent,
@@ -42,7 +42,6 @@ export default function SolicitacoesPage() {
   const session = useCurrentSession()
   const [compras, setCompras] = useState<Compra[]>([])
   const [loading, setLoading] = useState(true)
-  const [processingId, setProcessingId] = useState<number | null>(null)
   const [filters, setFilters] = useState({
     solicitacao: "",
     cliente: "",
@@ -87,29 +86,9 @@ export default function SolicitacoesPage() {
   }, [])
 
   useLiveRefresh(() => fetchSolicitacoes({ silent: true }), {
-    enabled: processingId === null,
+    enabled: true,
     intervalMs: 12000,
   })
-
-  async function handleApprove(compraId: number) {
-    setProcessingId(compraId)
-
-    try {
-      const response = await fetch(`/api/solicitacoes/${compraId}/aprovar`, { method: "POST" })
-      const payload = await response.json().catch(() => null)
-
-      if (!response.ok) {
-        throw new Error(payload?.error || "Erro ao aprovar solicitacao.")
-      }
-
-      await fetchSolicitacoes()
-      alert("Solicitacao aprovada para seguir ao administrativo.")
-    } catch (error) {
-      alert(error instanceof Error ? error.message : "Erro ao aprovar solicitacao.")
-    } finally {
-      setProcessingId(null)
-    }
-  }
 
   const filteredCompras = useMemo(() => {
     return [...compras]
@@ -154,10 +133,12 @@ export default function SolicitacoesPage() {
     return filteredCompras.filter((compra) => isSolicitacaoOwnedByCurrentUser(compra, session?.userId, session?.nome))
   }, [canViewAllSolicitacoes, filteredCompras, session?.nome, session?.userId])
 
-  const comprasParaAprovacao = useMemo(() => {
+  const comprasAtualizadas = useMemo(() => {
     if (canViewAllSolicitacoes) {
       return filteredCompras.filter(
-        (compra) => compra.etapa_fluxo === "analise_solicitante" || Boolean(compra.aprovado_solicitante_em),
+        (compra) =>
+          compra.etapa_fluxo !== "solicitacao_registrada" &&
+          compra.etapa_fluxo !== "cotacao_em_andamento",
       )
     }
 
@@ -166,7 +147,10 @@ export default function SolicitacoesPage() {
         return false
       }
 
-      return compra.etapa_fluxo === "analise_solicitante" || Boolean(compra.aprovado_solicitante_em)
+      return (
+        compra.etapa_fluxo !== "solicitacao_registrada" &&
+        compra.etapa_fluxo !== "cotacao_em_andamento"
+      )
     })
   }, [canViewAllSolicitacoes, filteredCompras, session?.nome, session?.userId])
 
@@ -174,8 +158,8 @@ export default function SolicitacoesPage() {
     storageKey: "solicitacoes-enviadas-page-size",
     resetKey: JSON.stringify(filters),
   })
-  const aprovacaoPagination = useListPagination(comprasParaAprovacao, {
-    storageKey: "solicitacoes-aprovacao-page-size",
+  const atualizacoesPagination = useListPagination(comprasAtualizadas, {
+    storageKey: "solicitacoes-atualizadas-page-size",
     resetKey: JSON.stringify(filters),
   })
 
@@ -186,8 +170,12 @@ export default function SolicitacoesPage() {
       emCotacao: filteredCompras.filter((compra) =>
         ["solicitacao_registrada", "cotacao_em_andamento", "retificacao"].includes(compra.etapa_fluxo),
       ).length,
-      aguardandoAssinatura: filteredCompras.filter((compra) => compra.etapa_fluxo === "analise_solicitante").length,
-      autorizadasPeloSolicitante: filteredCompras.filter((compra) => Boolean(compra.aprovado_solicitante_em)).length,
+      emAutorizacao: filteredCompras.filter((compra) =>
+        ["aguardando_admin", "aprovada_admin", "aguardando_financeiro", "liberada_para_fornecedor"].includes(
+          compra.etapa_fluxo,
+        ),
+      ).length,
+      concluidas: filteredCompras.filter((compra) => compra.status === "pedido_autorizado").length,
     }),
     [comprasEnviadas.length, filteredCompras],
   )
@@ -211,7 +199,7 @@ export default function SolicitacoesPage() {
     <div className="space-y-6 p-4 sm:p-6">
       <PageHeader
         title="Solicitacoes"
-        description="Registre pedidos de compra para o setor de compras e acompanhe suas aprovacoes de cotacao em um fluxo proprio."
+        description="Registre pedidos de compra para o setor de compras e acompanhe as atualizacoes do andamento dessas solicitacoes."
         actions={
           canCreateSolicitacao ? (
             <Link href="/solicitacoes/novo">
@@ -232,20 +220,20 @@ export default function SolicitacoesPage() {
         />
         <SummaryMetricCard title="Em cotacao" value={resumo.emCotacao} description="Pedidos ainda em cotacao ou aguardando retorno do compras" />
         <SummaryMetricCard
-          title="Aguardando assinatura"
-          value={resumo.aguardandoAssinatura}
-          description={canViewAllSolicitacoes ? "Cotacoes aguardando aprovacao do solicitante" : "Cotacoes aguardando sua aprovacao"}
+          title="Em autorizacao"
+          value={resumo.emAutorizacao}
+          description="Pedidos que ja receberam cotacao e avancaram para as aprovacoes internas."
         />
         <SummaryMetricCard
-          title="Aprovadas pelo solicitante"
-          value={resumo.autorizadasPeloSolicitante}
-          description="Pedidos que ja receberam aprovacao do solicitante dentro do fluxo"
+          title="Concluidas"
+          value={resumo.concluidas}
+          description="Pedidos que ja chegaram a conclusao operacional da compra."
         />
       </div>
 
       <SectionCard
         title="Filtros da area"
-        description="Use os filtros para localizar os pedidos enviados e a fila de aprovacoes do solicitante."
+        description="Use os filtros para localizar os pedidos enviados e acompanhar as atualizacoes recebidas do setor de compras."
       >
         <ListFilterPanel
           trailing={
@@ -388,15 +376,6 @@ export default function SolicitacoesPage() {
                 </TableHeader>
                 <TableBody>
                   {enviadasPagination.items.map((compra) => {
-                    const isProcessing = processingId === compra.id
-                    const canApprove =
-                      compra.etapa_fluxo === "analise_solicitante" &&
-                      session &&
-                      hasFeatureAccess(session.perfil, "aprovar_solicitacao", session.features) &&
-                      (session.perfil === "admin" ||
-                        session.userId === compra.solicitante_id ||
-                        (!compra.solicitante_id && compra.solicitado_por?.trim() === session.nome?.trim()))
-
                     return (
                       <TableRow key={compra.id}>
                         <TableCell>
@@ -440,15 +419,6 @@ export default function SolicitacoesPage() {
                                 Abrir solicitacao
                               </Link>
                             </DropdownMenuItem>
-                            {canApprove ? (
-                              <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={() => handleApprove(compra.id)} disabled={isProcessing}>
-                                  {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                                  {isProcessing ? "Aprovando..." : "Aprovar solicitacao de compra"}
-                                </DropdownMenuItem>
-                              </>
-                            ) : null}
                           </RowActionsMenu>
                         </TableCell>
                       </TableRow>
@@ -473,16 +443,16 @@ export default function SolicitacoesPage() {
       </SectionCard>
 
       <SectionCard
-        title={canViewAllSolicitacoes ? "Fila de aprovacoes do solicitante" : "Suas aprovacoes de cotacao"}
+        title={canViewAllSolicitacoes ? "Atualizacoes das solicitacoes" : "Atualizacoes das suas solicitacoes"}
         description={
           canViewAllSolicitacoes
-            ? `${comprasParaAprovacao.length} pedido(s) pendentes ou ja aprovados pelo solicitante`
-            : `${comprasParaAprovacao.length} pedido(s) pendentes de sua aprovacao ou que voce ja autorizou`
+            ? `${comprasAtualizadas.length} pedido(s) com cotacao ou autorizacao em andamento`
+            : `${comprasAtualizadas.length} pedido(s) que receberam atualizacao do setor de compras`
         }
       >
-        {comprasParaAprovacao.length === 0 ? (
+        {comprasAtualizadas.length === 0 ? (
           <div className="rounded-lg border border-dashed p-10 text-center text-muted-foreground">
-            Nenhuma aprovacao de solicitacao encontrada para os filtros atuais.
+            Nenhuma atualizacao encontrada para os filtros atuais.
           </div>
         ) : (
           <>
@@ -537,16 +507,7 @@ export default function SolicitacoesPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {aprovacaoPagination.items.map((compra) => {
-                    const isProcessing = processingId === compra.id
-                    const canApprove =
-                      compra.etapa_fluxo === "analise_solicitante" &&
-                      session &&
-                      hasFeatureAccess(session.perfil, "aprovar_solicitacao", session.features) &&
-                      (session.perfil === "admin" ||
-                        session.userId === compra.solicitante_id ||
-                        (!compra.solicitante_id && compra.solicitado_por?.trim() === session.nome?.trim()))
-
+                  {atualizacoesPagination.items.map((compra) => {
                     return (
                       <TableRow key={compra.id}>
                         <TableCell>
@@ -590,15 +551,6 @@ export default function SolicitacoesPage() {
                                 Abrir solicitacao
                               </Link>
                             </DropdownMenuItem>
-                            {canApprove ? (
-                              <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={() => handleApprove(compra.id)} disabled={isProcessing}>
-                                  {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                                  {isProcessing ? "Aprovando..." : "Aprovar solicitacao de compra"}
-                                </DropdownMenuItem>
-                              </>
-                            ) : null}
                           </RowActionsMenu>
                         </TableCell>
                       </TableRow>
@@ -608,15 +560,15 @@ export default function SolicitacoesPage() {
               </Table>
             </div>
             <ListPaginationBar
-              currentPage={aprovacaoPagination.currentPage}
-              endItem={aprovacaoPagination.endItem}
+              currentPage={atualizacoesPagination.currentPage}
+              endItem={atualizacoesPagination.endItem}
               itemLabel="solicitacao(oes)"
-              onPageChange={aprovacaoPagination.setPage}
-              onPageSizeChange={aprovacaoPagination.setPageSize}
-              pageSize={aprovacaoPagination.pageSize}
-              startItem={aprovacaoPagination.startItem}
-              totalItems={aprovacaoPagination.totalItems}
-              totalPages={aprovacaoPagination.totalPages}
+              onPageChange={atualizacoesPagination.setPage}
+              onPageSizeChange={atualizacoesPagination.setPageSize}
+              pageSize={atualizacoesPagination.pageSize}
+              startItem={atualizacoesPagination.startItem}
+              totalItems={atualizacoesPagination.totalItems}
+              totalPages={atualizacoesPagination.totalPages}
             />
           </>
         )}
@@ -660,9 +612,7 @@ function isSolicitacaoOwnedByCurrentUser(compra: Compra, userId?: number, nome?:
 const ETAPA_FILTER_OPTIONS: EtapaFluxoCompra[] = [
   "solicitacao_registrada",
   "cotacao_em_andamento",
-  "analise_solicitante",
   "retificacao",
-  "aprovada_solicitante",
   "aguardando_admin",
   "aprovada_admin",
   "aguardando_financeiro",
