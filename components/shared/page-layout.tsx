@@ -16,10 +16,14 @@ export function PageHeader({
   return (
     <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
       <div className="max-w-3xl space-y-1.5">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground md:text-[2rem]">{title}</h1>
+        <h1 className="text-[1.7rem] font-bold tracking-tight text-foreground sm:text-2xl md:text-[2rem]">{title}</h1>
         <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p>
       </div>
-      {actions ? <div className="flex flex-wrap items-center gap-2 lg:justify-end">{actions}</div> : null}
+      {actions ? (
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center lg:justify-end [&>*]:w-full sm:[&>*]:w-auto [&>*_button]:w-full sm:[&>*_button]:w-auto">
+          {actions}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -49,7 +53,7 @@ export function SummaryMetricCard({
         <CardDescription className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/90">
           {title}
         </CardDescription>
-        <CardTitle className="text-3xl tracking-tight text-foreground md:text-[2rem]">{value}</CardTitle>
+        <CardTitle className="text-2xl tracking-tight text-foreground sm:text-3xl md:text-[2rem]">{value}</CardTitle>
       </CardHeader>
       <CardContent className="pt-0">
         <p className="text-sm leading-5 text-muted-foreground">{description}</p>
@@ -69,11 +73,11 @@ export function SectionCard({
 }) {
   return (
     <Card className="overflow-hidden border-border/80">
-      <CardHeader className="border-b border-border/70 pb-4">
+      <CardHeader className="border-b border-border/70 px-4 pb-4 sm:px-6">
         <CardTitle>{title}</CardTitle>
         {description ? <CardDescription>{description}</CardDescription> : null}
       </CardHeader>
-      <CardContent className="space-y-4">{children}</CardContent>
+      <CardContent className="space-y-4 px-4 sm:px-6">{children}</CardContent>
     </Card>
   )
 }
@@ -91,11 +95,11 @@ export function FormSectionCard({
 }) {
   return (
     <Card className={cn("overflow-hidden border-border/80", className)}>
-      <CardHeader className="border-b border-border/70 pb-4">
+      <CardHeader className="border-b border-border/70 px-4 pb-4 sm:px-6">
         <CardTitle>{title}</CardTitle>
         {description ? <CardDescription>{description}</CardDescription> : null}
       </CardHeader>
-      <CardContent className="space-y-6">{children}</CardContent>
+      <CardContent className="space-y-6 px-4 sm:px-6">{children}</CardContent>
     </Card>
   )
 }

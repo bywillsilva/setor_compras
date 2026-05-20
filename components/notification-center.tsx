@@ -235,7 +235,7 @@ export function NotificationCenter() {
         </Button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="end" className="w-[380px] rounded-2xl p-0">
+      <DropdownMenuContent align="end" className="w-[min(380px,calc(100vw-1rem))] rounded-2xl p-0">
         <div className="flex items-center justify-between gap-3 px-4 py-3">
           <DropdownMenuLabel className="p-0 text-sm font-semibold">Atividades atribuidas</DropdownMenuLabel>
           <div className="flex items-center gap-2">

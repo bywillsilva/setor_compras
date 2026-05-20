@@ -9,10 +9,10 @@ type ListFilterPanelProps = {
 
 export function ListFilterPanel({ children, trailing }: ListFilterPanelProps) {
   return (
-    <div className="mb-4 rounded-2xl border border-border/70 bg-card/90 p-4 shadow-[0_8px_24px_-22px_rgba(15,23,42,0.25)]">
+    <div className="mb-4 rounded-2xl border border-border/70 bg-card/90 p-3 shadow-[0_8px_24px_-22px_rgba(15,23,42,0.25)] sm:p-4">
       <div className="space-y-4">
         {children}
-        {trailing ? <div className="flex flex-wrap items-center justify-start gap-2 border-t border-border/70 pt-3">{trailing}</div> : null}
+        {trailing ? <div className="flex flex-col gap-2 border-t border-border/70 pt-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-start">{trailing}</div> : null}
       </div>
     </div>
   )
@@ -37,7 +37,7 @@ type ListFilterFieldProps = {
 
 export function ListFilterField({ label, children }: ListFilterFieldProps) {
   return (
-    <label className="space-y-1.5">
+    <label className="block space-y-1.5">
       <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
       {children}
     </label>

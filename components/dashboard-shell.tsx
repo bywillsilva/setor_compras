@@ -54,13 +54,13 @@ export function DashboardShell({
         <AppSidebar collapsed={collapsed} onToggleCollapsed={() => setCollapsed((current) => !current)} />
         <main
           className={cn(
-            "min-h-screen transition-[margin] duration-200 ease-out",
+            "min-h-screen pt-16 transition-[margin] duration-200 ease-out md:pt-0",
             collapsed ? "md:ml-20" : "md:ml-64",
           )}
         >
           {isCurrentPathAllowed ? (
             <div className="mx-auto w-full max-w-[1680px]">
-              <div className="flex justify-end px-4 pb-1 pt-4 md:px-6">
+              <div className="hidden justify-end px-4 pb-1 pt-4 md:flex md:px-6">
                 <NotificationCenter />
               </div>
               {children}

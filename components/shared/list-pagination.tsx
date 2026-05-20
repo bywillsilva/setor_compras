@@ -141,7 +141,7 @@ export function ListPaginationBar({
         </div>
       </div>
 
-      <Pagination className="mx-0 w-auto justify-start sm:justify-end">
+      <Pagination className="mx-0 w-full justify-start overflow-x-auto sm:w-auto sm:justify-end">
         <PaginationContent>
           <PaginationItem>
             <PaginationPrevious
